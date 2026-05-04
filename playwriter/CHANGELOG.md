@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+
+1. **`--token` now works on every remote subcommand** — `session new`, `session list`, `session delete`, `session reset`, and `browser list` all accept `--token <token>` (or `PLAYWRITER_TOKEN` env var) and forward `Authorization: Bearer …` to the relay's `/cli/*` endpoints. Previously only `playwriter -e` sent the token, so against a token-protected `playwriter serve` every other command returned `401 Unauthorized`. Thanks to @ivanleomk for the original fix.
+2. **Internal CDP connection authenticates against its own relay** — when `serve --token` is on, the in-process `ExecutorManager` now passes the token through `cdpConfig`, so the executor's own `chromium.connectOverCDP(ws://127.0.0.1:19988/cdp/<id>?token=…)` call no longer gets rejected by its own auth check.
+3. **Loopback bypass for privileged routes** — `/cli/*`, `/recording/*`, and `/mcp-log` now skip the token check for connections from `127.0.0.1`/`::1`, since those can only originate from in-process executor code that already runs downstream of an authenticated `/cdp/*` WebSocket. Remote requests are unaffected.
+4. **`POST /mcp-log` is now token-protected** — previously open, so any reachable client could spam the relay log file. The MCP itself sends `Authorization: Bearer ${PLAYWRITER_TOKEN}` when configured.
+5. **New `connect-cdp-demo.ts` script** — minimal example showing how an external Playwright client connects through the relay's `/cdp/<id>?token=<token>` endpoint over a tunnel.
+
 ## 0.1.4
 
 1. **Add React component inspection for pinned elements** — agents can now call `getReactComponentInfo({ locator })` to get the nearest React component name, parent hierarchy, sanitized props, and source locations when React exposes them. The in-page pin flows use a short `inspectPinnedElement(url, expression)` helper that prints the DOM and React info internally. Non-React elements return `null` instead of throwing.

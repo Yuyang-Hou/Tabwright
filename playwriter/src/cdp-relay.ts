@@ -1755,7 +1755,7 @@ export async function startPlayWriterCDPRelayServer({
       const { ExecutorManager } = await import('./executor.js')
       // Pass config instead of URL so executor can generate unique client IDs for each connection
       executorManager = new ExecutorManager({
-        cdpConfig: { host: '127.0.0.1', port },
+        cdpConfig: { host: '127.0.0.1', port, token },
         logger: logger || { log: console.error, error: console.error },
       })
     }
@@ -1802,14 +1802,26 @@ export async function startPlayWriterCDPRelayServer({
     }
 
     // When token mode is enabled (remote/serve mode), require authentication.
+    // Loopback connections (127.0.0.1, ::1) bypass the token check because they
+    // can only originate from in-process code (executor calling its own relay
+    // for /recording/* etc.) — that code already runs downstream of an
+    // authenticated /cdp/* WebSocket session, so re-checking the token would
+    // mean smuggling it into every internal helper for no real security gain.
     if (token) {
-      const authHeader = c.req.header('authorization') || ''
-      const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-      const url = new URL(c.req.url, 'http://localhost')
-      const queryToken = url.searchParams.get('token')
-      if (bearerToken !== token && queryToken !== token) {
-        logger?.log(pc.red(`Rejecting ${c.req.path}: invalid or missing token`))
-        return c.text('Unauthorized', 401)
+      const remoteAddr = getConnInfo(c).remote.address || ''
+      const isLoopback =
+        remoteAddr === '127.0.0.1' ||
+        remoteAddr === '::1' ||
+        remoteAddr === '::ffff:127.0.0.1'
+      if (!isLoopback) {
+        const authHeader = c.req.header('authorization') || ''
+        const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+        const url = new URL(c.req.url, 'http://localhost')
+        const queryToken = url.searchParams.get('token')
+        if (bearerToken !== token && queryToken !== token) {
+          logger?.log(pc.red(`Rejecting ${c.req.path}: invalid or missing token`))
+          return c.text('Unauthorized', 401)
+        }
       }
     }
 
@@ -1818,6 +1830,7 @@ export async function startPlayWriterCDPRelayServer({
 
   app.use('/cli/*', privilegedRouteMiddleware)
   app.use('/recording/*', privilegedRouteMiddleware)
+  app.use('/mcp-log', privilegedRouteMiddleware)
 
   app.post('/cli/execute', async (c) => {
     try {

@@ -56,9 +56,14 @@ function getLogServerUrl(): string {
 
 async function sendLogToRelayServer(level: string, ...args: any[]) {
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = process.env.PLAYWRITER_TOKEN
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
     await fetch(getLogServerUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ level, args }),
       signal: AbortSignal.timeout(1000),
     })

@@ -134,6 +134,20 @@ async function getServerUrl(host?: string): Promise<string> {
   return httpBaseUrl
 }
 
+// Centralized header builder so every CLI subcommand sends the token consistently.
+// Falls back to PLAYWRITER_TOKEN env var when --token is not provided.
+function buildAuthHeaders({ token, json }: { token?: string; json?: boolean }): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (json) {
+    headers['Content-Type'] = 'application/json'
+  }
+  const effectiveToken = token || process.env.PLAYWRITER_TOKEN
+  if (effectiveToken) {
+    headers['Authorization'] = `Bearer ${effectiveToken}`
+  }
+  return headers
+}
+
 async function fetchExtensionsStatus(host?: string): Promise<ExtensionStatus[]> {
   try {
     const serverUrl = await getServerUrl(host)
@@ -321,6 +335,7 @@ interface BrowserOption {
 cli
   .command('session new', 'Create a new session and print the session ID')
   .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .option('--browser <key>', 'Browser key when multiple browsers are available')
   .option('--direct [endpoint]', 'Use direct CDP connection without the extension. Enable debugging first at chrome://inspect/#remote-debugging or launch Chrome with --remote-debugging-port=9222. Auto-discovers instances or accepts an explicit ws:// endpoint')
   .action(async (options) => {
@@ -342,7 +357,7 @@ cli
       }
       await ensureRelayForSessionCreation(isLocal)
       const serverUrl = await getServerUrl(options.host)
-      const result = await createDirectSession({ serverUrl, cdpEndpoint })
+      const result = await createDirectSession({ serverUrl, cdpEndpoint, token: options.token })
       console.log(`Session ${result.id} created (direct CDP). Use with: playwriter -s ${result.id} -e "..."`)
       console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
       return
@@ -372,7 +387,7 @@ cli
       if (instances.length === 1 && !options.browser) {
         const instance = instances[0]
         const serverUrl = await getServerUrl(options.host)
-        const result = await createDirectSession({ serverUrl, cdpEndpoint: instance.wsUrl, browser: instance.browser, profiles: instance.profiles })
+        const result = await createDirectSession({ serverUrl, cdpEndpoint: instance.wsUrl, browser: instance.browser, profiles: instance.profiles, token: options.token })
         const profileLabel = formatInstanceProfiles(instance)
         console.log(
           `Session ${result.id} created (direct CDP, ${instance.browser}${profileLabel}). Use with: playwriter -s ${result.id} -e "..."`,
@@ -396,7 +411,7 @@ cli
           process.exit(1)
         }
         const serverUrl = await getServerUrl(options.host)
-        const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles })
+        const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles, token: options.token })
         console.log(`Session ${result.id} created (direct CDP). Use with: playwriter -s ${result.id} -e "..."`)
         console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         return
@@ -457,7 +472,7 @@ cli
         const cwd = process.cwd()
         const response = await fetch(`${serverUrl}/cli/session/new`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAuthHeaders({ token: options.token, json: true }),
           body: JSON.stringify({ extensionId, cwd }),
         })
         if (!response.ok) {
@@ -509,14 +524,14 @@ cli
       try {
         const serverUrl = await getServerUrl(options.host)
         if (selected.type === 'direct') {
-          const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles })
+          const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles, token: options.token })
           console.log(`Session ${result.id} created (direct CDP). Use with: playwriter -s ${result.id} -e "..."`)
           console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         } else {
           const cwd = process.cwd()
           const response = await fetch(`${serverUrl}/cli/session/new`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: buildAuthHeaders({ token: options.token, json: true }),
             body: JSON.stringify({ extensionId: selected.extensionId, cwd }),
           })
           if (!response.ok) {
@@ -552,16 +567,18 @@ async function createDirectSession({
   cdpEndpoint,
   browser,
   profiles,
+  token,
 }: {
   serverUrl: string
   cdpEndpoint: string
   browser?: string
   profiles?: Array<{ name: string; email: string }>
+  token?: string
 }): Promise<{ id: string }> {
   const cwd = process.cwd()
   const response = await fetch(`${serverUrl}/cli/session/new`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: buildAuthHeaders({ token, json: true }),
     body: JSON.stringify({ cdpEndpoint, cwd, browser, profiles }),
   })
   if (!response.ok) {
@@ -622,6 +639,7 @@ function printBrowserTable(options: BrowserOption[]): void {
 cli
   .command('session list', 'List all active sessions')
   .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .action(async (options) => {
     if (!options.host && !process.env.PLAYWRITER_HOST) {
       await ensureRelayServer({ logger: console, env: cliRelayEnv })
@@ -639,6 +657,7 @@ cli
 
     try {
       const response = await fetch(`${serverUrl}/cli/sessions`, {
+        headers: buildAuthHeaders({ token: options.token }),
         signal: AbortSignal.timeout(2000),
       })
       if (!response.ok) {
@@ -711,6 +730,7 @@ cli
 cli
   .command('session delete <sessionId>', 'Delete a session and clear its state')
   .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .action(async (sessionId, options) => {
     const serverUrl = await getServerUrl(options.host)
 
@@ -721,7 +741,7 @@ cli
     try {
       const response = await fetch(`${serverUrl}/cli/session/delete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders({ token: options.token, json: true }),
         body: JSON.stringify({ sessionId }),
       })
 
@@ -741,6 +761,7 @@ cli
 cli
   .command('session reset <sessionId>', 'Reset the browser connection for a session')
   .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .action(async (sessionId, options) => {
     const cwd = process.cwd()
     const serverUrl = await getServerUrl(options.host)
@@ -752,7 +773,7 @@ cli
     try {
       const response = await fetch(`${serverUrl}/cli/reset`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders({ token: options.token, json: true }),
         body: JSON.stringify({ sessionId, cwd }),
       })
 
@@ -872,6 +893,7 @@ cli
 cli
   .command('browser list', 'List all available browsers: extension-connected and direct CDP on port 9222')
   .option('--host <host>', z.string().describe('Remote relay server host'))
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .action(async (options) => {
     const isLocal = !options.host && !process.env.PLAYWRITER_HOST
 
