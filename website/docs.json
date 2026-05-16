@@ -1,5 +1,5 @@
 {
-    "$schema": "https://unpkg.com/@holocron.so/vite/src/schema.json",
+  "$schema": "https://unpkg.com/@holocron.so/vite/src/schema.json",
   "name": "Playwriter",
   "description": "Docs for Playwriter, the CLI and MCP that lets agents control your real Chrome browser.",
   "logo": {
@@ -25,10 +25,12 @@
       "anchors": [
         {
           "anchor": "GitHub",
+          "icon": "github",
           "href": "https://github.com/remorses/playwriter"
         },
         {
           "anchor": "Releases",
+          "icon": "log",
           "href": "https://github.com/remorses/playwriter/releases"
         }
       ]
