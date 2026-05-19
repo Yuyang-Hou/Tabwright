@@ -2,7 +2,7 @@
  * Unit tests for relay state transitions.
  * Data-in / data-out transitions for the unified extension map.
  */
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import type { WSContext } from 'hono/ws'
 import type { Protocol } from './cdp-types.js'
 import * as relayState from './relay-state.js'
@@ -566,5 +566,71 @@ describe('store.setState with transitions', () => {
     const state = store.getState()
     expect(state.extensions.get('ext-1')!.connectedTargets.size).toBe(1)
     expect(state.playwrightClients.size).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DNS rebinding protection — Host header validation
+// Node.js fetch/undici treats Host as a forbidden header, so we use the raw
+// http module to send requests with arbitrary Host values.
+// ---------------------------------------------------------------------------
+
+import http from 'node:http'
+
+function httpGet({ port, path, host }: { port: number; path: string; host: string }): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ hostname: '127.0.0.1', port, path, method: 'GET', headers: { Host: host } }, (res) => {
+      let body = ''
+      res.on('data', (chunk: Buffer) => {
+        body += chunk.toString()
+      })
+      res.on('end', () => {
+        resolve({ status: res.statusCode!, body })
+      })
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+describe('Host header validation (DNS rebinding protection)', () => {
+  let server: { close(): void } | null = null
+  const TEST_PORT = 19996
+
+  beforeAll(async () => {
+    const { startPlayWriterCDPRelayServer } = await import('./cdp-relay.js')
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT })
+  })
+
+  afterAll(async () => {
+    server?.close()
+    server = null
+  })
+
+  test('rejects requests with non-localhost Host header', async () => {
+    // DNS rebinding: evil.com resolves to 127.0.0.1
+    const res = await httpGet({ port: TEST_PORT, path: '/', host: 'evil.com' })
+    expect(res.status).toBe(403)
+    expect(res.body).toContain('Invalid Host header')
+
+    // With port suffix
+    const res2 = await httpGet({ port: TEST_PORT, path: '/version', host: 'evil.com:19996' })
+    expect(res2.status).toBe(403)
+  })
+
+  test('allows requests with localhost Host headers', async () => {
+    const localhostVariants = [
+      `localhost:${TEST_PORT}`,
+      `127.0.0.1:${TEST_PORT}`,
+      `[::1]:${TEST_PORT}`,
+      'localhost',
+      '127.0.0.1',
+      'LOCALHOST',
+    ]
+
+    for (const hostValue of localhostVariants) {
+      const res = await httpGet({ port: TEST_PORT, path: '/', host: hostValue })
+      expect(res.status, `Expected 200 for Host: ${hostValue}`).toBe(200)
+    }
   })
 })

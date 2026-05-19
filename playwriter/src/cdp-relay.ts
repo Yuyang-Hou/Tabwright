@@ -856,6 +856,87 @@ export async function startPlayWriterCDPRelayServer({
       allowMethods: ['GET', 'POST', 'HEAD', 'OPTIONS'],
     }),
   )
+  // Host header validation to prevent DNS rebinding attacks.
+  // DNS rebinding is worse than a simple cross-origin request: the attacker
+  // serves a page from http://evil.com:19988, then rebinds the DNS to
+  // 127.0.0.1. The browser now considers requests to our relay as same-origin,
+  // so Sec-Fetch-Site is "same-origin", CORS doesn't apply, and JSON POSTs
+  // don't need preflight. This bypasses all our other defenses.
+  // By rejecting any Host that isn't a known localhost value we kill DNS
+  // rebinding at the root. When a valid token is provided (remote access), we
+  // allow through regardless of Host since remote clients use real hostnames.
+  const ALLOWED_HOSTS = new Set([
+    'localhost',
+    '127.0.0.1',
+    '[::1]',
+    '::1',
+  ])
+
+  // Parse the Host header into just the hostname, handling IPv6 brackets and
+  // port suffixes. Returns null for missing or malformed values.
+  function parseHostname(hostHeader: string | undefined): string | null {
+    const value = hostHeader?.trim().toLowerCase()
+    if (!value) {
+      return null
+    }
+    // IPv6 in brackets: [::1] or [::1]:19988
+    if (value.startsWith('[')) {
+      const closingBracket = value.indexOf(']')
+      if (closingBracket === -1) {
+        return null
+      }
+      const host = value.slice(0, closingBracket + 1)
+      const rest = value.slice(closingBracket + 1)
+      if (rest && !/^:\d+$/.test(rest)) {
+        return null
+      }
+      return host
+    }
+    // Bare ::1 without brackets (uncommon but possible)
+    if (value === '::1') {
+      return '::1'
+    }
+    // hostname or hostname:port
+    const colonIndex = value.indexOf(':')
+    if (colonIndex === -1) {
+      return value
+    }
+    const host = value.slice(0, colonIndex)
+    const portPart = value.slice(colonIndex + 1)
+    if (!/^\d+$/.test(portPart)) {
+      return null
+    }
+    return host || null
+  }
+
+  function hasValidToken(c: { req: { header: (name: string) => string | undefined; url: string } }): boolean {
+    if (!token) {
+      return false
+    }
+    const authHeader = c.req.header('authorization') || ''
+    const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+    const queryToken = new URL(c.req.url, 'http://localhost').searchParams.get('token')
+    return bearerToken === token || queryToken === token
+  }
+
+  app.use('*', async (c, next) => {
+    const hostname = parseHostname(c.req.header('host'))
+    if (hostname && ALLOWED_HOSTS.has(hostname)) {
+      return next()
+    }
+    // Remote clients with a valid token are allowed regardless of Host
+    if (hasValidToken(c)) {
+      return next()
+    }
+    // Missing Host header from non-browser clients (curl without Host) is fine
+    // in local mode since they're not browser-based DNS rebinding attacks
+    if (!hostname && !token) {
+      return next()
+    }
+    logger?.log(pc.red(`Rejecting request with unexpected Host header: ${c.req.header('host')} (DNS rebinding protection)`))
+    return c.text('Forbidden - Invalid Host header', 403)
+  })
+
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app })
 
   const getCdpWsUrl = (c: { req: { header: (name: string) => string | undefined } }) => {
