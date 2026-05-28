@@ -215,6 +215,7 @@ You can collaborate with the user - they can help with captchas, difficult eleme
 - **No bringToFront**: never call unless user asks - it's disruptive and unnecessary, you can interact with background pages
 - **Check state after actions**: always verify page state after clicking/submitting (see next section)
 - **Clean up listeners**: call `state.page.removeAllListeners()` at end of message to prevent leaks
+- **Use getLatestLogs for browser logs**: do not manually collect `page.on('console')` events just to inspect errors. Manual listeners miss logs emitted before the listener is attached, especially startup and hydration errors. `getLatestLogs({ page: state.page })` returns logs captured from page start, including `pageerror` entries.
 - **CDP sessions**: use `getCDPSession({ page: state.page })` not `state.page.context().newCDPSession()` - NEVER use `newCDPSession()` method, it doesn't work through playwriter relay
 - **Wait for load**: use `state.page.waitForLoadState('domcontentloaded')` not `state.page.waitForEvent('load')` - waitForEvent times out if already loaded
 - **Minimize timeouts**: prefer proper waits (`waitForSelector`, `waitForPageLoad`) over `state.page.waitForTimeout()`. Short timeouts (1-2s) are acceptable for non-deterministic events like animations, tab opens, or async UI updates where no specific selector is available
@@ -680,16 +681,17 @@ For carousels or lazy-loaded galleries, you may need to click navigation arrows 
 
 ## utility functions
 
-**getLatestLogs** - retrieve captured browser console logs (up to 5000 per page, cleared on navigation):
+**getLatestLogs** - retrieve captured browser console logs and page errors (up to 5000 per page, cleared on navigation):
+
+Always use this helper when inspecting browser logs. Do not attach new `page.on('console')` listeners for debugging because they only see future events and can miss logs emitted during page startup or hydration.
 
 ```js
 await getLatestLogs({ page?, count?, search? })
 // Examples:
 const errors = await getLatestLogs({ search: /error/i, count: 50 })
-const pageLogs = await getLatestLogs({ page: state.page })
+const pageLogs = await getLatestLogs({ page: state.page, count: 100 })
+const hydrationErrors = await getLatestLogs({ page: state.page, search: /hydration|pageerror|React/i })
 ```
-
-For custom log collection across runs, store in state: `state.logs = []; state.page.on('console', m => state.logs.push(m.text()))`
 
 **getCleanHTML** - get cleaned HTML from a locator or page, with search and diffing:
 
