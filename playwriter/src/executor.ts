@@ -1091,6 +1091,7 @@ export class PlaywrightExecutor {
 
       const clearAllLogs = () => {
         this.browserLogs.clear()
+        this.pageLogCursor.clear()
       }
 
       const getCDPSession = async (options: { page: Page }) => {
