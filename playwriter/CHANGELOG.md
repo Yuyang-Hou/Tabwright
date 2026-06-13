@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+1. **Auto-page creation enabled by default** — MCP and CLI sessions now automatically create a blank Playwriter-enabled tab when no targets are available, so agents can start working immediately without manual tab setup. Set `PLAYWRITER_AUTO_ENABLE=false` to disable.
+
 ## 0.3.0
 
 1. **New `sinceLastCall` option for `getLatestLogs()`** — inspect browser logs after every action without seeing duplicate messages:
