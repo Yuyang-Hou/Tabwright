@@ -18,7 +18,7 @@
     "tabs": [
       {
         "tab": "Docs",
-        "pages": ["index"]
+        "pages": ["index", "docs/remote-access"]
       }
     ],
     "global": {

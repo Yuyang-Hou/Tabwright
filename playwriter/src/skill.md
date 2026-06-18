@@ -72,6 +72,23 @@ const otherProfilePage = contexts[1].pages()[0]
 
 **Limitations:** screen recording (`recording.start/stop`) is unavailable in direct mode.
 
+### Remote access (control browser from another machine)
+
+Playwriter can control a Chrome browser running on a different machine over the internet. The host machine runs `playwriter serve` with a [traforo](https://traforo.dev) tunnel, and the remote machine connects through the tunnel URL.
+
+```bash
+# Host machine (has Chrome + extension)
+npx -y traforo -p 19988 -- npx -y playwriter serve --token MY_SECRET_TOKEN
+
+# Remote machine
+export PLAYWRITER_HOST=https://<tunnel-id>-tunnel.traforo.dev
+export PLAYWRITER_TOKEN=MY_SECRET_TOKEN
+playwriter session new
+playwriter -s 1 -e "await page.goto('https://example.com')"
+```
+
+For the full guide (Docker, LAN, MCP config, security), see: https://playwriter.dev/docs/remote-access
+
 ### Execute code
 
 ```bash
