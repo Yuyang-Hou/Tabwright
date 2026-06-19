@@ -156,22 +156,6 @@ export async function startPlayWriterCDPRelayServer({
     return null
   }
 
-  const buildStableExtensionKey = (info: relayState.ExtensionInfo, connectionId: string): string => {
-    if (info.id) {
-      return `profile:${info.id}`
-    }
-    if (info.email) {
-      return `email:${info.email}`
-    }
-    if (info.installId) {
-      return `install:${info.browser || 'unknown'}:${info.installId}`
-    }
-    if (info.browser) {
-      return `browser:${info.browser}`
-    }
-    return `connection:${connectionId}`
-  }
-
   const normalizeSessionId = (value: string | number | null | undefined): string | null => {
     if (value === undefined || value === null) {
       return null
@@ -1398,7 +1382,7 @@ export async function startPlayWriterCDPRelayServer({
       const connectionId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
       return {
         onOpen(_event, ws) {
-          const stableKey = buildStableExtensionKey(incomingExtensionInfo, connectionId)
+          const stableKey = relayState.buildStableExtensionKey(incomingExtensionInfo, connectionId)
 
           // Check for existing connection with same stableKey and close it
           const existingExt = relayState.findExtensionByStableKey(store.getState(), stableKey)

@@ -14,6 +14,7 @@ export interface ExtensionState {
   tabs: Map<number, TabInfo>
   connectionState: ConnectionState
   currentTabId: number | undefined
+  preferredWindowId: number | undefined
   errorText: string | undefined
 }
 

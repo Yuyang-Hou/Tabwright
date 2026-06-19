@@ -94,6 +94,25 @@ export function findExtensionByStableKey(state: RelayState, stableKey: string): 
   return match
 }
 
+export function buildStableExtensionKey(info: ExtensionInfo, connectionId: string): string {
+  // chrome.identity ids and emails identify the signed-in Google account, not
+  // the Chrome profile. Use the per-profile extension storage install id first
+  // so two profiles signed into the same account never replace each other.
+  if (info.installId) {
+    return `install:${info.browser || 'unknown'}:${info.installId}`
+  }
+  if (info.id) {
+    return `profile:${info.id}`
+  }
+  if (info.email) {
+    return `email:${info.email}`
+  }
+  if (info.browser) {
+    return `browser:${info.browser}`
+  }
+  return `connection:${connectionId}`
+}
+
 /** Find which extension owns a CDP tab sessionId (e.g. "pw-tab-1"). */
 export function findExtensionIdByCdpSession(state: RelayState, cdpSessionId: string): string | null {
   for (const [connectionId, ext] of state.extensions.entries()) {
@@ -494,4 +513,3 @@ export function updateTargetUrl(
   newExtensions.set(extensionId, { ...ext, connectedTargets: newTargets })
   return { ...state, extensions: newExtensions }
 }
-

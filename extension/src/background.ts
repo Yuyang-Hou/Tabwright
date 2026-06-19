@@ -386,7 +386,7 @@ class ConnectionManager {
       if (message.method === 'createInitialTab') {
         try {
           logger.debug('Creating initial tab for Playwright client')
-          const tab = await chrome.tabs.create({ url: 'about:blank', active: false })
+          const tab = await createTabInPreferredWindow({ url: 'about:blank', active: false })
           if (tab.id) {
             setTabConnecting(tab.id)
             const { targetInfo, sessionId } = await attachTab(tab.id, { skipAttachedEvent: true })
@@ -679,6 +679,7 @@ export const store = createStore<ExtensionState>(() => ({
   tabs: new Map(),
   connectionState: 'idle',
   currentTabId: undefined,
+  preferredWindowId: undefined,
   errorText: undefined,
 }))
 
@@ -790,6 +791,50 @@ export function sendMessage(message: any): void {
     } catch (error: any) {
       console.debug('ERROR sending message:', error, 'message type:', message.method || 'response')
     }
+  }
+}
+
+async function getPreferredWindowId(): Promise<number | undefined> {
+  const { preferredWindowId, currentTabId } = store.getState()
+  if (preferredWindowId !== undefined) {
+    try {
+      await chrome.windows.get(preferredWindowId)
+      return preferredWindowId
+    } catch {
+      store.setState({ preferredWindowId: undefined })
+    }
+  }
+
+  if (currentTabId !== undefined) {
+    try {
+      const tab = await chrome.tabs.get(currentTabId)
+      if (tab.windowId !== undefined) {
+        return tab.windowId
+      }
+    } catch {}
+  }
+
+  try {
+    const focusedWindow = await chrome.windows.getLastFocused({ populate: false })
+    return focusedWindow.id
+  } catch {
+    return undefined
+  }
+}
+
+async function createTabInPreferredWindow(options: { url: string; active: boolean }): Promise<chrome.tabs.Tab> {
+  const windowId = await getPreferredWindowId()
+  const createProperties: chrome.tabs.CreateProperties = {
+    url: options.url,
+    active: options.active,
+    ...(windowId !== undefined ? { windowId } : {}),
+  }
+
+  try {
+    return await chrome.tabs.create(createProperties)
+  } catch (error) {
+    logger.debug('Could not create tab in preferred window, falling back:', (error as Error).message)
+    return await chrome.tabs.create({ url: options.url, active: options.active })
   }
 }
 
@@ -1030,7 +1075,7 @@ async function handleCommand(msg: ExtensionCommandMessage): Promise<any> {
     case 'Target.createTarget': {
       const url = msg.params.params?.url || 'about:blank'
       logger.debug('Creating new tab with URL:', url)
-      const tab = await chrome.tabs.create({ url, active: false })
+      const tab = await createTabInPreferredWindow({ url, active: false })
       if (!tab.id) throw new Error('Failed to create tab')
       setTabConnecting(tab.id)
       logger.debug('Created tab:', tab.id, 'waiting for it to load...')
@@ -1150,8 +1195,7 @@ function onDebuggerDetach(source: chrome.debugger.Debuggee, reason: `${chrome.de
 
   logger.warn(`DISCONNECT: onDebuggerDetach tabId=${tabId} reason=${reason}`)
 
-  const tab = store.getState().tabs.get(tabId)
-  if (tab) {
+  const detachTabFromPlaywright = (detachedTabId: number, tab: TabInfo) => {
     sendMessage({
       method: 'forwardCDPEvent',
       params: {
@@ -1159,20 +1203,31 @@ function onDebuggerDetach(source: chrome.debugger.Debuggee, reason: `${chrome.de
         params: { sessionId: tab.sessionId, targetId: tab.targetId },
       },
     })
+    emitChildDetachesForTab(detachedTabId)
   }
 
-  emitChildDetachesForTab(tabId)
+  if (reason === chrome.debugger.DetachReason.CANCELED_BY_USER) {
+    // Chrome's debugger info bar cancellation detaches every debugger session
+    // in this extension process. Clear every tracked tab so Playwright does not
+    // keep sending commands to tabs Chrome already detached from.
+    for (const [detachedTabId, tab] of store.getState().tabs.entries()) {
+      detachTabFromPlaywright(detachedTabId, tab)
+    }
+
+    store.setState({ tabs: new Map(), connectionState: 'idle', errorText: undefined })
+    return
+  }
+
+  const tab = store.getState().tabs.get(tabId)
+  if (tab) {
+    detachTabFromPlaywright(tabId, tab)
+  }
 
   store.setState((state) => {
     const newTabs = new Map(state.tabs)
     newTabs.delete(tabId)
     return { tabs: newTabs }
   })
-
-  if (reason === chrome.debugger.DetachReason.CANCELED_BY_USER) {
-    // Chrome's debugger info bar cancellation detaches ALL debugger sessions, not just one tab
-    store.setState({ connectionState: 'idle', errorText: undefined })
-  }
 }
 
 type AttachTabResult = {
@@ -1501,6 +1556,10 @@ async function connectTab(tabId: number): Promise<void> {
         })
         return
       }
+      if (!store.getState().tabs.has(tabId)) {
+        logger.debug(`Tab ${tabId} was detached during connect, dropping error state`)
+        return
+      }
       store.setState((state) => {
         const newTabs = new Map(state.tabs)
         newTabs.set(tabId, { state: 'error', errorText: `Error: ${error.message}` })
@@ -1726,13 +1785,17 @@ async function onTabRemoved(tabId: number): Promise<void> {
 }
 
 async function onTabActivated(activeInfo: chrome.tabs.TabActiveInfo): Promise<void> {
-  store.setState({ currentTabId: activeInfo.tabId })
+  store.setState({ currentTabId: activeInfo.tabId, preferredWindowId: activeInfo.windowId })
 }
 
 async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id) {
     logger.debug('No tab ID available')
     return
+  }
+
+  if (tab.windowId !== undefined) {
+    store.setState({ currentTabId: tab.id, preferredWindowId: tab.windowId })
   }
 
   if (isRestrictedUrl(tab.url)) {

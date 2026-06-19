@@ -55,6 +55,38 @@ describe('createRelayStore', () => {
   })
 })
 
+describe('buildStableExtensionKey', () => {
+  test('uses install id before account identity so same-account profiles stay separate', () => {
+    const profiles = ['profile-a-install', 'profile-b-install'].map((installId) => {
+      return relayState.buildStableExtensionKey(
+        {
+          browser: 'Chrome',
+          email: 'tommy@example.com',
+          id: 'same-google-account-id',
+          installId,
+        },
+        'connection-fallback',
+      )
+    })
+
+    expect(profiles).toMatchInlineSnapshot(`
+      [
+        "install:Chrome:profile-a-install",
+        "install:Chrome:profile-b-install",
+      ]
+    `)
+  })
+
+  test('falls back to account identity for older extensions without install ids', () => {
+    const key = relayState.buildStableExtensionKey(
+      { browser: 'Chrome', email: 'tommy@example.com', id: 'google-account-id' },
+      'connection-fallback',
+    )
+
+    expect(key).toMatchInlineSnapshot(`"profile:google-account-id"`)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // addExtension / removeExtension
 // ---------------------------------------------------------------------------
