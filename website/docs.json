@@ -31,6 +31,17 @@
             "pages": ["docs/remote-access", "docs/troubleshooting"]
           },
           {
+            "group": "Comparison",
+            "icon": "lucide:git-compare",
+            "pages": [
+              "docs/vs-chrome-cdp",
+              "docs/vs-playwright-mcp",
+              "docs/vs-playwright-cli",
+              "docs/vs-browser-mcp",
+              "docs/vs-claude-extension"
+            ]
+          },
+          {
             "group": "Use Cases",
             "icon": "lucide:lightbulb",
             "pages": ["docs/use-cases"]
