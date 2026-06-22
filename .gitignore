@@ -29,3 +29,7 @@ playwriter/src/__snapshots__/ax-debug/
 gmail-oauth/
 .ck
 dist-release
+.wrangler
+.env.preview
+.env.prod
+.dev.vars
