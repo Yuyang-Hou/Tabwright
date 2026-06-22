@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "playwriter-website",
+  "main": "spiceflow/cloudflare-entrypoint",
+  "workers_dev": true,
+  "compatibility_date": "2026-06-14",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // ── Production (top-level) ──────────────────────────────────────────
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "playwriter-db",
+      "database_id": "TODO_CREATE_WITH_WRANGLER_D1_CREATE",
+      "migrations_dir": "../db/drizzle",
+      "migrations_pattern": "../db/drizzle/*/migration.sql"
+    }
+  ],
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_URL",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "BROWSER_USE_API_KEY"
+    ]
+  },
+
+  // ── Preview ─────────────────────────────────────────────────────────
+  // Bindings are NOT inherited — must duplicate everything here
+  "env": {
+    "preview": {
+      "name": "playwriter-website-preview",
+      "workers_dev": true,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "playwriter-preview-db",
+          "database_id": "TODO_CREATE_WITH_WRANGLER_D1_CREATE",
+          "migrations_dir": "../db/drizzle",
+          "migrations_pattern": "../db/drizzle/*/migration.sql"
+        }
+      ],
+      "secrets": {
+        "required": [
+          "BETTER_AUTH_SECRET",
+          "BETTER_AUTH_URL",
+          "GOOGLE_CLIENT_ID",
+          "GOOGLE_CLIENT_SECRET",
+          "BROWSER_USE_API_KEY"
+        ]
+      }
+    }
+  }
+}
