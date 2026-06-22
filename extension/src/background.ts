@@ -31,6 +31,40 @@ import {
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
 
+// CDP commands that should return near-instantly on a healthy tab. If a tab is
+// frozen/hibernated (e.g. Ghost Browser suspended tabs), chrome.debugger.sendCommand
+// hangs forever. These commands get a 10s timeout so frozen tabs fail fast instead of
+// blocking the entire Playwright connection setup for 30s per command.
+const FAST_CDP_COMMAND_TIMEOUT_MS = new Map<string, number>([
+  ['Page.enable', 10000],
+  ['Page.getFrameTree', 10000],
+  ['Page.setLifecycleEventsEnabled', 10000],
+  ['Page.addScriptToEvaluateOnNewDocument', 10000],
+  ['Page.createIsolatedWorld', 10000],
+  ['Page.setDownloadBehavior', 10000],
+  ['Log.enable', 10000],
+  ['Emulation.setFocusEmulationEnabled', 10000],
+  ['Emulation.setEmulatedMedia', 10000],
+  ['Runtime.runIfWaitingForDebugger', 10000],
+  ['Target.setAutoAttach', 10000],
+])
+
+async function sendCommandWithTimeout(
+  debuggee: chrome.debugger.DebuggerSession,
+  method: string,
+  params: object | undefined,
+  timeout: number,
+): Promise<unknown> {
+  return await Promise.race([
+    chrome.debugger.sendCommand(debuggee, method, params),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`CDP command timed out after ${timeout}ms: ${method} (tab may be frozen/hibernated)`))
+      }, timeout)
+    }),
+  ])
+}
+
 type NavigatorWithUaData = Navigator & {
   userAgentData?: {
     brands: Array<{ brand: string; version: string }>
@@ -1029,7 +1063,7 @@ async function handleCommand(msg: ExtensionCommandMessage): Promise<any> {
     await Promise.all(
       connectedTabIds.map(async (tabId) => {
         try {
-          await chrome.debugger.sendCommand({ tabId }, 'Target.setAutoAttach', params)
+          await sendCommandWithTimeout({ tabId }, 'Target.setAutoAttach', params, 10000)
         } catch (error) {
           logger.debug('Failed to set auto-attach for tab:', tabId, error)
         }
@@ -1064,12 +1098,12 @@ async function handleCommand(msg: ExtensionCommandMessage): Promise<any> {
       // re-enable, ensuring the new client receives them. The relay server waits for the
       // executionContextCreated events before returning. See cdp-timing.md for details.
       try {
-        await chrome.debugger.sendCommand(runtimeSession, 'Runtime.disable')
+        await sendCommandWithTimeout(runtimeSession, 'Runtime.disable', undefined, 10000)
         await sleep(50)
       } catch (e) {
         logger.debug('Error disabling Runtime (ignoring):', e)
       }
-      return await chrome.debugger.sendCommand(runtimeSession, 'Runtime.enable', msg.params.params)
+      return await sendCommandWithTimeout(runtimeSession, 'Runtime.enable', msg.params.params, 10000)
     }
 
     case 'Target.createTarget': {
@@ -1112,6 +1146,10 @@ async function handleCommand(msg: ExtensionCommandMessage): Promise<any> {
     sessionId: msg.params.sessionId !== targetTab.sessionId ? msg.params.sessionId : undefined,
   }
 
+  const timeout = FAST_CDP_COMMAND_TIMEOUT_MS.get(msg.params.method)
+  if (timeout) {
+    return await sendCommandWithTimeout(debuggerSession, msg.params.method, msg.params.params, timeout)
+  }
   return await chrome.debugger.sendCommand(debuggerSession, msg.params.method, msg.params.params)
 }
 
