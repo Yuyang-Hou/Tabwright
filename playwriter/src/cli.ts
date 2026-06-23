@@ -1364,61 +1364,54 @@ cli
   .action(async (options) => {
     const baseUrl = options.baseUrl || process.env.PLAYWRITER_CLOUD_URL || 'https://playwriter.dev'
 
-    console.log('Requesting device authorization...')
-    const authUrl = new URL('/api/auth/device-authorization/request', baseUrl).toString()
-    const requestRes = await fetch(authUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+    // Use the better-auth client SDK so we don't hardcode endpoint URLs.
+    // Hardcoded URLs broke before when better-auth changed paths between versions.
+    const { createAuthClient } = await import('better-auth/client')
+    const { deviceAuthorizationClient } = await import('better-auth/client/plugins')
+    const client = createAuthClient({
+      baseURL: baseUrl,
+      plugins: [deviceAuthorizationClient()],
     })
-    if (!requestRes.ok) {
-      const text = await requestRes.text()
-      console.error(`Error: failed to request device code — ${requestRes.status} ${text}`)
+
+    console.log('Requesting device authorization...')
+    const { data: deviceData, error: requestError } = await client.device.code({
+      client_id: 'playwriter-cli',
+    })
+    if (requestError || !deviceData) {
+      console.error(`Error: failed to request device code — ${requestError?.error_description || requestError?.error || 'unknown error'}`)
       process.exit(1)
     }
-    const deviceData = (await requestRes.json()) as {
-      deviceCode: string
-      userCode: string
-      verificationUri: string
-      expiresIn: number
-      interval: number
-    }
 
-    const verificationUrl = `${baseUrl}/device?user_code=${deviceData.userCode}`
+    const verificationUrl = deviceData.verification_uri_complete || `${baseUrl}/device?user_code=${deviceData.user_code}`
     console.log(`\nOpen this URL in your browser:\n  ${verificationUrl}\n`)
-    console.log(`Code: ${deviceData.userCode}\n`)
+    console.log(`Code: ${deviceData.user_code}\n`)
 
     await openInBrowser(verificationUrl)
 
     console.log('Waiting for approval...')
     const pollInterval = (deviceData.interval || 5) * 1000
-    const deadline = Date.now() + (deviceData.expiresIn || 300) * 1000
-    const tokenUrl = new URL('/api/auth/device-authorization/verify-device', baseUrl).toString()
+    const deadline = Date.now() + (deviceData.expires_in || 300) * 1000
 
     while (Date.now() < deadline) {
       await new Promise((r) => { setTimeout(r, pollInterval) })
-      const pollRes = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceCode: deviceData.deviceCode }),
+      const { data: tokenData, error: pollError } = await client.device.token({
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        device_code: deviceData.device_code,
+        client_id: 'playwriter-cli',
       })
-      if (pollRes.ok) {
-        const tokenData = (await pollRes.json()) as { token?: string }
-        if (tokenData.token) {
-          saveCloudAuth({ token: tokenData.token, baseUrl })
-          console.log(pc.green('\nLogged in successfully!'))
-          console.log('Cloud browsers will now appear in `playwriter session new`.')
-          return
-        }
+      if (tokenData?.access_token) {
+        saveCloudAuth({ token: tokenData.access_token, baseUrl })
+        console.log(pc.green('\nLogged in successfully!'))
+        console.log('Cloud browsers will now appear in `playwriter session new`.')
+        return
       }
-      // 428 = authorization_pending, keep polling
-      if (pollRes.status === 428) {
+      if (pollError?.error === 'authorization_pending' || pollError?.error === 'slow_down') {
         continue
       }
-      // Other errors (403 denied, 410 expired, etc.)
-      const text = await pollRes.text()
-      console.error(`\nError: Device authorization failed — ${pollRes.status} ${text}`)
-      process.exit(1)
+      if (pollError) {
+        console.error(`\nError: Device authorization failed — ${pollError.error_description || pollError.error}`)
+        process.exit(1)
+      }
     }
 
     console.error('\nError: Device authorization timed out.')

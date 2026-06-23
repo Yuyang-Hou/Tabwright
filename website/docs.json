@@ -58,6 +58,7 @@
       },
       {
         "tab": "Cloud Browsers",
+        "hidden": true,
         "icon": "lucide:dollar-sign",
         "pages": ["docs/cloud-browsers"]
       }

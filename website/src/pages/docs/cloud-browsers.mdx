@@ -15,9 +15,11 @@ import { CloudHeroSection } from '../../components/hero-section.tsx'
 
 # Cloud Browsers
 
-Run automation on **stealth Chromium instances** hosted in the cloud. Each cloud browser comes with
-**residential proxies**, **automatic CAPTCHA solving**, and **anti-bot fingerprint evasion** built in.
-No setup, no proxy configuration, no CAPTCHA API keys to manage.
+Run automation on **stealth Chromium instances** hosted in the cloud. Each cloud browser is a
+**separate machine** with its own cookies, storage, IP address, and fingerprint; completely isolated
+from your other browsers. They come with **residential proxies**, **automatic CAPTCHA solving**, and
+**anti-bot fingerprint evasion** built in. No setup, no proxy configuration, no CAPTCHA API keys
+to manage.
 
 Cloud browsers appear alongside your local Chrome in `playwriter session new`, so your existing
 workflows and scripts work without changes.
@@ -38,7 +40,8 @@ Cloud browsers are a paid add-on. Your local Chrome extension stays **free forev
 
 </div>
 
-Subscription quantity = max concurrent cloud browsers. Start with 1 and scale up as needed.
+Subscription quantity = max **concurrent** cloud browsers you can run at the same time. Each browser
+is an independent machine with its own state. Start with 1 and scale up as needed.
 [Subscribe from your dashboard](/dashboard).
 
 <Aside>
@@ -49,8 +52,9 @@ Billing runs on **Stripe**. Update payment method, download invoices, or cancel 
 
 ## Why multiple browsers
 
-Each cloud browser is an **isolated Chromium instance** with its own IP address, fingerprint, and
-cookie jar. Adding more browsers lets you:
+Each cloud browser is a **separate Chromium machine** with its own IP address, fingerprint, cookies,
+localStorage, and auth state. They don't share anything; logging into a site in one browser has zero
+effect on the others. Adding more browsers lets you:
 
 - **Run agent tasks in parallel.** Spin up 5 browsers and let 5 agents work simultaneously instead
   of waiting for one to finish before starting the next.
@@ -61,8 +65,8 @@ cookie jar. Adding more browsers lets you:
   consume memory and CPU. Spreading tabs across multiple browsers keeps each instance responsive
   instead of slowing everything down in a single browser.
 
-Your subscription quantity controls how many browsers can run at the same time. If you need 3
-concurrent browsers, set quantity to 3.
+Your subscription quantity controls how many browsers can run **at the same time**. If you need 3
+concurrent machines (for example, 3 agents each logged into a different account), set quantity to 3.
 
 ## Stealth and anti-detection
 
@@ -189,4 +193,4 @@ when they need stealth browsing, geo-targeted access, or CAPTCHA bypass without 
 ## Subscribe
 
 Manage your subscription from the [dashboard](/dashboard). Pick monthly or yearly, adjust the
-number of concurrent browsers, and switch or cancel any time through the Stripe billing portal.
+number of concurrent machines, and switch or cancel any time through the Stripe billing portal.
