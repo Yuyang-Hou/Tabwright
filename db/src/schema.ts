@@ -164,11 +164,14 @@ export const subscription = s.sqliteTable('subscription', {
 export const cloudSession = s.sqliteTable('cloud_session', {
   id: s.text('id').primaryKey().notNull().$defaultFn(() => ulid()),
   orgId: s.text('org_id').notNull().references(() => org.id, { onDelete: 'cascade' }),
+  /** Concurrent subscription slot claimed by this session. Unique per org. */
+  slotIndex: s.integer('slot_index', { mode: 'number' }).notNull(),
   /** Browser Use browser session UUID — used to call getBrowser/stopBrowser */
   browserUseSessionId: s.text('browser_use_session_id').notNull(),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
 }, (table) => [
   s.index('cloud_session_org_id_idx').on(table.orgId),
+  s.uniqueIndex('cloud_session_org_id_slot_index_unique').on(table.orgId, table.slotIndex),
 ])
 
 // ── Relations (v2 API) ──────────────────────────────────────────────

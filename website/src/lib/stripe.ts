@@ -122,6 +122,30 @@ export async function getCloudPriceId(interval: BillingInterval): Promise<string
   return match.priceId
 }
 
+const EXISTING_SUBSCRIPTION_STATUSES = new Set([
+  'active',
+  'trialing',
+  'past_due',
+  'incomplete',
+])
+
+export async function hasExistingStripeSubscription(customerId: string): Promise<boolean | Error> {
+  const stripe = getStripe()
+  let subscriptions: Stripe.ApiList<Stripe.Subscription>
+  try {
+    subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      limit: 100,
+    })
+  } catch (cause) {
+    return new Error('Failed to list Stripe subscriptions', { cause })
+  }
+  return subscriptions.data.some((subscription) => {
+    return EXISTING_SUBSCRIPTION_STATUSES.has(subscription.status)
+  })
+}
+
 // ── Webhook handler: mirror subscription state into D1 ──────────────
 
 /** Re-fetch the latest subscription from Stripe, resolve its orgId, and upsert

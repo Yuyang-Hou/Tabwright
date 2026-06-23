@@ -6,7 +6,7 @@ import { getActionRequest, parseFormData, redirect } from 'spiceflow'
 import { router } from 'spiceflow/react'
 import { z } from 'zod'
 import { getAuth, getBaseUrl, requireSession, requireOrgSession, getOrgSubscription } from './db.ts'
-import { getOrCreateStripeCustomer, getCloudPriceId, getStripe } from './lib/stripe.ts'
+import { getOrCreateStripeCustomer, getCloudPriceId, getStripe, hasExistingStripeSubscription } from './lib/stripe.ts'
 import type { BillingInterval } from './lib/billing-rules.ts'
 
 // ── Device flow actions (used by /device page) ──────────────────────
@@ -58,9 +58,13 @@ export async function startCheckout(formData: FormData) {
 
   const stripe = getStripe()
 
-  // If already subscribed, short-circuit to the portal
+  // If already subscribed, short-circuit to the portal. Check both local D1
+  // and Stripe directly because Checkout completion can race ahead of webhook
+  // delivery, and two dashboard submissions can happen before D1 is updated.
   const existing = await getOrgSubscription(org.id)
-  if (existing) {
+  const hasStripeSubscription = await hasExistingStripeSubscription(customerId)
+  if (hasStripeSubscription instanceof Error) throw hasStripeSubscription
+  if (existing || hasStripeSubscription) {
     const portal = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: returnUrl,

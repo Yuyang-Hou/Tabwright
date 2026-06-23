@@ -11,6 +11,7 @@ import * as schema from 'db/schema'
 import { getDb, requireOrgSession } from './db.ts'
 import { BrowserUseClient } from './lib/browser-use.ts'
 import type { BrowserSession } from './lib/browser-use.ts'
+import { ACTIVE_SUBSCRIPTION_STATUSES } from './lib/billing-rules.ts'
 
 function getBrowserUse() {
   return new BrowserUseClient({ apiKey: env.BROWSER_USE_API_KEY as string })
@@ -41,32 +42,64 @@ function isPendingRow(row: typeof schema.cloudSession.$inferSelect): boolean {
   return row.browserUseSessionId.startsWith(PENDING_PREFIX)
 }
 
-/** Check if a cloud session row represents an occupied slot.
- *  - Pending placeholder <2min old → occupied (VM is being created)
- *  - Pending placeholder ≥2min old → stale, delete and return false
- *  - Real BU session → check BU API, delete row if VM is dead */
-async function isSlotOccupied(
-  row: typeof schema.cloudSession.$inferSelect,
-  bu: BrowserUseClient,
-): Promise<boolean> {
-  if (isPendingRow(row)) {
-    if (Date.now() - row.createdAt < PENDING_STALE_MS) {
-      return true // fresh placeholder, VM is being created
-    }
-    // Stale placeholder — VM creation probably failed, clean up
-    const db = getDb()
-    await db.delete(schema.cloudSession).where(orm.eq(schema.cloudSession.id, row.id)).limit(1)
-    return false
-  }
-  const vm = await resolveActiveSession(row, bu)
-  return vm !== null
+function isUniqueConstraintError(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause)
+  return message.includes('UNIQUE constraint failed') || message.includes('SQLITE_CONSTRAINT_UNIQUE')
 }
 
-/** Check if a cloud session's BU VM is still alive. If dead, clean up the
- *  D1 row and return null. Only call on non-pending rows. */
+async function claimCloudSessionSlot({
+  orgId,
+  maxSessions,
+}: {
+  orgId: string
+  maxSessions: number
+}): Promise<typeof schema.cloudSession.$inferSelect | null> {
+  const db = getDb()
+  for (let slotIndex = 1; slotIndex <= maxSessions; slotIndex++) {
+    const placeholderId = `${PENDING_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    try {
+      const [row] = await db
+        .insert(schema.cloudSession)
+        .values({
+          orgId,
+          slotIndex,
+          browserUseSessionId: placeholderId,
+        })
+        .returning()
+      if (row) return row
+    } catch (cause) {
+      if (isUniqueConstraintError(cause)) {
+        continue
+      }
+      throw new Error('Failed to claim cloud session slot', { cause })
+    }
+  }
+  return null
+}
+
+/** Check if a cloud session row represents an occupied slot.
+ *  Returns true if occupied. Does NOT delete stale/dead rows itself;
+ *  instead pushes their IDs into deadIds for the caller to batch-delete. */
+function checkSlotOccupied(
+  row: typeof schema.cloudSession.$inferSelect,
+  deadIds: string[],
+): 'occupied' | 'dead' | 'check-bu' {
+  if (isPendingRow(row)) {
+    if (Date.now() - row.createdAt < PENDING_STALE_MS) {
+      return 'occupied'
+    }
+    deadIds.push(row.id)
+    return 'dead'
+  }
+  return 'check-bu'
+}
+
+/** Check if a cloud session's BU VM is still alive. Returns null if dead
+ *  and pushes the row ID into deadIds for the caller to batch-delete. */
 async function resolveActiveSession(
   row: typeof schema.cloudSession.$inferSelect,
   bu: BrowserUseClient,
+  deadIds: string[],
 ): Promise<BrowserSession | null> {
   try {
     const vm = await bu.getBrowser(row.browserUseSessionId)
@@ -76,13 +109,23 @@ async function resolveActiveSession(
   } catch {
     // BU returned 404 or error, VM is gone
   }
-  // VM is stopped or gone, clean up our mapping
-  const db = getDb()
-  await db
-    .delete(schema.cloudSession)
-    .where(orm.eq(schema.cloudSession.id, row.id))
-    .limit(1)
+  deadIds.push(row.id)
   return null
+}
+
+/** Batch-delete dead cloud session rows. Skips if nothing to delete. */
+async function cleanupDeadSessions(deadIds: string[]): Promise<void> {
+  if (deadIds.length === 0) return
+  const db = getDb()
+  if (deadIds.length === 1) {
+    await db.delete(schema.cloudSession).where(orm.eq(schema.cloudSession.id, deadIds[0]!)).limit(1)
+    return
+  }
+  await db.batch(
+    deadIds.map((id) => {
+      return db.delete(schema.cloudSession).where(orm.eq(schema.cloudSession.id, id)).limit(1)
+    }) as [any, ...any[]],
+  )
 }
 
 // ── Sub-app ─────────────────────────────────────────────────────────
@@ -101,12 +144,23 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
       orderBy: { createdAt: 'asc' },
     })
 
+    // Check each session against BU API in parallel, collecting dead IDs
+    // for a single batch-delete at the end instead of N individual deletes.
+    const deadIds: string[] = []
+    const nonPending = sessions.filter((row) => {
+      if (isPendingRow(row)) return false
+      return true
+    })
+    const vmResults = await Promise.all(
+      nonPending.map((row) => {
+        return resolveActiveSession(row, bu, deadIds)
+      }),
+    )
+
     const result: CloudSessionStatus[] = []
-    for (let i = 0; i < sessions.length; i++) {
-      const row = sessions[i]
-      // Skip pending placeholders — VM is still being created
-      if (isPendingRow(row)) continue
-      const vm = await resolveActiveSession(row, bu)
+    for (let i = 0; i < nonPending.length; i++) {
+      const row = nonPending[i]!
+      const vm = vmResults[i]
       if (vm) {
         result.push({
           cloudSessionId: row.id,
@@ -120,6 +174,9 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
         })
       }
     }
+
+    // Batch-delete all dead/stale sessions in one D1 call
+    await cleanupDeadSessions(deadIds)
 
     return { sessions: result }
   })
@@ -149,13 +206,19 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
       const db = getDb()
       const bu = getBrowserUse()
 
-      // Check subscription: quantity determines max concurrent cloud sessions
-      const activeSub = await db.query.subscription.findFirst({
-        where: {
-          orgId: org.id,
-          status: { in: ['active', 'trialing'] },
-        },
-      })
+      // Batch-read subscription + cloud sessions in one D1 round-trip.
+      // These are independent reads for the same org.
+      const [activeSub, dbSessions] = await db.batch([
+        db.query.subscription.findFirst({
+          where: {
+            orgId: org.id,
+            status: { in: [...ACTIVE_SUBSCRIPTION_STATUSES] },
+          },
+        }),
+        db.query.cloudSession.findMany({
+          where: { orgId: org.id },
+        }),
+      ] as const)
       if (!activeSub) {
         throw json(
           { error: 'No active subscription. Run `playwriter cloud subscribe` to get started.' },
@@ -163,19 +226,25 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
         )
       }
       const maxSessions = activeSub.quantity
-
-      // Resolve live sessions: check each D1 row against Browser Use API
-      // to clean up stale rows where the BU VM died outside our control.
-      // Also counts fresh pending placeholders (VMs being created) as occupied.
-      const dbSessions = await db.query.cloudSession.findMany({
-        where: { orgId: org.id },
-      })
-      const slotChecks = await Promise.all(
-        dbSessions.map((row) => {
-          return isSlotOccupied(row, bu)
+      // Check each session, collecting dead IDs for batch cleanup.
+      // BU API checks run in parallel; stale pending rows are detected locally.
+      const deadIds: string[] = []
+      const buCheckRows: typeof dbSessions = []
+      for (const row of dbSessions) {
+        const status = checkSlotOccupied(row, deadIds)
+        if (status === 'check-bu') {
+          buCheckRows.push(row)
+        }
+      }
+      const buResults = await Promise.all(
+        buCheckRows.map((row) => {
+          return resolveActiveSession(row, bu, deadIds)
         }),
       )
-      const activeCount = slotChecks.filter(Boolean).length
+      await cleanupDeadSessions(deadIds)
+      const locallyOccupied = dbSessions.length - deadIds.length - buCheckRows.length
+      const buOccupied = buResults.filter(Boolean).length
+      const activeCount = locallyOccupied + buOccupied
 
       if (activeCount >= maxSessions) {
         throw json(
@@ -186,38 +255,11 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
         )
       }
 
-      // Claim a slot: insert a placeholder D1 row BEFORE creating the BU VM.
-      // Concurrent requests see this row via isSlotOccupied() which counts
-      // fresh pending rows as occupied. After inserting, re-check the total
-      // row count — if another request raced us and we exceeded quota, back
-      // out before creating the expensive VM.
-      const placeholderId = `${PENDING_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      let cloudSession: typeof schema.cloudSession.$inferSelect
-      try {
-        const [row] = await db
-          .insert(schema.cloudSession)
-          .values({
-            orgId: org.id,
-            browserUseSessionId: placeholderId,
-          })
-          .returning()
-        cloudSession = row!
-      } catch (cause) {
-        throw new Error('Failed to claim cloud session slot', { cause })
-      }
-
-      // Re-check total slots after claiming to catch races: if two requests
-      // both passed the initial count check, the one whose insert pushes us
-      // over the limit backs out.
-      const rowsAfterClaim = await db.query.cloudSession.findMany({
-        where: { orgId: org.id },
-      })
-      if (rowsAfterClaim.length > maxSessions) {
-        await db
-          .delete(schema.cloudSession)
-          .where(orm.eq(schema.cloudSession.id, cloudSession.id))
-          .limit(1)
-          .catch(() => {})
+      // Claim a quota slot before creating the paid VM. The unique index on
+      // (orgId, slotIndex) makes this atomic under concurrent requests: only
+      // one request can own each subscription slot.
+      const cloudSession = await claimCloudSessionSlot({ orgId: org.id, maxSessions })
+      if (!cloudSession) {
         throw json(
           { error: `Cloud session limit reached. Stop an existing session or upgrade your subscription quantity.` },
           { status: 403 },
