@@ -99,12 +99,24 @@ playwriter session new --browser cloud --custom-proxy user:pass@host:8080
 
 ### 1. Authenticate
 
+**Option A: Interactive login** (opens browser for OAuth)
+
 ```bash
 playwriter cloud login
 ```
 
 This opens a device flow in your browser. Sign in at [playwriter.dev](https://playwriter.dev) and
 the CLI stores your token locally.
+
+**Option B: API key** (for CI, VPS, headless environments)
+
+Create an API key at [playwriter.dev/dashboard](https://playwriter.dev/dashboard), then set it as an environment variable:
+
+```bash
+export PLAYWRITER_API_KEY=pw_xxxxx
+```
+
+API keys work everywhere `cloud login` works but don't require a browser or interactive terminal.
 
 ### 2. Subscribe
 

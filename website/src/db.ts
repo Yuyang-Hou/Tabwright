@@ -12,9 +12,11 @@ import { drizzle } from 'drizzle-orm/d1'
 import * as schema from 'db/schema'
 import { betterAuth } from 'better-auth/minimal'
 import { deviceAuthorization, bearer } from 'better-auth/plugins'
+import { apiKey } from '@better-auth/api-key'
 import { drizzleAdapter } from 'better-auth-drizzle-adapter'
 import { json } from 'spiceflow'
 import { ulid } from 'ulid'
+import * as orm from 'drizzle-orm'
 import { ACTIVE_SUBSCRIPTION_STATUSES, type BillingSubscription } from './lib/billing-rules.ts'
 
 // ── Drizzle client via D1 ───────────────────────────────────────────
@@ -49,6 +51,16 @@ export function getAuth() {
     plugins: [
       deviceAuthorization({ verificationUri: '/device', schema: {} }),
       bearer(),
+      apiKey({
+        // Requests with x-api-key header automatically resolve to a session,
+        // so all existing requireSession/requireOrgSession calls work transparently.
+        enableSessionForAPIKeys: true,
+        defaultPrefix: 'pw_',
+        // Disable rate limiting: the drizzle adapter doesn't support the
+        // incrementOne atomic counter that the rate limiter needs, causing
+        // "non-numeric value from updateMany" errors on every API key verify.
+        rateLimit: { enabled: false },
+      }),
     ],
   })
 }
@@ -71,7 +83,8 @@ type RequestHeaders = Pick<Request, 'headers'>
 export async function getSession(request: RequestHeaders): Promise<Session | null> {
   const hasCookie = request.headers.has('cookie')
   const hasAuthorization = request.headers.has('authorization')
-  if (!hasCookie && !hasAuthorization) return null
+  const hasApiKey = request.headers.has('x-api-key')
+  if (!hasCookie && !hasAuthorization && !hasApiKey) return null
 
   const auth = getAuth()
   let session: Awaited<ReturnType<typeof auth.api.getSession>>
@@ -213,4 +226,26 @@ export async function ensureOrg(
     }
     throw err
   }
+}
+
+// ── API Key helpers ─────────────────────────────────────────────────
+
+export interface ApiKeyInfo {
+  id: string
+  name: string | null
+  start: string | null
+  createdAt: number
+  expiresAt: number | null
+  enabled: boolean | null
+}
+
+/** List API keys for a user. Returns metadata only (no raw key values). */
+export async function listUserApiKeys(userId: string): Promise<ApiKeyInfo[]> {
+  const db = getDb()
+  const rows = await db.query.apikey.findMany({
+    where: { referenceId: userId },
+    orderBy: { createdAt: 'desc' },
+    columns: { id: true, name: true, start: true, createdAt: true, expiresAt: true, enabled: true },
+  })
+  return rows
 }

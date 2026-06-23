@@ -101,6 +101,17 @@ export const org = s.sqliteTable('org', {
    *  Single source of truth; reused for every checkout/portal call so we never
    *  create duplicate Stripe customers. */
   stripeCustomerId: s.text('stripe_customer_id'),
+  /** Cumulative proxy spend in cents across all cloud sessions.
+   *  Updated by the scheduled cron handler every minute.
+   *  Resets to 0 at the start of each billing period. */
+  proxySpendCents: s.integer('proxy_spend_cents', { mode: 'number' }).notNull().default(0),
+  /** Max proxy spend in cents before blocking new sessions and killing active ones.
+   *  Default $5 (500 cents). Configurable per org. */
+  proxyBudgetCents: s.integer('proxy_budget_cents', { mode: 'number' }).notNull().default(500),
+  /** Epoch ms of the billing period that proxySpendCents belongs to.
+   *  When subscription.currentPeriodStart differs from this value, the cron
+   *  handler resets proxySpendCents to 0 and updates this marker. */
+  proxySpendPeriodStart: epochMs('proxy_spend_period_start'),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
   updatedAt: epochMs('updated_at').notNull().$defaultFn(() => Date.now()),
 })
@@ -168,20 +179,61 @@ export const cloudSession = s.sqliteTable('cloud_session', {
   slotIndex: s.integer('slot_index', { mode: 'number' }).notNull(),
   /** Browser Use browser session UUID — used to call getBrowser/stopBrowser */
   browserUseSessionId: s.text('browser_use_session_id').notNull(),
+  /** Last known proxy cost in cents from Browser Use API.
+   *  Used by the cron handler to compute the delta since last check,
+   *  so we only increment org.proxySpendCents by the new spend. */
+  lastProxyCostCents: s.integer('last_proxy_cost_cents', { mode: 'number' }).notNull().default(0),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
 }, (table) => [
   s.index('cloud_session_org_id_idx').on(table.orgId),
   s.uniqueIndex('cloud_session_org_id_slot_index_unique').on(table.orgId, table.slotIndex),
 ])
 
+// ── API Keys (BetterAuth @better-auth/api-key plugin) ───────────────
+// Stores hashed API keys for programmatic access (CI, VPS, headless).
+// enableSessionForAPIKeys mocks a session from the x-api-key header,
+// so all existing requireSession/requireOrgSession calls work transparently.
+
+export const apikey = s.sqliteTable('apikey', {
+  id: s.text('id').primaryKey().notNull().$defaultFn(() => ulid()),
+  configId: s.text('config_id').notNull().default('default'),
+  name: s.text('name'),
+  /** First few characters of the key (includes prefix), shown in UI for identification */
+  start: s.text('start'),
+  prefix: s.text('prefix'),
+  /** The hashed API key. Raw key is only returned at creation time. */
+  key: s.text('key').notNull(),
+  /** Owner user ID (references: "user" config) */
+  referenceId: s.text('reference_id').notNull(),
+  refillInterval: s.integer('refill_interval', { mode: 'number' }),
+  refillAmount: s.integer('refill_amount', { mode: 'number' }),
+  lastRefillAt: epochMs('last_refill_at'),
+  enabled: s.integer('enabled', { mode: 'boolean' }).default(true),
+  rateLimitEnabled: s.integer('rate_limit_enabled', { mode: 'boolean' }),
+  rateLimitTimeWindow: s.integer('rate_limit_time_window', { mode: 'number' }),
+  rateLimitMax: s.integer('rate_limit_max', { mode: 'number' }),
+  requestCount: s.integer('request_count', { mode: 'number' }),
+  remaining: s.integer('remaining', { mode: 'number' }),
+  lastRequest: epochMs('last_request'),
+  expiresAt: epochMs('expires_at'),
+  createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
+  updatedAt: epochMs('updated_at').notNull().$defaultFn(() => Date.now()),
+  permissions: s.text('permissions'),
+  metadata: s.text('metadata'),
+}, (table) => [
+  s.index('apikey_reference_id_idx').on(table.referenceId),
+  s.index('apikey_config_id_idx').on(table.configId),
+])
+
 // ── Relations (v2 API) ──────────────────────────────────────────────
 
 export const relations = defineRelations(
-  { user, session, account, verification, deviceCode, org, orgMember, subscription, cloudSession },
+  { user, session, account, verification, deviceCode, org, orgMember, subscription, cloudSession, apikey },
   (r) => ({
     user: {
       sessions: r.many.session(),
       accounts: r.many.account(),
+      apikeys: r.many.apikey(),
       orgs: r.many.org({
         from: r.user.id.through(r.orgMember.userId),
         to: r.org.id.through(r.orgMember.orgId),
@@ -215,6 +267,9 @@ export const relations = defineRelations(
     },
     cloudSession: {
       org: r.one.org({ from: r.cloudSession.orgId, to: r.org.id }),
+    },
+    apikey: {
+      user: r.one.user({ from: r.apikey.referenceId, to: r.user.id }),
     },
   }),
 )

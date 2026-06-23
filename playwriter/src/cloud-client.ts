@@ -1,6 +1,8 @@
 // HTTP client for CLI to call the website's /api/cloud/* routes.
-// Auth token is stored in ~/.playwriter/auth.json by `cloud login`.
-// Falls back to PLAYWRITER_CLOUD_TOKEN env var for CI.
+// Auth: three methods, checked in priority order:
+//   1. PLAYWRITER_API_KEY env var → sent as x-api-key header (for CI/VPS/headless)
+//   2. PLAYWRITER_CLOUD_TOKEN env var → sent as Authorization: Bearer (for CI with session tokens)
+//   3. ~/.playwriter/auth.json file → saved by `cloud login` device flow
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -14,10 +16,17 @@ const AUTH_FILE = path.join(os.homedir(), '.playwriter', 'auth.json')
 export interface CloudAuth {
   token: string
   baseUrl: string
+  /** When true, token is an API key sent via x-api-key header instead of Bearer */
+  isApiKey?: boolean
 }
 
 export function loadCloudAuth(): CloudAuth | null {
-  // Env var takes priority (for CI and agents)
+  // API key takes highest priority (simplest for CI/VPS/headless)
+  const apiKey = process.env.PLAYWRITER_API_KEY
+  if (apiKey) {
+    return { token: apiKey, baseUrl: process.env.PLAYWRITER_CLOUD_URL || DEFAULT_BASE_URL, isApiKey: true }
+  }
+  // Session token env var (for CI with device flow tokens)
   const envToken = process.env.PLAYWRITER_CLOUD_TOKEN
   if (envToken) {
     return { token: envToken, baseUrl: process.env.PLAYWRITER_CLOUD_URL || DEFAULT_BASE_URL }
@@ -65,10 +74,12 @@ export interface ConnectResult {
 export class CloudClient {
   private baseUrl: string
   private token: string
+  private isApiKey: boolean
 
   constructor(auth: CloudAuth) {
     this.baseUrl = auth.baseUrl
     this.token = auth.token
+    this.isApiKey = auth.isApiKey ?? false
   }
 
   private async request<T>(
@@ -78,8 +89,13 @@ export class CloudClient {
   ): Promise<T> {
     const url = new URL(path, this.baseUrl).toString()
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.token}`,
       'Content-Type': 'application/json',
+    }
+    // API keys use x-api-key header; session tokens use Authorization: Bearer
+    if (this.isApiKey) {
+      headers['x-api-key'] = this.token
+    } else {
+      headers['Authorization'] = `Bearer ${this.token}`
     }
 
     const response = await fetch(url, {
@@ -89,7 +105,7 @@ export class CloudClient {
     })
 
     if (response.status === 401) {
-      throw new Error('Cloud auth expired or invalid. Run `playwriter cloud login` again.')
+      throw new Error('Cloud auth expired or invalid. Run `playwriter cloud login` or set PLAYWRITER_API_KEY.')
     }
 
     if (!response.ok) {

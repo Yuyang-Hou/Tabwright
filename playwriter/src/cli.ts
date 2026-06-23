@@ -782,9 +782,10 @@ async function handleCloudBrowserNotFound(browserKey: string, { hasCloudOptions 
   if (!auth) {
     console.error('Cloud browsers require authentication.')
     console.error('')
-    console.error('  1. Run `playwriter cloud login` to authenticate with playwriter.dev')
-    console.error('  2. Subscribe at playwriter.dev/dashboard to get cloud browser sessions')
-    console.error('  3. Then run `playwriter session new --browser cloud` again')
+    console.error('  Option 1: Run `playwriter cloud login` (interactive browser flow)')
+    console.error('  Option 2: Set PLAYWRITER_API_KEY env var (create one at playwriter.dev/dashboard)')
+    console.error('')
+    console.error('  Then subscribe at playwriter.dev/dashboard and run `playwriter session new --browser cloud`')
   } else {
     // Verify token is still valid with a quick API check
     const client = getCloudClient()
@@ -799,9 +800,9 @@ async function handleCloudBrowserNotFound(browserKey: string, { hasCloudOptions 
     })()
 
     if (!tokenValid) {
-      console.error('Cloud authentication expired. Please log in again.')
+      console.error('Cloud authentication expired. Please re-authenticate.')
       console.error('')
-      console.error('  Run `playwriter cloud login` to re-authenticate.')
+      console.error('  Run `playwriter cloud login` or set PLAYWRITER_API_KEY env var.')
     } else {
       console.error('No cloud browser sessions available.')
       console.error('')
@@ -816,7 +817,7 @@ async function handleCloudBrowserNotFound(browserKey: string, { hasCloudOptions 
 function printCloudTip(): void {
   console.log('')
   console.log(
-    pc.dim('Tip: Need stealth browsing, VPS control, or auto CAPTCHA solving? Run `playwriter cloud login`'),
+    pc.dim('Tip: Need stealth browsing, VPS control, or auto CAPTCHA solving? Run `playwriter cloud login` or set PLAYWRITER_API_KEY'),
   )
   console.log(
     pc.dim('     to control a browser in the cloud instead of local Chrome.'),

@@ -130,10 +130,18 @@ Cloud browsers are full Chromium instances running in the cloud. They work exact
 - **Parallel execution.** Spin up multiple cloud browsers to run tasks in parallel with subagents. Each browser is an isolated instance with its own IP, fingerprint, and cookie jar.
 - **Multiple identities.** Control separate logged-in accounts on the same site simultaneously. Each cloud browser has independent cookies and storage, so sessions don't interfere with each other.
 
+**Authentication:** two options depending on your environment.
+
 ```bash
-# Authenticate with playwriter.dev
+# Option 1: Interactive login (opens browser for OAuth)
 playwriter cloud login
 
+# Option 2: API key (for CI, VPS, headless — no browser needed)
+# Create one at https://playwriter.dev/dashboard, then:
+export PLAYWRITER_API_KEY=pw_xxxxx
+```
+
+```bash
 # Check active cloud sessions
 playwriter cloud status
 

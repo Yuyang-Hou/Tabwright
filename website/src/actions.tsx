@@ -5,7 +5,9 @@
 import { getActionRequest, parseFormData, redirect } from 'spiceflow'
 import { router } from 'spiceflow/react'
 import { z } from 'zod'
-import { getAuth, getBaseUrl, requireSession, requireOrgSession, getOrgSubscription } from './db.ts'
+import { getAuth, getBaseUrl, requireSession, requireOrgSession, getOrgSubscription, getDb } from './db.ts'
+import * as orm from 'drizzle-orm'
+import * as schema from 'db/schema'
 import { getOrCreateStripeCustomer, getCloudPriceId, getStripe, hasExistingStripeSubscription } from './lib/stripe.ts'
 import type { BillingInterval } from './lib/billing-rules.ts'
 
@@ -29,6 +31,56 @@ export async function denyDevice(formData: FormData) {
   const auth = getAuth()
   await auth.api.deviceDeny({ body: { userCode }, headers: actionRequest.headers })
   throw redirect(router.href('/device', { user_code: userCode, status: 'denied' }))
+}
+
+// ── API Key actions (used by /dashboard API key panel) ──────────────
+
+const apiKeyNameSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+})
+
+const apiKeyDeleteSchema = z.object({
+  keyId: z.string().min(1),
+})
+
+/** Create a new API key for the current user. Returns the raw key (shown once). */
+export async function createApiKey(formData: FormData) {
+  const actionRequest = getActionRequest()
+  const session = await requireSession(actionRequest)
+  const { name } = parseFormData(apiKeyNameSchema, formData)
+  const auth = getAuth()
+  const result = await auth.api.createApiKey({
+    body: {
+      name: name || 'Cloud API Key',
+      prefix: 'pw_',
+      userId: session.userId,
+    },
+  })
+  // Return the raw key as JSON so the client can display it once
+  return result
+}
+
+/** Revoke (delete) an API key owned by the current user. */
+export async function revokeApiKey(formData: FormData) {
+  const actionRequest = getActionRequest()
+  const session = await requireSession(actionRequest)
+  const { keyId } = parseFormData(apiKeyDeleteSchema, formData)
+
+  // Verify ownership before deleting: the key's referenceId must match the user
+  const db = getDb()
+  const existing = await db.query.apikey.findFirst({
+    where: { id: keyId, referenceId: session.userId },
+  })
+  if (!existing) {
+    throw new Error('API key not found')
+  }
+
+  const auth = getAuth()
+  await auth.api.deleteApiKey({
+    body: { keyId },
+    headers: actionRequest.headers,
+  })
+  throw redirect('/dashboard')
 }
 
 // ── Billing actions (used by /dashboard billing panel) ──────────────

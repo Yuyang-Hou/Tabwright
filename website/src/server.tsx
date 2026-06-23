@@ -9,11 +9,12 @@ import { Spiceflow, redirect, json } from 'spiceflow'
 import { router } from 'spiceflow/react'
 import { z } from 'zod'
 import { app as holocronApp } from '@holocron.so/vite/app'
-import { getAuth, getBaseUrl, getSession, requireSession, ensureOrg, getOrgSubscription, getOrgWithSubscription } from './db.ts'
+import { getAuth, getBaseUrl, getSession, requireSession, ensureOrg, getOrgSubscription, getOrgWithSubscription, listUserApiKeys } from './db.ts'
 import { normalizeAuthRedirectPath } from './auth-redirect.ts'
 import { cloudApp } from './cloud-api.ts'
 import { stripeWebhookApp } from './stripe-webhook.ts'
-import { approveDevice, denyDevice } from './actions.tsx'
+import { approveDevice, denyDevice, createApiKey, revokeApiKey } from './actions.tsx'
+import { enforceProxyBudgets } from './scheduled.ts'
 
 const loginQuerySchema = z.object({ callbackURL: z.string().optional() })
 
@@ -118,8 +119,11 @@ export const app = new Spiceflow()
       subscription = await getOrgSubscription(orgInfo.id)
     }
 
+    const apiKeys = await listUserApiKeys(session.userId)
+
     const { SignOutButton } = await import('./components/sign-out-button.tsx')
     const { BillingPanel } = await import('./components/billing-panel.tsx')
+    const { ApiKeyPanel } = await import('./components/api-key-panel.tsx')
 
     const { PlaywriterLogo } = await import('./components/auth-page.tsx')
 
@@ -141,6 +145,9 @@ export const app = new Spiceflow()
           <p className="text-sm text-muted-foreground mt-1">Organization: {orgInfo.name}</p>
         </div>
         <BillingPanel subscription={subscription} />
+        <div className="mt-6">
+          <ApiKeyPanel apiKeys={apiKeys} createAction={createApiKey} revokeAction={revokeApiKey} />
+        </div>
         <footer className="mt-auto pt-6 border-t border-border">
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
             <a href="https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe" className="hover:text-foreground transition-colors">
@@ -264,4 +271,7 @@ export default {
   async fetch(request: Request): Promise<Response> {
     return app.handle(request)
   },
-} satisfies ExportedHandler
+  async scheduled(_controller: ScheduledController, _env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(enforceProxyBudgets())
+  },
+} satisfies ExportedHandler<Env>
