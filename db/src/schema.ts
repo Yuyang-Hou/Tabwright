@@ -101,17 +101,23 @@ export const org = s.sqliteTable('org', {
    *  Single source of truth; reused for every checkout/portal call so we never
    *  create duplicate Stripe customers. */
   stripeCustomerId: s.text('stripe_customer_id'),
-  /** Cumulative cloud spend in cents (browserCost + proxyCost) across all sessions.
+  /** Cumulative proxy spend in cents across all cloud sessions.
    *  Updated by the scheduled cron handler every minute.
    *  Resets to 0 at the start of each billing period. */
-  cloudSpendCents: s.integer('cloud_spend_cents', { mode: 'number' }).notNull().default(0),
-  /** Max cloud spend in cents before blocking new sessions and killing active ones.
+  proxySpendCents: s.integer('proxy_spend_cents', { mode: 'number' }).notNull().default(0),
+  /** Max proxy spend in cents before blocking new sessions and killing active ones.
    *  Default $5 (500 cents). Configurable per org. */
-  cloudBudgetCents: s.integer('cloud_budget_cents', { mode: 'number' }).notNull().default(500),
-  /** Epoch ms of the billing period that cloudSpendCents belongs to.
+  proxyBudgetCents: s.integer('proxy_budget_cents', { mode: 'number' }).notNull().default(500),
+  /** Cumulative browser/VM spend in cents (browserCost from Browser Use API).
+   *  Tracked separately from proxy spend. Updated by the cron handler.
+   *  Resets to 0 at the start of each billing period. */
+  browserSpendCents: s.integer('browser_spend_cents', { mode: 'number' }).notNull().default(0),
+  /** Max browser/VM spend in cents. Default $5 (500 cents). */
+  browserBudgetCents: s.integer('browser_budget_cents', { mode: 'number' }).notNull().default(500),
+  /** Epoch ms of the billing period that spend counters belong to.
    *  When subscription.currentPeriodStart differs from this value, the cron
-   *  handler resets cloudSpendCents to 0 and updates this marker. */
-  cloudSpendPeriodStart: epochMs('cloud_spend_period_start'),
+   *  handler resets both spend counters to 0 and updates this marker. */
+  spendPeriodStart: epochMs('spend_period_start'),
   /** Epoch ms of the last cloud session creation. Used as a per-org rate
    *  limit to prevent rapid connect/disconnect loops that waste VM costs. */
   lastCloudCreateAt: epochMs('last_cloud_create_at'),
@@ -182,10 +188,12 @@ export const cloudSession = s.sqliteTable('cloud_session', {
   slotIndex: s.integer('slot_index', { mode: 'number' }).notNull(),
   /** Browser Use browser session UUID — used to call getBrowser/stopBrowser */
   browserUseSessionId: s.text('browser_use_session_id').notNull(),
-  /** Last known total cost in cents (browserCost + proxyCost) from Browser Use API.
-   *  Used by the cron handler to compute the delta since last check,
-   *  so we only increment org.cloudSpendCents by the new spend. */
-  lastTotalCostCents: s.integer('last_total_cost_cents', { mode: 'number' }).notNull().default(0),
+  /** Last known proxy cost in cents from Browser Use API.
+   *  Used by the cron handler to compute the proxy delta since last check. */
+  lastProxyCostCents: s.integer('last_proxy_cost_cents', { mode: 'number' }).notNull().default(0),
+  /** Last known browser/VM cost in cents from Browser Use API.
+   *  Used by the cron handler to compute the browser delta since last check. */
+  lastBrowserCostCents: s.integer('last_browser_cost_cents', { mode: 'number' }).notNull().default(0),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
 }, (table) => [
   s.index('cloud_session_org_id_idx').on(table.orgId),

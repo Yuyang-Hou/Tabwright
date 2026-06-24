@@ -1,20 +1,19 @@
--- Rename proxy-only budget to total cloud spend (browserCost + proxyCost).
+-- Add separate browser/VM spend tracking alongside existing proxy spend.
 -- Add per-org creation rate limit timestamp.
--- Rename per-session proxy cost baseline to total cost baseline.
+-- Add per-session browser cost baseline.
 
--- org: rename proxy columns to cloud, add rate limit column
-ALTER TABLE org ADD COLUMN cloud_spend_cents INTEGER NOT NULL DEFAULT 0;
+-- org: add browser spend columns (proxy columns already exist)
+ALTER TABLE org ADD COLUMN browser_spend_cents INTEGER NOT NULL DEFAULT 0;
 --> statement-breakpoint
-ALTER TABLE org ADD COLUMN cloud_budget_cents INTEGER NOT NULL DEFAULT 500;
+ALTER TABLE org ADD COLUMN browser_budget_cents INTEGER NOT NULL DEFAULT 500;
 --> statement-breakpoint
-ALTER TABLE org ADD COLUMN cloud_spend_period_start INTEGER;
+-- Unify period start: rename proxy_spend_period_start to spend_period_start
+-- (covers both proxy and browser spend resets)
+ALTER TABLE org ADD COLUMN spend_period_start INTEGER;
+--> statement-breakpoint
+UPDATE org SET spend_period_start = proxy_spend_period_start;
 --> statement-breakpoint
 ALTER TABLE org ADD COLUMN last_cloud_create_at INTEGER;
 --> statement-breakpoint
--- Migrate existing proxy spend data to new cloud columns
-UPDATE org SET cloud_spend_cents = proxy_spend_cents, cloud_budget_cents = proxy_budget_cents, cloud_spend_period_start = proxy_spend_period_start;
---> statement-breakpoint
--- cloud_session: rename last_proxy_cost_cents to last_total_cost_cents
-ALTER TABLE cloud_session ADD COLUMN last_total_cost_cents INTEGER NOT NULL DEFAULT 0;
---> statement-breakpoint
-UPDATE cloud_session SET last_total_cost_cents = last_proxy_cost_cents;
+-- cloud_session: add browser cost baseline (proxy baseline already exists)
+ALTER TABLE cloud_session ADD COLUMN last_browser_cost_cents INTEGER NOT NULL DEFAULT 0;

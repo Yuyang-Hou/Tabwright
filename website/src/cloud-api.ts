@@ -97,15 +97,9 @@ function parseCostToCents(cost: string): number {
   return Math.round(parsed * 100)
 }
 
-/** Compute total cost in cents from a Browser Use session (browserCost + proxyCost). */
-function totalCostCents(buSession: BrowserSession): number {
-  return parseCostToCents(buSession.browserCost) + parseCostToCents(buSession.proxyCost)
-}
-
-/** Record final cost delta for a session being removed, then delete the row.
- *  Atomically increments org.cloudSpendCents by the delta between the session's
- *  lastTotalCostCents baseline and the final BU cost. If no BU session data
- *  is available (e.g. VM already gone), skips the cost update. */
+/** Record final cost deltas for a session being removed, then delete the row.
+ *  Atomically increments org proxy and browser spend by their respective deltas.
+ *  If no BU session data is available (e.g. VM already gone), skips cost updates. */
 async function recordFinalCostAndDelete({
   cloudSession,
   buSession,
@@ -116,15 +110,20 @@ async function recordFinalCostAndDelete({
   orgId: string
 }): Promise<void> {
   const db = getDb()
-  const finalCostCents = buSession ? totalCostCents(buSession) : 0
-  const deltaCents = Math.max(0, finalCostCents - cloudSession.lastTotalCostCents)
+  const proxyDelta = buSession
+    ? Math.max(0, parseCostToCents(buSession.proxyCost) - cloudSession.lastProxyCostCents)
+    : 0
+  const browserDelta = buSession
+    ? Math.max(0, parseCostToCents(buSession.browserCost) - cloudSession.lastBrowserCostCents)
+    : 0
 
-  if (deltaCents > 0) {
+  if (proxyDelta > 0 || browserDelta > 0) {
     // Atomic increment + delete in one batch to avoid partial state
     await db.batch([
       db.update(schema.org)
         .set({
-          cloudSpendCents: orm.sql`${schema.org.cloudSpendCents} + ${deltaCents}`,
+          ...(proxyDelta > 0 ? { proxySpendCents: orm.sql`${schema.org.proxySpendCents} + ${proxyDelta}` } : {}),
+          ...(browserDelta > 0 ? { browserSpendCents: orm.sql`${schema.org.browserSpendCents} + ${browserDelta}` } : {}),
           updatedAt: Date.now(),
         })
         .where(orm.eq(schema.org.id, orgId)),
@@ -280,9 +279,11 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
         db.query.org.findFirst({
           where: { id: org.id },
           columns: {
-            cloudSpendCents: true,
-            cloudBudgetCents: true,
-            cloudSpendPeriodStart: true,
+            proxySpendCents: true,
+            proxyBudgetCents: true,
+            browserSpendCents: true,
+            browserBudgetCents: true,
+            spendPeriodStart: true,
             lastCloudCreateAt: true,
           },
         }),
@@ -309,25 +310,36 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
       // (no active sessions = cron returns early = period never resets).
       // Without this, the org would be permanently blocked after a period ends.
       const periodRolledOver = activeSub.currentPeriodStart != null
-        && orgRow?.cloudSpendPeriodStart !== activeSub.currentPeriodStart
-      let cloudSpendCents = orgRow?.cloudSpendCents ?? 0
+        && orgRow?.spendPeriodStart !== activeSub.currentPeriodStart
+      let proxySpendCents = orgRow?.proxySpendCents ?? 0
+      let browserSpendCents = orgRow?.browserSpendCents ?? 0
       if (periodRolledOver) {
-        cloudSpendCents = 0
+        proxySpendCents = 0
+        browserSpendCents = 0
         await db.update(schema.org)
           .set({
-            cloudSpendCents: 0,
-            cloudSpendPeriodStart: activeSub.currentPeriodStart,
+            proxySpendCents: 0,
+            browserSpendCents: 0,
+            spendPeriodStart: activeSub.currentPeriodStart,
             updatedAt: Date.now(),
           })
           .where(orm.eq(schema.org.id, org.id))
       }
 
-      // Block new sessions if org exceeded their cloud spend budget
-      if (orgRow && cloudSpendCents >= orgRow.cloudBudgetCents) {
-        const spentDollars = (cloudSpendCents / 100).toFixed(2)
-        const budgetDollars = (orgRow.cloudBudgetCents / 100).toFixed(2)
+      // Block new sessions if org exceeded either budget
+      if (orgRow && proxySpendCents >= orgRow.proxyBudgetCents) {
+        const spentDollars = (proxySpendCents / 100).toFixed(2)
+        const budgetDollars = (orgRow.proxyBudgetCents / 100).toFixed(2)
         throw json(
-          { error: `Cloud usage budget exceeded ($${spentDollars}/$${budgetDollars}). Contact support to increase your budget.` },
+          { error: `Proxy usage budget exceeded ($${spentDollars}/$${budgetDollars}). Contact support to increase your budget.` },
+          { status: 403 },
+        )
+      }
+      if (orgRow && browserSpendCents >= orgRow.browserBudgetCents) {
+        const spentDollars = (browserSpendCents / 100).toFixed(2)
+        const budgetDollars = (orgRow.browserBudgetCents / 100).toFixed(2)
+        throw json(
+          { error: `Browser VM budget exceeded ($${spentDollars}/$${budgetDollars}). Contact support to increase your budget.` },
           { status: 403 },
         )
       }
