@@ -43,12 +43,12 @@ const PENDING_STALE_MS = 2 * 60_000
 interface CloudSessionStatus {
   cloudSessionId: string
   browserUseSessionId: string
-  /** Display index derived from creation order (1-based) */
+  /** Subscription slot index (1-based), matches DB slotIndex */
   index: number
   createdAt: number
   status: 'active' | 'stopped'
   cdpUrl: string | null
-  /** Our own live viewer URL (playwriter.dev/live?id=<BU session UUID>) */
+  /** Our own live viewer URL (/live?wss=<encoded CDP endpoint>) */
   liveUrl: string | null
   timeoutAt: string
 }
@@ -241,7 +241,7 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
         result.push({
           cloudSessionId: row.id,
           browserUseSessionId: row.browserUseSessionId,
-          index: result.length + 1,
+          index: row.slotIndex,
           createdAt: row.createdAt,
           status: vm.status,
           cdpUrl: vm.cdpUrl,

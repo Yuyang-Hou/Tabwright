@@ -37,13 +37,18 @@ function formatRelativeTime(isoString: string): string {
   return `${hours}h ${minutes}m left`
 }
 
-/** Build the full slot list: active sessions placed at their index, empty slots fill the rest. */
+/** Build the full slot list: active sessions placed at their index, empty slots fill the rest.
+ *  If a session exists above totalSlots (e.g. user downgraded), still render it. */
 function buildSlotRows({ sessions, totalSlots }: { sessions: CloudSession[]; totalSlots: number }): Array<{ index: number; session: CloudSession | null }> {
   const slotMap = new Map<number, CloudSession>()
   for (const s of sessions) {
     slotMap.set(s.index, s)
   }
-  return Array.from({ length: totalSlots }, (_, i) => {
+  const maxSessionIndex = sessions.reduce((max, s) => {
+    return Math.max(max, s.index)
+  }, 0)
+  const rowCount = Math.max(totalSlots, maxSessionIndex)
+  return Array.from({ length: rowCount }, (_, i) => {
     const index = i + 1
     return { index, session: slotMap.get(index) ?? null }
   })
