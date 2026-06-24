@@ -48,8 +48,17 @@ interface CloudSessionStatus {
   createdAt: number
   status: 'active' | 'stopped'
   cdpUrl: string | null
+  /** Our own live viewer URL (playwriter.dev/live?id=<BU session UUID>) */
   liveUrl: string | null
   timeoutAt: string
+}
+
+/** Build our own /live URL from the exact CDP WebSocket URL.
+ *  Passes the full wss endpoint so the client connects to the exact host
+ *  (Browser Use can shard across cdp1, cdp2, etc.). */
+function buildLiveUrl(cdpUrl: string): string {
+  const wssUrl = cdpUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')
+  return `/live?wss=${encodeURIComponent(wssUrl)}`
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -236,7 +245,7 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
           createdAt: row.createdAt,
           status: vm.status,
           cdpUrl: vm.cdpUrl,
-          liveUrl: vm.liveUrl,
+          liveUrl: vm.cdpUrl ? buildLiveUrl(vm.cdpUrl) : null,
           timeoutAt: vm.timeoutAt,
         })
       }
@@ -434,7 +443,7 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
       return {
         cloudSessionId: cloudSession.id,
         cdpUrl: vm.cdpUrl,
-        liveUrl: vm.liveUrl,
+        liveUrl: vm.cdpUrl ? buildLiveUrl(vm.cdpUrl) : null,
         timeoutAt: vm.timeoutAt,
       }
     },

@@ -11,6 +11,17 @@ import path from 'node:path'
 const DEFAULT_BASE_URL = 'https://playwriter.dev'
 const AUTH_FILE = path.join(os.homedir(), '.playwriter', 'auth.json')
 
+/** Build a playwriter.dev/live URL from the exact CDP WebSocket URL.
+ *  Passes the full wss endpoint as ?wss= param so the client connects
+ *  to the exact host (Browser Use can shard across cdp1, cdp2, etc.). */
+export function buildLiveUrl(cdpUrl: string, baseUrl: string = DEFAULT_BASE_URL): string {
+  // Browser Use returns https:// CDP URLs; the live viewer needs wss://
+  const wssUrl = cdpUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')
+  const url = new URL('/live', baseUrl)
+  url.searchParams.set('wss', wssUrl)
+  return url.toString()
+}
+
 // ── Auth persistence ────────────────────────────────────────────────
 
 export interface CloudAuth {

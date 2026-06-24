@@ -24,7 +24,7 @@ import {
   type ExtensionStatus,
 } from './relay-client.js'
 import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } from './chrome-discovery.js'
-import { getCloudClient, loadCloudAuth, saveCloudAuth, CloudClient } from './cloud-client.js'
+import { getCloudClient, loadCloudAuth, saveCloudAuth, CloudClient, buildLiveUrl } from './cloud-client.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -943,7 +943,7 @@ async function createCloudSession({
   }
   const result = (await response.json()) as { id: string }
 
-  return { id: result.id, liveUrl: connectResult.liveUrl }
+  return { id: result.id, liveUrl: connectResult.cdpUrl ? buildLiveUrl(connectResult.cdpUrl, auth.baseUrl) : null }
 }
 
 /** Reattach to an existing running cloud browser VM instead of creating a new one.
@@ -999,7 +999,7 @@ async function attachExistingCloudSession({
   }
   const result = (await response.json()) as { id: string }
 
-  return { id: result.id, liveUrl: session.liveUrl }
+  return { id: result.id, liveUrl: session.cdpUrl ? buildLiveUrl(session.cdpUrl, auth.baseUrl) : null }
 }
 
 function printBrowserTable(options: BrowserOption[]): void {
@@ -1464,6 +1464,60 @@ cli
             `expires ${timeoutAt}`,
         )
       }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.error(`Error: ${msg}`)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('cloud live [key]', 'Open a live browser view for an active cloud session')
+  .action(async (key) => {
+    const client = getCloudClient()
+    if (!client) {
+      console.error('Not logged in. Run `playwriter cloud login` first.')
+      process.exit(1)
+    }
+
+    try {
+      const { sessions } = await client.getStatus()
+      if (sessions.length === 0) {
+        console.log('No active cloud sessions.')
+        console.log(pc.dim('Start one with: playwriter session new --browser cloud'))
+        process.exit(1)
+      }
+
+      let session: (typeof sessions)[number] | undefined
+      if (key) {
+        // Match by cloud-N key or by cloudSessionId
+        session = sessions.find((s) => {
+          return `cloud-${s.index}` === key || s.cloudSessionId === key || s.browserUseSessionId === key
+        })
+        if (!session) {
+          console.error(`No active session matching "${key}".`)
+          console.error('Active sessions: ' + sessions.map((s) => { return `cloud-${s.index}` }).join(', '))
+          process.exit(1)
+        }
+      } else if (sessions.length === 1) {
+        session = sessions[0]!
+      } else {
+        console.log('Multiple active sessions. Specify one:\n')
+        for (const s of sessions) {
+          console.log(`  cloud-${s.index}  (expires ${new Date(s.timeoutAt).toLocaleTimeString()})`)
+        }
+        console.log(`\nUsage: playwriter cloud live cloud-1`)
+        process.exit(1)
+      }
+
+      if (!session.cdpUrl) {
+        console.error('Session has no CDP URL — it may still be starting.')
+        process.exit(1)
+      }
+      const auth = loadCloudAuth()!
+      const liveUrl = buildLiveUrl(session.cdpUrl, auth.baseUrl)
+      console.log(liveUrl)
+      await openInBrowser(liveUrl)
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       console.error(`Error: ${msg}`)
