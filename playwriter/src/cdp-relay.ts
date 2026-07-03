@@ -1908,7 +1908,12 @@ export async function startPlayWriterCDPRelayServer({
 
   app.post('/cli/execute', async (c) => {
     try {
-      const body = (await c.req.json()) as { sessionId: string | number; code: string; timeout?: number }
+      const body = (await c.req.json()) as {
+        sessionId: string | number
+        code: string
+        timeout?: number
+        includeStructuredResult?: boolean
+      }
       const sessionId = normalizeSessionId(body.sessionId)
       const { code, timeout = 10000 } = body
 
@@ -1933,7 +1938,9 @@ export async function startPlayWriterCDPRelayServer({
 
       let result: Awaited<ReturnType<typeof existingExecutor.execute>>
       try {
-        result = await existingExecutor.execute(code, timeout)
+        result = await existingExecutor.execute(code, timeout, {
+          includeStructuredResult: body.includeStructuredResult === true,
+        })
       } finally {
         if (cloudTracking) {
           cloudTracking.activeExecutions--

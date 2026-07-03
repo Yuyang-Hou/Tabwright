@@ -11,6 +11,10 @@ bunx playwriter@latest session new
 
 If using npx or bunx always use @latest for the first session command. so we are sure of using the latest version of the package
 
+### Sandboxed agent environments
+
+Playwriter controls the real user browser through a local relay on `127.0.0.1:19988`. If you are running inside an agent sandbox that restricts localhost access, use that environment's elevated/unsandboxed command mode for Playwriter commands that create sessions, list browsers, run `-s ... -e ...`, run browser-backed capabilities, or read relay logs. Do this immediately for Playwriter browser/relay commands instead of first trying a sandboxed command and diagnosing the relay as broken.
+
 ### Session management
 
 Each session runs in an **isolated sandbox** with its own `state` object. Use sessions to:
@@ -246,6 +250,72 @@ playwriter -s 1 -f script.js
 ```
 
 The file is read from disk and executed in the same sandbox as `-e`. All context variables (`state`, `page`, `context`, etc.) are available. `-e` and `-f` cannot be used together.
+
+### Saved capabilities
+
+Saved capabilities are reusable Playwriter scripts with metadata, AI-readable intent, input schema, output schema, auth policy, trust status, and run logs. Use them to preserve repeated workflows such as querying a user in an admin console or calling a page-backed API without reopening Chrome.
+
+Before writing new browser automation, search whether a saved capability already exists:
+
+```bash
+playwriter capability list
+playwriter capability search "current bilibili account"
+playwriter capability describe bilibili-current-user --json
+playwriter capability show query-user
+```
+
+Create and edit capabilities. Use `--runtime node` for API/HTTP capabilities that can run without a browser. Use `--contract-file` to update the AI-readable contract (`whenToUse`, `whenNotToUse`, `sideEffect`, `auth`, schemas, examples, tags).
+
+```bash
+playwriter capability create query-user --project --title "Query user"
+playwriter capability create bilibili-current-user --runtime node --title "Bilibili Current User"
+playwriter capability update query-user --from-file script.js
+playwriter capability update bilibili-current-user --contract-file contract.json
+playwriter capability trust query-user
+```
+
+Run a capability with structured JSON input. `node` runtime capabilities run locally without opening Chrome. `browser` runtime capabilities create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
+
+```bash
+playwriter capability run query-user --input-json '{"email":"a@example.com"}' --json
+playwriter capability run query-user -s 1 --input-json '{"email":"a@example.com"}'
+playwriter capability run query-user --browser user --input-json '{"email":"a@example.com"}'
+playwriter capability run bilibili-current-user --json
+```
+
+When multiple Chrome extension connections exist, pass a browser key from `playwriter browser list` instead of `user`.
+
+Refresh cookie auth only after explicit user confirmation. This updates the local `secrets.json` and does not print cookie values:
+
+```bash
+playwriter capability refresh-auth bilibili-current-user --browser user --json
+playwriter capability refresh-auth bilibili-current-user --browser install:Chrome:qculboi03pt0 --json
+```
+
+Browser capability scripts run in the normal Playwriter sandbox and receive `input` and `capability` globals in addition to `page`, `context`, `state`, `snapshot`, and other helpers:
+
+```js
+await page.goto("https://admin.example.com/users")
+await page.getByPlaceholder("Search").fill(input.email)
+await page.keyboard.press("Enter")
+
+return {
+  email: input.email,
+  url: page.url(),
+}
+```
+
+Node capability scripts receive `input`, `capability`, `secrets`, `fetch`, URL helpers, timers, `Buffer`, text encoders, and `crypto` globals:
+
+```js
+const response = await fetch("https://api.example.com/me", {
+  headers: { cookie: secrets.cookieHeader },
+})
+
+return await response.json()
+```
+
+Agents should use capability search and describe before creating new automation. A capability can be called autonomously only when it is `trusted`, has `sideEffect: "read"`, and has `requiresConfirmation: false`. Draft capabilities require `--force` before they can run. Editing a trusted capability's script automatically downgrades it to draft. Updating the AI contract through `--contract-file` also downgrades trusted capabilities to draft unless the patch explicitly sets a status. Use `playwriter studio` to start the standalone local management page for capabilities.
 
 ### Debugging playwriter issues
 

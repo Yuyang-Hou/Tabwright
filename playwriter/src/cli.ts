@@ -21,14 +21,52 @@ import {
   waitForConnectedExtensions,
   getExtensionOutdatedWarning,
   getExtensionStatus,
+  getLocalRelayHttpBaseUrl,
   type ExtensionStatus,
 } from './relay-client.js'
 import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } from './chrome-discovery.js'
 import { getCloudClient, loadCloudAuth, saveCloudAuth, CloudClient, buildLiveUrl } from './cloud-client.js'
+import {
+  appendCapabilityRun,
+  createCapability,
+  listCapabilities,
+  readCapabilityScript,
+  searchCapabilities,
+  toCapabilityContract,
+  toCapabilitySummary,
+  updateCapabilityManifest,
+  updateCapabilityScript,
+  validateJsonAgainstSchema,
+  type CapabilityManifestPatch,
+  type CapabilityRecord,
+} from './capability-registry.js'
+import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
+import { buildCapabilityRunRecord, prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
+import type { ExecuteResult } from './executor.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const cli = goke('playwriter')
+
+cli.on('command:*', () => {
+  const firstArg = cli.args[0]
+  if (!firstArg) {
+    return
+  }
+
+  const hasMatchingCommandPrefix = cli.commands.some((command) => {
+    if (command.name === '') {
+      return false
+    }
+    return command.name.split(' ')[0] === firstArg
+  })
+
+  if (hasMatchingCommandPrefix) {
+    return
+  }
+
+  console.error('Run "playwriter --help" for usage information.')
+})
 
 cli
   .command('browser start [binaryPath]', 'Start Chromium or Chrome for Testing with the bundled Playwriter extension')
@@ -166,6 +204,9 @@ cli
   })
 
 async function getServerUrl(host?: string): Promise<string> {
+  if (!host && !process.env.PLAYWRITER_HOST) {
+    return await getLocalRelayHttpBaseUrl(RELAY_PORT)
+  }
   const serverHost = host || process.env.PLAYWRITER_HOST || '127.0.0.1'
   const { httpBaseUrl } = parseRelayHost(serverHost, RELAY_PORT)
   return httpBaseUrl
@@ -249,8 +290,6 @@ async function executeCode(options: {
     process.exit(1)
   }
 
-  const serverUrl = await getServerUrl(host)
-
   // Ensure relay server is running (only for local)
   if (!host && !process.env.PLAYWRITER_HOST) {
     const restarted = await ensureRelayServer({ logger: console })
@@ -265,6 +304,8 @@ async function executeCode(options: {
       }
     }
   }
+
+  const serverUrl = await getServerUrl(host)
 
   // Warn once if extension is outdated
   const extensionStatus = await getExtensionStatus()
@@ -357,6 +398,357 @@ async function executeCode(options: {
   }
 }
 
+type CliExecuteResult = ExecuteResult & { isCloud?: boolean }
+
+interface CapabilityRunOptions {
+  input?: string
+  inputJson?: string
+  session?: string
+  host?: string
+  token?: string
+  timeout?: number
+  force?: boolean
+  browser?: string
+  json?: boolean
+  keepSession?: boolean
+}
+
+interface CapabilityRefreshAuthOptions {
+  session?: string
+  host?: string
+  token?: string
+  timeout?: number
+  browser?: string
+  json?: boolean
+  keepSession?: boolean
+}
+
+function parseCapabilityInput(options: { input?: string; inputJson?: string }): unknown {
+  const rawInput = options.inputJson || options.input || '{}'
+  try {
+    return JSON.parse(rawInput)
+  } catch (error) {
+    throw new Error(`Invalid JSON input: ${rawInput}`, { cause: error })
+  }
+}
+
+async function requestCliExecute(options: {
+  code: string
+  timeout: number
+  sessionId: string
+  host?: string
+  token?: string
+  includeStructuredResult?: boolean
+}): Promise<CliExecuteResult> {
+  if (!options.host && !process.env.PLAYWRITER_HOST) {
+    await ensureRelayServer({ logger: console })
+  }
+  const serverUrl = await getServerUrl(options.host)
+
+  const response = await fetch(`${serverUrl}/cli/execute`, {
+    method: 'POST',
+    headers: buildAuthHeaders({ token: options.token, json: true }),
+    body: JSON.stringify({
+      sessionId: options.sessionId,
+      code: options.code,
+      timeout: options.timeout,
+      cwd: process.cwd(),
+      includeStructuredResult: options.includeStructuredResult,
+    }),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Execute failed: ${response.status} ${text}`)
+  }
+  return (await response.json()) as CliExecuteResult
+}
+
+async function createCapabilityRunSession(options: {
+  browser: string
+  host?: string
+  token?: string
+}): Promise<{ sessionId: string; autoCreated: boolean }> {
+  const isLocal = !options.host && !process.env.PLAYWRITER_HOST
+  await ensureRelayForSessionCreation(isLocal)
+  const serverUrl = await getServerUrl(options.host)
+
+  const body = (() => {
+    if (options.browser === 'headless') {
+      return { headless: true, cwd: process.cwd() }
+    }
+    if (options.browser === 'user') {
+      return { cwd: process.cwd() }
+    }
+    return { extensionId: options.browser, cwd: process.cwd() }
+  })()
+
+  const response = await fetch(`${serverUrl}/cli/session/new`, {
+    method: 'POST',
+    headers: buildAuthHeaders({ token: options.token, json: true }),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Failed to create ${options.browser} session: ${response.status} ${text}`)
+  }
+  const result = (await response.json()) as { id: string }
+  return { sessionId: result.id, autoCreated: true }
+}
+
+async function deleteCapabilityRunSession(options: { sessionId: string; host?: string; token?: string }): Promise<void> {
+  const serverUrl = await getServerUrl(options.host)
+  await fetch(`${serverUrl}/cli/session/delete`, {
+    method: 'POST',
+    headers: buildAuthHeaders({ token: options.token, json: true }),
+    body: JSON.stringify({ sessionId: options.sessionId }),
+  }).catch(() => {})
+}
+
+function printCapabilityList(options: { capabilities: CapabilityRecord[]; json?: boolean }): void {
+  if (options.json) {
+    console.log(JSON.stringify(options.capabilities.map(toCapabilitySummary), null, 2))
+    return
+  }
+  if (options.capabilities.length === 0) {
+    console.log('No capabilities found.')
+    return
+  }
+  const idWidth = Math.max(2, ...options.capabilities.map((capability) => capability.manifest.id.length))
+  const statusWidth = Math.max(6, ...options.capabilities.map((capability) => capability.manifest.status.length))
+  console.log(`${'ID'.padEnd(idWidth)}  ${'Status'.padEnd(statusWidth)}  Runtime  Location  Title`)
+  console.log(`${'-'.repeat(idWidth)}  ${'-'.repeat(statusWidth)}  -------  --------  -----`)
+  options.capabilities.forEach((capability) => {
+    console.log(
+      `${capability.manifest.id.padEnd(idWidth)}  ${capability.manifest.status.padEnd(statusWidth)}  ${capability.manifest.runtime.padEnd(7)}  ${capability.location.padEnd(8)}  ${capability.manifest.title}`,
+    )
+  })
+}
+
+function printCapabilitySearch(options: {
+  query: string
+  results: ReturnType<typeof searchCapabilities>
+  json?: boolean
+}): void {
+  if (options.json) {
+    console.log(
+      JSON.stringify(
+        options.results.map((result) => {
+          return {
+            score: result.score,
+            reasons: result.reasons,
+            ...toCapabilityContract(result.capability),
+          }
+        }),
+        null,
+        2,
+      ),
+    )
+    return
+  }
+  if (options.results.length === 0) {
+    console.log(`No capabilities matched: ${options.query}`)
+    return
+  }
+  const lines = options.results.map((result) => {
+    const autonomy = result.capability.manifest.requiresConfirmation ? 'confirm' : result.capability.manifest.sideEffect
+    return `${result.capability.manifest.id}  score=${result.score}  ${result.capability.manifest.runtime}/${autonomy}  ${result.capability.manifest.title}`
+  })
+  console.log(lines.join('\n'))
+}
+
+function readCapabilityManifestPatchFromFile(filePath: string): CapabilityManifestPatch {
+  const parsed = JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf-8'))
+  if (!isRecord(parsed)) {
+    throw new Error('Capability contract file must contain a JSON object')
+  }
+  return parsed as CapabilityManifestPatch
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+async function refreshCapabilityAuthFromCli(id: string, options: CapabilityRefreshAuthOptions): Promise<void> {
+  const session = options.session || process.env.PLAYWRITER_SESSION
+  const sessionInfo = session
+    ? { sessionId: session, autoCreated: false }
+    : await createCapabilityRunSession({
+        browser: options.browser || 'user',
+        host: options.host,
+        token: options.token,
+      })
+
+  try {
+    const result = await refreshCapabilityAuthWithExecutor({
+      id,
+      cwd: process.cwd(),
+      timeout: options.timeout || 10000,
+      executor: {
+        execute: (code, timeout, executeOptions) => {
+          return requestCliExecute({
+            code,
+            timeout: timeout || 10000,
+            sessionId: sessionInfo.sessionId,
+            host: options.host,
+            token: options.token,
+            includeStructuredResult: executeOptions?.includeStructuredResult,
+          })
+        },
+      },
+    })
+    if (options.json) {
+      console.log(
+        JSON.stringify(
+          {
+            capability: result.capability.manifest.id,
+            saved: result.saved,
+            secretKey: result.secretKey,
+            cookieCount: result.cookieCount,
+            cookieNames: result.cookieNames,
+            urls: result.urls,
+            path: result.path,
+          },
+          null,
+          2,
+        ),
+      )
+      return
+    }
+    console.log(`Refreshed ${result.capability.manifest.id} auth at ${result.path}`)
+    console.log(`Saved ${result.cookieCount} cookies into secret "${result.secretKey}".`)
+  } finally {
+    if (sessionInfo.autoCreated && !options.keepSession) {
+      await deleteCapabilityRunSession({
+        sessionId: sessionInfo.sessionId,
+        host: options.host,
+        token: options.token,
+      })
+    }
+  }
+}
+
+async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): Promise<void> {
+  const input = parseCapabilityInput({ input: options.input, inputJson: options.inputJson })
+  const prepared = prepareCapabilityRun({
+    id,
+    input,
+    cwd: process.cwd(),
+    force: options.force,
+  })
+  if (prepared.capability.manifest.runtime === 'node') {
+    const result = await runNodeCapability({
+      id,
+      input,
+      cwd: process.cwd(),
+      force: options.force,
+      timeout: options.timeout || 10000,
+    })
+    if (options.json) {
+      console.log(
+        JSON.stringify(
+          {
+            capability: result.capability.manifest.id,
+            output: result.output,
+            text: result.text,
+            isError: result.isError,
+          },
+          null,
+          2,
+        ),
+      )
+      return
+    }
+    console.log(JSON.stringify(result.output, null, 2))
+    return
+  }
+
+  const session = options.session || process.env.PLAYWRITER_SESSION
+  const sessionInfo = session
+    ? { sessionId: session, autoCreated: false }
+    : await createCapabilityRunSession({
+        browser: options.browser || 'headless',
+        host: options.host,
+        token: options.token,
+      })
+
+  const start = Date.now()
+  try {
+    const result = await requestCliExecute({
+      code: prepared.code,
+      timeout: options.timeout || 10000,
+      sessionId: sessionInfo.sessionId,
+      host: options.host,
+      token: options.token,
+      includeStructuredResult: true,
+    })
+    if (!result.isError) {
+      const outputValidation = validateJsonAgainstSchema({
+        schema: prepared.capability.manifest.outputSchema,
+        value: result.structuredResult,
+        label: 'output',
+      })
+      if (!outputValidation.valid) {
+        throw new Error(`Invalid capability output:\n${outputValidation.errors.join('\n')}`)
+      }
+    }
+
+    appendCapabilityRun({
+      capability: prepared.capability,
+      record: buildCapabilityRunRecord({
+        capability: prepared.capability,
+        status: result.isError ? 'error' : 'success',
+        durationMs: Date.now() - start,
+        inputHash: prepared.inputHash,
+        error: result.isError ? result.text : undefined,
+      }),
+    })
+
+    if (options.json) {
+      console.log(
+        JSON.stringify(
+          {
+            capability: prepared.capability.manifest.id,
+            output: result.structuredResult,
+            text: result.text,
+            isError: result.isError,
+          },
+          null,
+          2,
+        ),
+      )
+    } else {
+      console.log(JSON.stringify(result.structuredResult, null, 2))
+      if (result.isError) {
+        console.error(result.text)
+      }
+    }
+
+    if (result.isError) {
+      process.exit(1)
+    }
+  } catch (error) {
+    appendCapabilityRun({
+      capability: prepared.capability,
+      record: buildCapabilityRunRecord({
+        capability: prepared.capability,
+        status: 'error',
+        durationMs: Date.now() - start,
+        inputHash: prepared.inputHash,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    })
+    throw error
+  } finally {
+    if (sessionInfo.autoCreated && !options.keepSession) {
+      await deleteCapabilityRunSession({
+        sessionId: sessionInfo.sessionId,
+        host: options.host,
+        token: options.token,
+      })
+    }
+  }
+}
+
 // Session management commands
 // Unified browser option type used in the multi-browser selection table
 interface BrowserOption {
@@ -373,6 +765,289 @@ interface BrowserOption {
   /** For cloud entries — active BU session's cloud session ID (if VM is running) */
   activeCloudSessionId?: string
 }
+
+function exitWithError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error(`Error: ${message}`)
+  process.exit(1)
+}
+
+cli
+  .command('capability list', 'List saved Playwriter capabilities')
+  .option('--json', 'Print JSON')
+  .action((options: { json?: boolean }) => {
+    try {
+      printCapabilityList({ capabilities: listCapabilities({ cwd: process.cwd() }), json: options.json })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability search <query>', 'Search saved Playwriter capabilities by user intent')
+  .option('--limit <n>', z.number().default(10).describe('Maximum number of results'))
+  .option('--json', 'Print JSON')
+  .action((query: string, options: { limit?: number; json?: boolean }) => {
+    try {
+      printCapabilitySearch({
+        query,
+        results: searchCapabilities({ query, cwd: process.cwd(), limit: options.limit || 10 }),
+        json: options.json,
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability describe <id>', 'Print the AI-readable contract for a capability')
+  .option('--json', 'Print JSON')
+  .action((id: string, options: { json?: boolean }) => {
+    try {
+      const capability = listCapabilities({ cwd: process.cwd() }).find((candidate) => {
+        return candidate.manifest.id === id
+      })
+      if (!capability) {
+        throw new Error(`Capability not found: ${id}`)
+      }
+      const contract = toCapabilityContract(capability)
+      if (options.json) {
+        console.log(JSON.stringify(contract, null, 2))
+        return
+      }
+      console.log(JSON.stringify(contract, null, 2))
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability show <id>', 'Show a saved Playwriter capability')
+  .option('--json', 'Print JSON')
+  .option('--script', 'Print the script source')
+  .action((id: string, options: { json?: boolean; script?: boolean }) => {
+    try {
+      const capability = listCapabilities({ cwd: process.cwd() }).find((candidate) => {
+        return candidate.manifest.id === id
+      })
+      if (!capability) {
+        throw new Error(`Capability not found: ${id}`)
+      }
+      if (options.script) {
+        console.log(readCapabilityScript({ id, cwd: process.cwd() }))
+        return
+      }
+      if (options.json) {
+        console.log(JSON.stringify(toCapabilitySummary(capability), null, 2))
+        return
+      }
+      console.log(`${capability.manifest.title} (${capability.manifest.id})`)
+      console.log(`Status: ${capability.manifest.status}`)
+      console.log(`Runtime: ${capability.manifest.runtime}`)
+      console.log(`Location: ${capability.location}`)
+      console.log(`Directory: ${capability.dir}`)
+      if (capability.manifest.description) {
+        console.log(`Description: ${capability.manifest.description}`)
+      }
+      console.log(`Match: ${capability.manifest.match.length > 0 ? capability.manifest.match.join(', ') : '-'}`)
+      console.log(`Permissions: ${capability.manifest.permissions.join(', ') || '-'}`)
+      console.log(`Entry: ${capability.manifest.entry}`)
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability create <id>', 'Create a draft Playwriter capability')
+  .option('--title <title>', 'Capability title')
+  .option('--description <description>', 'Capability description')
+  .option('--project', 'Create under .playwriter/capabilities in the current project')
+  .option('--runtime <browser|node>', 'Capability runtime (default: browser)')
+  .option('--force', 'Overwrite an existing capability')
+  .option('--json', 'Print JSON')
+  .action(
+    (
+      id: string,
+      options: { title?: string; description?: string; project?: boolean; runtime?: string; force?: boolean; json?: boolean },
+    ) => {
+      try {
+        if (options.runtime && options.runtime !== 'browser' && options.runtime !== 'node') {
+          throw new Error(`Invalid runtime: ${options.runtime}`)
+        }
+        const runtime = options.runtime === 'browser' || options.runtime === 'node' ? options.runtime : undefined
+        const capability = createCapability({
+          id,
+          title: options.title,
+          description: options.description,
+          location: options.project ? 'project' : 'user',
+          cwd: process.cwd(),
+          overwrite: options.force,
+          createdBy: 'ai',
+          runtime,
+        })
+        if (options.json) {
+          console.log(JSON.stringify(toCapabilitySummary(capability), null, 2))
+          return
+        }
+        console.log(`Created ${capability.manifest.id} at ${capability.dir}`)
+      } catch (error) {
+        exitWithError(error)
+      }
+    },
+  )
+
+cli
+  .command('capability update <id>', 'Update a capability script from a file')
+  .option('--from-file <path>', 'Path to the new script.js source')
+  .option('--contract-file <path>', 'Path to a JSON manifest contract patch')
+  .option('--title <title>', 'Update title')
+  .option('--description <description>', 'Update description')
+  .option('--json', 'Print JSON')
+  .action(
+    (
+      id: string,
+      options: { fromFile?: string; contractFile?: string; title?: string; description?: string; json?: boolean },
+    ) => {
+      try {
+        let capability: CapabilityRecord | null = null
+        if (options.fromFile) {
+          const sourcePath = path.resolve(options.fromFile)
+          capability = updateCapabilityScript({ id, cwd: process.cwd(), source: fs.readFileSync(sourcePath, 'utf-8') })
+        }
+        if (options.contractFile) {
+          const patch = readCapabilityManifestPatchFromFile(options.contractFile)
+          const currentCapability =
+            capability ||
+            listCapabilities({ cwd: process.cwd() }).find((candidate) => {
+              return candidate.manifest.id === id
+            }) ||
+            null
+          if (currentCapability?.manifest.status === 'trusted' && !patch.status) {
+            patch.status = 'draft'
+          }
+          capability = updateCapabilityManifest({ id, cwd: process.cwd(), patch })
+        }
+        if (options.title || options.description) {
+          const patch: CapabilityManifestPatch = {}
+          if (options.title) {
+            patch.title = options.title
+          }
+          if (options.description) {
+            patch.description = options.description
+          }
+          capability = updateCapabilityManifest({
+            id,
+            cwd: process.cwd(),
+            patch,
+          })
+        }
+        if (!capability) {
+          throw new Error('Nothing to update. Pass --from-file, --contract-file, --title, or --description.')
+        }
+        if (options.json) {
+          console.log(JSON.stringify(toCapabilitySummary(capability), null, 2))
+          return
+        }
+        console.log(`Updated ${capability.manifest.id}. Status: ${capability.manifest.status}`)
+      } catch (error) {
+        exitWithError(error)
+      }
+    },
+  )
+
+cli
+  .command('capability trust <id>', 'Mark a capability trusted')
+  .action((id: string) => {
+    try {
+      const capability = updateCapabilityManifest({ id, cwd: process.cwd(), patch: { status: 'trusted' } })
+      console.log(`Trusted ${capability.manifest.id}`)
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability draft <id>', 'Mark a capability draft')
+  .action((id: string) => {
+    try {
+      const capability = updateCapabilityManifest({ id, cwd: process.cwd(), patch: { status: 'draft' } })
+      console.log(`Marked ${capability.manifest.id} as draft`)
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability disable <id>', 'Disable a capability')
+  .action((id: string) => {
+    try {
+      const capability = updateCapabilityManifest({ id, cwd: process.cwd(), patch: { status: 'disabled' } })
+      console.log(`Disabled ${capability.manifest.id}`)
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability refresh-auth <id>', 'Refresh a capability auth secret from the current browser session')
+  .option('-s, --session <id>', 'Existing Playwriter session id')
+  .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
+  .option('--browser <headless|user|key>', 'Runtime when --session is omitted (default: user)')
+  .option('--keep-session', 'Keep auto-created session alive after refresh')
+  .option('--json', 'Print JSON envelope')
+  .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
+  .action(async (id: string, options: CapabilityRefreshAuthOptions) => {
+    try {
+      await refreshCapabilityAuthFromCli(id, options)
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability run <id>', 'Run a Playwriter capability')
+  .option('--input <json>', 'JSON input object')
+  .option('--input-json <json>', 'JSON input object')
+  .option('-s, --session <id>', 'Existing Playwriter session id')
+  .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
+  .option('--browser <headless|user|key>', 'Runtime when --session is omitted (default: headless)')
+  .option('--force', 'Run draft capabilities or bypass URL match checks')
+  .option('--keep-session', 'Keep auto-created session alive after run')
+  .option('--json', 'Print JSON envelope')
+  .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
+  .action(async (id: string, options: CapabilityRunOptions) => {
+    try {
+      await runCapabilityFromCli(id, options)
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('studio', 'Start the local Playwriter capability studio')
+  .option('--host <host>', z.string().default('127.0.0.1').describe('Host to bind to'))
+  .option('--port <port>', z.number().default(19989).describe('Port to bind to'))
+  .option('--open', 'Open the studio URL in the default browser')
+  .action(async (options: { host?: string; port?: number; open?: boolean }) => {
+    try {
+      const { startCapabilityStudio } = await import('./capability-studio.js')
+      const server = await startCapabilityStudio({
+        host: options.host || '127.0.0.1',
+        port: options.port || 19989,
+        cwd: process.cwd(),
+      })
+      const url = `http://${server.host}:${server.port}`
+      console.log(`Playwriter capability studio: ${url}`)
+      console.log('Press Ctrl+C to stop.')
+      if (options.open) {
+        await openInBrowser(url)
+      }
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
 
 cli
   .command('session new', 'Create a new session and print the session ID')

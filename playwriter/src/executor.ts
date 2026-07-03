@@ -243,6 +243,11 @@ export interface ExecuteResult {
   images: Array<{ data: string; mimeType: string }>
   screenshots: ExecuteScreenshot[]
   isError: boolean
+  structuredResult?: unknown
+}
+
+export interface ExecuteOptions {
+  includeStructuredResult?: boolean
 }
 
 interface WarningEvent {
@@ -1050,7 +1055,7 @@ export class PlaywrightExecutor {
     return { page, context }
   }
 
-  async execute(code: string, timeout = 10000): Promise<ExecuteResult> {
+  async execute(code: string, timeout = 10000, options: ExecuteOptions = {}): Promise<ExecuteResult> {
     const consoleLogs: Array<{ method: string; args: any[] }> = []
     const warningScope = this.beginWarningScope()
 
@@ -1599,6 +1604,7 @@ export class PlaywrightExecutor {
       let responseText = formatConsoleLogs(consoleLogs)
 
       // Only show return value if user explicitly used return
+      let structuredResult: unknown
       if (hasExplicitReturn) {
         const resolvedResult = isPromise(result) ? await result : result
         // Auto-returned Playwright handles (Response, Page, Browser, Request,
@@ -1607,6 +1613,9 @@ export class PlaywrightExecutor {
         // return specific fields (`return response.url()`) to see values.
         // See issue #82.
         if (resolvedResult !== undefined && !isPlaywrightChannelOwner(resolvedResult)) {
+          if (options.includeStructuredResult) {
+            structuredResult = resolvedResult
+          }
           const formatted =
             typeof resolvedResult === 'string'
               ? resolvedResult
@@ -1649,7 +1658,9 @@ export class PlaywrightExecutor {
         labelCount: s.labelCount,
       }))
 
-      return { text: finalText, images, screenshots, isError: false }
+      return options.includeStructuredResult
+        ? { text: finalText, images, screenshots, isError: false, structuredResult }
+        : { text: finalText, images, screenshots, isError: false }
     } catch (error: any) {
       const errorStack = error.stack || error.message
       const isTimeoutError =

@@ -17,6 +17,7 @@ import type {
   CancelRecordingResult,
 } from './protocol.js'
 import { GhostCursorController } from './ghost-cursor-controller.js'
+import { getLocalRelayHttpBaseUrl } from './relay-client.js'
 
 /**
  * Build headers for the relay's privileged /recording/* HTTP endpoints.
@@ -31,6 +32,10 @@ function recordingHeaders(): Record<string, string> {
     headers['Authorization'] = `Bearer ${token}`
   }
   return headers
+}
+
+async function getRecordingRelayBaseUrl(relayPort: number): Promise<string> {
+  return await getLocalRelayHttpBaseUrl(relayPort)
 }
 
 /**
@@ -305,8 +310,9 @@ export async function startRecording(options: StartRecordingOptions): Promise<Re
   // Resolve relative paths to absolute using the caller's cwd.
   // The relay server may have a different cwd, so we must resolve here.
   const absoluteOutputPath = path.resolve(outputPath)
+  const relayBaseUrl = await getRecordingRelayBaseUrl(relayPort)
 
-  const response = await fetch(`http://127.0.0.1:${relayPort}/recording/start`, {
+  const response = await fetch(`${relayBaseUrl}/recording/start`, {
     method: 'POST',
     headers: recordingHeaders(),
     body: JSON.stringify({
@@ -353,8 +359,9 @@ export async function stopRecording(
   options: StopRecordingOptions,
 ): Promise<{ path: string; duration: number; size: number }> {
   const { sessionId, relayPort = 19988 } = options
+  const relayBaseUrl = await getRecordingRelayBaseUrl(relayPort)
 
-  const response = await fetch(`http://127.0.0.1:${relayPort}/recording/stop`, {
+  const response = await fetch(`${relayBaseUrl}/recording/stop`, {
     method: 'POST',
     headers: recordingHeaders(),
     body: JSON.stringify({ sessionId }),
@@ -379,7 +386,8 @@ export async function isRecording(options: {
 }): Promise<RecordingState> {
   const { sessionId, relayPort = 19988 } = options
 
-  const url = new URL(`http://127.0.0.1:${relayPort}/recording/status`)
+  const relayBaseUrl = await getRecordingRelayBaseUrl(relayPort)
+  const url = new URL(`${relayBaseUrl}/recording/status`)
   if (sessionId) {
     url.searchParams.set('sessionId', sessionId)
   }
@@ -399,8 +407,9 @@ export async function cancelRecording(options: {
   relayPort?: number
 }): Promise<void> {
   const { sessionId, relayPort = 19988 } = options
+  const relayBaseUrl = await getRecordingRelayBaseUrl(relayPort)
 
-  const response = await fetch(`http://127.0.0.1:${relayPort}/recording/cancel`, {
+  const response = await fetch(`${relayBaseUrl}/recording/cancel`, {
     method: 'POST',
     headers: recordingHeaders(),
     body: JSON.stringify({ sessionId }),

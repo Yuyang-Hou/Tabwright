@@ -14,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 export const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
+export const LOCAL_RELAY_HOSTS = ['127.0.0.1', 'localhost', '[::1]'] as const
 
 export type ExtensionStatus = {
   extensionId: string
@@ -24,19 +25,73 @@ export type ExtensionStatus = {
   playwriterVersion: string | null
 }
 
+export function getLocalRelayHttpBaseUrls(port: number = RELAY_PORT): string[] {
+  return LOCAL_RELAY_HOSTS.map((host) => {
+    return `http://${host}:${port}`
+  })
+}
+
+async function fetchLocalRelayPath({
+  path,
+  port = RELAY_PORT,
+  timeoutMs = 2000,
+  init,
+  accept = () => {
+    return true
+  },
+}: {
+  path: string
+  port?: number
+  timeoutMs?: number
+  init?: RequestInit
+  accept?: (response: Response) => boolean
+}): Promise<{ response: Response; httpBaseUrl: string } | null> {
+  const attempts = getLocalRelayHttpBaseUrls(port)
+
+  for (const httpBaseUrl of attempts) {
+    try {
+      const response = await fetch(`${httpBaseUrl}${path}`, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (accept(response)) {
+        return { response, httpBaseUrl }
+      }
+    } catch {}
+  }
+
+  return null
+}
+
+export async function getLocalRelayHttpBaseUrl(port: number = RELAY_PORT): Promise<string> {
+  const result = await fetchLocalRelayPath({
+    path: '/version',
+    port,
+    timeoutMs: 500,
+    accept: (response) => {
+      return response.ok
+    },
+  })
+  if (result) {
+    return result.httpBaseUrl
+  }
+  return getLocalRelayHttpBaseUrls(port)[0]!
+}
+
 export async function getRelayServerVersion(port: number = RELAY_PORT): Promise<string | null> {
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/version`, {
-      signal: AbortSignal.timeout(2000),
-    })
-    if (!response.ok) {
-      return null
-    }
-    const data = (await response.json()) as { version: string }
-    return data.version
-  } catch {
+  const result = await fetchLocalRelayPath({
+    path: '/version',
+    port,
+    timeoutMs: 2000,
+    accept: (response) => {
+      return response.ok
+    },
+  })
+  if (!result) {
     return null
   }
+  const data = (await result.response.json()) as { version: string }
+  return data.version
 }
 
 /**
@@ -67,64 +122,70 @@ export async function waitForRelayVersion({
 export async function getExtensionStatus(
   port: number = RELAY_PORT,
 ): Promise<{ connected: boolean; activeTargets: number; playwriterVersion: string | null } | null> {
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/extension/status`, {
-      signal: AbortSignal.timeout(500),
-    })
-    if (!response.ok) {
-      return null
-    }
-    return (await response.json()) as { connected: boolean; activeTargets: number; playwriterVersion: string | null }
-  } catch {
+  const result = await fetchLocalRelayPath({
+    path: '/extension/status',
+    port,
+    timeoutMs: 500,
+    accept: (response) => {
+      return response.ok
+    },
+  })
+  if (!result) {
     return null
   }
+  return (await result.response.json()) as { connected: boolean; activeTargets: number; playwriterVersion: string | null }
 }
 
 export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<ExtensionStatus[]> {
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/extensions/status`, {
-      signal: AbortSignal.timeout(2000),
-    })
-    if (!response.ok) {
-      const fallback = await fetch(`http://127.0.0.1:${port}/extension/status`, {
-        signal: AbortSignal.timeout(2000),
-      })
-      if (!fallback.ok) {
-        return []
-      }
-
-      const fallbackData = (await fallback.json()) as {
-        connected: boolean
-        activeTargets: number
-        browser: string | null
-        profile: { email: string; id: string } | null
-        playwriterVersion?: string | null
-      }
-
-      if (!fallbackData?.connected) {
-        return []
-      }
-
-      return [
-        {
-          extensionId: 'default',
-          stableKey: undefined,
-          browser: fallbackData.browser,
-          profile: fallbackData.profile,
-          activeTargets: fallbackData.activeTargets,
-          playwriterVersion: fallbackData.playwriterVersion || null,
-        },
-      ]
-    }
-
-    const data = (await response.json()) as {
+  const result = await fetchLocalRelayPath({
+    path: '/extensions/status',
+    port,
+    timeoutMs: 2000,
+    accept: (response) => {
+      return response.ok
+    },
+  })
+  if (result) {
+    const data = (await result.response.json()) as {
       extensions: ExtensionStatus[]
     }
-
     return data.extensions || []
-  } catch {
+  }
+
+  const fallbackResult = await fetchLocalRelayPath({
+    path: '/extension/status',
+    port,
+    timeoutMs: 2000,
+    accept: (response) => {
+      return response.ok
+    },
+  })
+  if (!fallbackResult) {
     return []
   }
+
+  const fallbackData = (await fallbackResult.response.json()) as {
+    connected: boolean
+    activeTargets: number
+    browser: string | null
+    profile: { email: string; id: string } | null
+    playwriterVersion?: string | null
+  }
+
+  if (!fallbackData?.connected) {
+    return []
+  }
+
+  return [
+    {
+      extensionId: 'default',
+      stableKey: undefined,
+      browser: fallbackData.browser,
+      profile: fallbackData.profile,
+      activeTargets: fallbackData.activeTargets,
+      playwriterVersion: fallbackData.playwriterVersion || null,
+    },
+  ]
 }
 
 /**

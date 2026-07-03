@@ -15,10 +15,19 @@ Buffer.prototype[util.inspect.custom] = function () {
 
 import dedent from 'string-dedent'
 import { LOG_FILE_PATH, VERSION, parseRelayHost } from './utils.js'
-import { ensureRelayServer, RELAY_PORT } from './relay-client.js'
-import { PlaywrightExecutor, CodeExecutionTimeoutError } from './executor.js'
+import { ensureRelayServer, getLocalRelayHttpBaseUrl, RELAY_PORT } from './relay-client.js'
+import { PlaywrightExecutor, CodeExecutionTimeoutError, type ExecuteResult } from './executor.js'
 import { discoverChromeInstances, resolveDirectInput, appendSessionToWsUrl } from './chrome-discovery.js'
 import crypto from 'node:crypto'
+import {
+  listCapabilities,
+  readCapabilityScript,
+  searchCapabilities,
+  toCapabilityContract,
+  toCapabilitySummary,
+} from './capability-registry.js'
+import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
+import { runCapabilityWithExecutor, runNodeCapability } from './capability-runner.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -151,7 +160,7 @@ async function getOrCreateExecutor(): Promise<PlaywrightExecutor> {
   }
 
   // Pass config instead of pre-generated URL so executor can generate unique URLs for each connection
-  const cdpConfig = remote || { port: RELAY_PORT }
+  const cdpConfig = remote || { host: await getLocalRelayHttpBaseUrl(RELAY_PORT), port: RELAY_PORT }
   executor = new PlaywrightExecutor({
     cdpConfig,
     logger: mcpLogger,
@@ -229,6 +238,207 @@ server.resource(
     const content = fs.readFileSync(path.join(packageDir, 'dist', 'styles-api.md'), 'utf-8')
     return {
       contents: [{ uri: 'https://playwriter.dev/resources/styles-api.md', text: content, mimeType: 'text/plain' }],
+    }
+  },
+)
+
+server.resource(
+  'capabilities',
+  'playwriter://capabilities',
+  { mimeType: 'application/json' },
+  async () => {
+    const capabilities = listCapabilities({ cwd: process.cwd() }).map(toCapabilityContract)
+    return {
+      contents: [
+        {
+          uri: 'playwriter://capabilities',
+          text: JSON.stringify(capabilities, null, 2),
+          mimeType: 'application/json',
+        },
+      ],
+    }
+  },
+)
+
+function executeResultToMcpContent(options: {
+  result: ExecuteResult
+  prefix?: string
+}): Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> {
+  const MAX_TEXT = 10000
+  let text = options.prefix ? `${options.prefix}\n\n${options.result.text}` : options.result.text
+  for (const s of options.result.screenshots) {
+    text += `\nScreenshot saved to: ${s.path} (image included below, ${s.labelCount} labels)\n`
+    text += `Accessibility snapshot:\n${s.snapshot}\n`
+  }
+  if (text.length > MAX_TEXT) {
+    text = text.slice(0, MAX_TEXT) + '\n\n[Truncated]'
+  }
+
+  const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = [
+    { type: 'text', text },
+  ]
+  for (const image of options.result.images) {
+    content.push({ type: 'image', data: image.data, mimeType: image.mimeType })
+  }
+  return content
+}
+
+server.tool(
+  'capability',
+  dedent`
+    Search, inspect, refresh auth for, or run saved Playwriter capabilities. Capabilities are reusable Playwriter scripts with AI-readable contracts, local secrets, and run logs.
+
+    Use action "search" before creating new browser code. Use action "describe" to read the contract before running. Use action "run" when a trusted matching capability exists. Only use action "refresh_auth" after explicit user confirmation because it updates local credentials.
+  `,
+  {
+    action: z.enum(['list', 'search', 'show', 'describe', 'run', 'refresh_auth']).describe('Capability action'),
+    id: z.string().optional().describe('Capability id for show/describe/run/refresh_auth'),
+    query: z.string().optional().describe('Search query for action "search"'),
+    limit: z.number().default(10).describe('Maximum number of search results'),
+    input: z.record(z.string(), z.unknown()).optional().describe('JSON input for run'),
+    force: z.boolean().optional().describe('Run draft capabilities or bypass URL match checks'),
+    timeout: z.number().default(10000).describe('Timeout in milliseconds'),
+  },
+  async ({ action, id, query, limit, input, force, timeout }) => {
+    try {
+      if (action === 'list') {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(listCapabilities({ cwd: process.cwd() }).map(toCapabilityContract), null, 2),
+            },
+          ],
+        }
+      }
+
+      if (action === 'search') {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                searchCapabilities({ query: query || '', cwd: process.cwd(), limit }).map((result) => {
+                  return {
+                    score: result.score,
+                    reasons: result.reasons,
+                    ...toCapabilityContract(result.capability),
+                  }
+                }),
+                null,
+                2,
+              ),
+            },
+          ],
+        }
+      }
+
+      if (!id) {
+        return { content: [{ type: 'text', text: 'id is required' }], isError: true }
+      }
+
+      if (action === 'show' || action === 'describe') {
+        const capability = listCapabilities({ cwd: process.cwd() }).find((candidate) => {
+          return candidate.manifest.id === id
+        })
+        if (!capability) {
+          return { content: [{ type: 'text', text: `Capability not found: ${id}` }], isError: true }
+        }
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  ...(action === 'describe' ? toCapabilityContract(capability) : toCapabilitySummary(capability)),
+                  ...(action === 'show' ? { script: readCapabilityScript({ id, cwd: process.cwd() }) } : {}),
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        }
+      }
+
+      if (action === 'refresh_auth') {
+        const exec = await getOrCreateExecutor()
+        const result = await refreshCapabilityAuthWithExecutor({
+          executor: exec,
+          id,
+          cwd: process.cwd(),
+          timeout,
+        })
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  capability: result.capability.manifest.id,
+                  saved: result.saved,
+                  secretKey: result.secretKey,
+                  cookieCount: result.cookieCount,
+                  cookieNames: result.cookieNames,
+                  urls: result.urls,
+                  path: result.path,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        }
+      }
+
+      const capability = listCapabilities({ cwd: process.cwd() }).find((candidate) => {
+        return candidate.manifest.id === id
+      })
+      if (!capability) {
+        return { content: [{ type: 'text', text: `Capability not found: ${id}` }], isError: true }
+      }
+      if (capability.manifest.runtime === 'node') {
+        const result = await runNodeCapability({
+          id,
+          input: input || {},
+          cwd: process.cwd(),
+          timeout,
+          force,
+        })
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Capability output:\n${JSON.stringify(result.output, null, 2)}\n\n${result.text}`,
+            },
+          ],
+          isError: result.isError,
+        }
+      }
+
+      const exec = await getOrCreateExecutor()
+      const result = await runCapabilityWithExecutor({
+        executor: exec,
+        id,
+        input: input || {},
+        cwd: process.cwd(),
+        timeout,
+        force,
+      })
+      return {
+        content: executeResultToMcpContent({
+          result: result.executeResult,
+          prefix: `Capability output:\n${JSON.stringify(result.output, null, 2)}`,
+        }),
+        isError: result.executeResult.isError,
+      }
+    } catch (error) {
+      const errorStack = error instanceof Error ? error.stack || error.message : String(error)
+      console.error('Error in capability tool:', errorStack)
+      return {
+        content: [{ type: 'text', text: `Error running capability: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      }
     }
   },
 )
