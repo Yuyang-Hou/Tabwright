@@ -119,7 +119,7 @@ playwriter -s 1 -e "await page.goto('https://example.com')"
 - `ws://` or `wss://` URL — explicit WebSocket endpoint (local or cloud browser provider)
 - `host:port` — resolves via HTTP probe to a ws:// URL
 
-**Limitations:** screen recording (`recording.start`/`recording.stop`) is not available in direct CDP mode since it relies on the extension's `chrome.tabCapture` API.
+**Limitations:** DOM replay recording (`replay.start`/`replay.stop`) requires the Playwriter extension. Direct CDP mode can still execute browser automation, but it cannot collect extension-side rrweb replay files.
 
 ### Headless browser (no extension, no user browser)
 
@@ -137,7 +137,7 @@ playwriter -s 1 -e "await page.goto('https://example.com')"
 playwriter -s 1 -e "console.log(await snapshot({ page }))"
 ```
 
-Multiple sessions reuse the same headless Chrome process. Recording is not available in headless mode.
+Multiple sessions reuse the same headless Chrome process. Extension-side replay recording is not available in headless mode.
 
 If no Chrome binary is found, `playwriter session new --browser headless` will tell you to run `playwriter browser install` first to download Chrome for Testing.
 
@@ -285,6 +285,23 @@ playwriter capability run bilibili-current-user --json
 
 When multiple Chrome extension connections exist, pass a browser key from `playwriter browser list` instead of `user`.
 
+When turning a user demonstration into a repeatable workflow, do not analyze during recording. Keep the recording/replay id as evidence, then generate a draft browser capability only after the user gives the id plus a concrete goal. Generated workflow scripts should run directly and return `needs_ai` with page context when the live page diverges.
+
+### Conan/Buff 文案配置能力
+
+When the user asks to search, query, understand, or inspect Conan/Buff 文案配置, use the built-in `conan-config` capability suite instead of creating an external CLI or one-off browser automation:
+
+```bash
+playwriter capability install conan-config
+playwriter capability refresh-auth conan-config-search --browser user --json
+playwriter capability refresh-auth conan-config-query --browser user --json
+playwriter capability search "文案配置 查询" --json
+playwriter capability run conan-config-search --input-json '{"query":"会员订单"}' --json
+playwriter capability run conan-config-query --input-json '{"namespace":"Space_Pedia","key":"member_order_config"}' --json
+```
+
+These capabilities are read-only node capabilities. They call the Conan config APIs directly and use Playwriter only to refresh cookie auth from the user's current Chrome session. If a command reports missing or expired cookie auth, ask the user to log in to `conan.zhenguanyu.com` or `buff.zhenguanyu.com`, then run `capability refresh-auth` again. Do not print cookie values.
+
 Refresh cookie auth only after explicit user confirmation. This updates the local `secrets.json` and does not print cookie values:
 
 ```bash
@@ -360,19 +377,6 @@ start chrome.exe --profile-directory=Default
 Start-Process chrome.exe -ArgumentList '--profile-directory=Default'
 ```
 
-To also enable automatic tab capture for screen recording (no manual extension click needed), add the `--allowlisted-extension-id` and `--auto-accept-this-tab-capture` flags:
-
-```bash
-# macOS
-open -a "Google Chrome" --args --profile-directory=Default --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe --auto-accept-this-tab-capture
-
-# Linux
-google-chrome --profile-directory=Default --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe --auto-accept-this-tab-capture &
-
-# Windows
-start chrome.exe --profile-directory=Default --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe --auto-accept-this-tab-capture
-```
-
 You can collaborate with the user - they can help with captchas, difficult elements, or reproducing bugs.
 
 **Direct CDP mode (no extension needed):** Playwriter can connect directly to Chrome's DevTools Protocol, bypassing the extension. This is useful in CI, Docker, headless environments, when Chrome has `--remote-debugging-port=9222`, or with cloud browser providers (e.g. `wss://xxx.cdp.browser-use.com`). If the user provides a CDP URL, set `PLAYWRITER_DIRECT` in the MCP client config:
@@ -391,7 +395,7 @@ You can collaborate with the user - they can help with captchas, difficult eleme
 }
 ```
 
-`PLAYWRITER_DIRECT` accepts `1` (auto-discover Chrome on port 9222), a `ws://` or `wss://` endpoint (including cloud browser providers), or `host:port`. Screen recording is not available in direct CDP mode since it relies on the extension's `chrome.tabCapture` API.
+`PLAYWRITER_DIRECT` accepts `1` (auto-discover Chrome on port 9222), a `ws://` or `wss://` endpoint (including cloud browser providers), or `host:port`. Extension-side replay recording is not available in direct CDP mode.
 
 ## context variables
 
@@ -1061,29 +1065,88 @@ Labels are color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkbo
 
 **resizeImageForAgent** - shrink an image so it consumes fewer tokens when read back into context. The resized image is automatically included in the response (visible to the LLM). `await resizeImageForAgent({ input: '/absolute/path/to/screenshot.png' })`. Also accepts `width`, `height`, `maxDimension`, `quality`, `format` (default: `'png'`), `output`. Alias: `resizeImage`.
 
-**recording.start / recording.stop** - record the page as a video at native FPS (30-60fps). Uses `chrome.tabCapture` so **recording survives page navigation**. Auto-overlays a ghost cursor that follows mouse actions. Requires user to have clicked the Playwriter extension icon on the tab. Auto-resizes viewport to 16:9 (override with `aspectRatio: null`). Auto-stops after 15 min (override with `maxDurationMs`).
+**replay.start / replay.stop** - record the page as an rrweb DOM replay. This captures DOM snapshots, mutations, inputs, mouse movement, scrolls, and user-added Playwriter annotations into `~/.playwriter/rrweb-recordings/<id>.json`, then plays back in the Playwriter extension options page. DOM replays are for review and workflow understanding only: clicking inside the replay does **not** execute the original page's React/Vue/business logic.
 
-For demos, use interaction methods (`locator.click()`, `page.mouse.move()`) instead of `goto()` to show realistic cursor motion.
+Use replay recordings when you need a compact, inspectable artifact for AI understanding, workflow compilation, and user review. The in-page toolbar records rrweb replay only; video capture is intentionally not part of the product.
+
+While recording, the toolbar's element selection button becomes an annotation tool. If the user selects an element and writes a note, the note is saved as a `playwriter.annotation` rrweb custom event and appears in `replay index` output as `annotations`. Treat these annotations as stronger intent signals than inferred labels/selectors.
 
 ```js
-await recording.start({
+await replay.start({
   page: state.page,
-  outputPath: '/absolute/path/to/recording.mp4',
-  frameRate: 30, // default
-  audio: false, // default (tab audio)
-  videoBitsPerSecond: 2500000,
-  aspectRatio: { width: 16, height: 9 }, // default, set null to skip
-  maxDurationMs: 15 * 60 * 1000, // default, set 0 to disable
+  checkoutEveryNms: 10000,
+  maskAllInputs: false,
+  recordCanvas: false,
+  inlineImages: false,
 })
 
-// Recording survives navigation
-await state.page.click('a')
-await state.page.waitForLoadState('domcontentloaded')
+await state.page.getByLabel('Title').fill('Summer banner')
+await state.page.getByRole('button', { name: 'Preview' }).click()
 
-// Stop — save full result including executionTimestamps for createDemoVideo
-state.recordingResult = await recording.stop({ page: state.page })
+state.replayResult = await replay.stop({ page: state.page })
+console.log(state.replayResult)
 
-// Other: recording.isRecording({ page }), recording.cancel({ page })
+// Other: replay.isRecording({ page }), replay.cancel({ page }), replay.list({ limit: 10 }),
+// replay.events({ id: state.replayResult.id })
+```
+
+**workflow.saveFromRecording / workflow.saveCapability** - after the user gives a demonstration replay id and a concrete goal, save the derived reusable flow as a project capability. Prefer `workflow.saveFromRecording()` when the flow can be represented as structured steps; use `workflow.saveCapability()` when you need to write a custom script. Saved workflows start as `draft`, have `sideEffect: "write"` and `requiresConfirmation: true` by default, and can later be inspected or run with `playwriter capability ...`. The generated script runs the live frontend flow, observes the expected final request when `finalRequest` is provided, and returns `needs_ai` with a snapshot when the page no longer matches the replay. Omit `finalRequest` for flows that do not have a real submit/request boundary.
+
+**replay make / replay compile** - when the user gives an rrweb replay id and asks to run similar work, first compile the replay into a project capability instead of manually replaying every step. Prefer `playwriter replay make <replayId> <capabilityId> --force --goal "..." --json` because it builds the AI index and compiles in one step, then run the generated capability with `playwriter capability run <capabilityId> --input-json ... --force --json`. Use `replay compile` only when the index has already been inspected or generated separately. The generated script should execute the live frontend path, continue from an already-editing page when possible, and return `needs_ai` with page context when validation, DOM drift, or a missing selector blocks the flow.
+
+**replay index** - before compiling a replay, use `playwriter replay index <replayId> --json` to inspect the AI-readable post-processed view of the rrweb events. The raw rrweb recording remains the evidence artifact; the index summarizes snapshot-derived actions, fields, user annotations, selector hints, interactive elements, and page text so agents do not need to manually parse raw rrweb node ids. Use `--write` only when you want to persist the generated index under `~/.playwriter/replay-ai-indexes`.
+
+**replay eval** - run the replay productization self-test platform. It creates local example pages, writes synthetic rrweb recordings, builds the AI index, compiles draft capabilities, runs the generated scripts in a real browser, and verifies the page/request result. Use it before changing recording/index/compiler/capability code:
+
+```bash
+playwriter replay eval
+playwriter replay eval --json
+playwriter replay eval --case zh-list-append --headed
+playwriter replay eval --report tmp/replay-eval-report.html --keep-artifacts
+```
+
+The default suite covers Chinese/English list append flows, already-editing pages, draft restart/continue dialogs, duplicate-value short-circuiting, deleted annotations, page drift returning `needs_ai`, and unsupported replays failing explicitly instead of generating fake automation.
+
+```js
+const latestReplay = (await replay.list({ limit: 1 }))[0]
+
+const saved = workflow.saveFromRecording({
+  id: 'create-material-from-demo',
+  title: 'Create material from demo',
+  description: 'Fill the material form from structured input and stop with needs_ai if the page drifts.',
+  recordingId: latestReplay.id,
+  match: ['https://admin.example.com/*'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            image: { type: 'string' },
+          },
+          required: ['title', 'image'],
+        },
+      },
+    },
+    required: ['items'],
+  },
+  steps: [
+    { action: 'goto', url: { value: 'https://admin.example.com/materials/new' } },
+    { action: 'fill', locator: '[name="title"]', value: { inputPath: 'title' } },
+    { action: 'setInputFiles', locator: '[name="image"]', path: { inputPath: 'image' } },
+  ],
+  finalRequest: {
+    url: '**/api/materials/**',
+    method: 'POST',
+    title: 'Create material',
+    trigger: { action: 'click', locator: 'button[type="submit"]' },
+  },
+})
+
+console.log(saved.capability)
 ```
 
 **ghostCursor.show / ghostCursor.hide** - the ghost cursor overlay is always on: the extension injects it on every Playwriter-attached tab and it stays visible at the last spot Playwright clicked or moved. These methods only matter if you want to change the cursor style or temporarily hide it:
@@ -1091,21 +1154,6 @@ state.recordingResult = await recording.stop({ page: state.page })
 ```js
 await ghostCursor.show({ page: state.page, style: 'screenstudio' }) // 'minimal' (default), 'dot', 'screenstudio'
 await ghostCursor.hide({ page: state.page }) // hide until next show() or hard navigation
-```
-
-**createDemoVideo** - speeds up idle sections (time between execute() calls) while keeping interactions at normal speed. Requires `ffmpeg`/`ffprobe`. Timestamps are tracked automatically during recording and returned by `recording.stop()`. **Timeout**: can take 60–120+ seconds, always pass `--timeout 120000` or higher.
-
-```js
-// After recording.stop(), save full result to state (executionTimestamps powers idle detection)
-state.recordingResult = await recording.stop({ page: state.page })
-
-// In a SEPARATE execute call with --timeout 120000:
-const demoPath = await createDemoVideo({
-  recordingPath: state.recordingResult.path,
-  durationMs: state.recordingResult.duration,
-  executionTimestamps: state.recordingResult.executionTimestamps,
-  speed: 6, // default 6x for idle sections
-})
 ```
 
 ## pinned elements

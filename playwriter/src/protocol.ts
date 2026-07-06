@@ -59,20 +59,67 @@ export type ServerPingMessage = {
   id?: undefined
 }
 
-export type RecordingDataMessage = {
+export type RrwebEvent = Record<string, unknown>
+
+export type RrwebRecordingDataMessage = {
   id?: undefined
-  method: 'recordingData'
+  method: 'rrwebRecordingData'
   params: {
     tabId: number
+    events: RrwebEvent[]
     final?: boolean
   }
 }
 
-export type RecordingCancelledMessage = {
+export type RrwebRecordingCancelledMessage = {
   id?: undefined
-  method: 'recordingCancelled'
+  method: 'rrwebRecordingCancelled'
   params: {
     tabId: number
+  }
+}
+
+export type ToolbarRecordingAction = 'status' | 'toggle'
+
+export type ToolbarRecordingResult =
+  | {
+      success: true
+      isRecording: boolean
+      startedAt?: number
+      tabId?: number
+      id?: string
+      path?: string
+      duration?: number
+      size?: number
+      replayId?: string
+      replayPath?: string
+      replayDuration?: number
+      replaySize?: number
+      replayEventCount?: number
+      warning?: string
+    }
+  | {
+      success: false
+      isRecording?: boolean
+      error: string
+    }
+
+export type ToolbarRecordingRequestMessage = {
+  id?: undefined
+  method: 'toolbarRecordingRequest'
+  params: {
+    requestId: string
+    action: ToolbarRecordingAction
+    sessionId?: string
+  }
+}
+
+export type ToolbarRecordingResponseMessage = {
+  id?: undefined
+  method: 'toolbarRecordingResponse'
+  params: {
+    requestId: string
+    result: ToolbarRecordingResult
   }
 }
 
@@ -81,75 +128,78 @@ export type ExtensionMessage =
   | ExtensionEventMessage
   | ExtensionLogMessage
   | ExtensionPongMessage
-  | RecordingDataMessage
-  | RecordingCancelledMessage
+  | RrwebRecordingDataMessage
+  | RrwebRecordingCancelledMessage
+  | ToolbarRecordingRequestMessage
 
-// Recording command messages (MCP -> Extension via relay)
-export type StartRecordingParams = {
+// rrweb DOM replay command messages (MCP -> Extension via relay)
+export type StartRrwebRecordingParams = {
   /** CDP tab session ID (pw-tab-*) to identify which tab to record. */
   sessionId?: string
-  frameRate?: number
-  audio?: boolean
-  videoBitsPerSecond?: number
-  audioBitsPerSecond?: number
+  checkoutEveryNms?: number
+  maskAllInputs?: boolean
+  recordCanvas?: boolean
+  inlineImages?: boolean
+  collectFonts?: boolean
+  mousemoveWait?: number
 }
 
-/** HTTP body for /recording/start endpoint */
-export type StartRecordingBody = StartRecordingParams & {
-  outputPath: string
+/** HTTP body for /rrweb-recording/start endpoint */
+export type StartRrwebRecordingBody = StartRrwebRecordingParams & {
+  outputPath?: string
 }
 
-export type StopRecordingParams = {
+export type StopRrwebRecordingParams = {
   /** CDP tab session ID (pw-tab-*) to identify which tab to stop recording. */
   sessionId?: string
 }
 
-export type IsRecordingParams = {
+export type IsRrwebRecordingParams = {
   /** CDP tab session ID (pw-tab-*) to identify which tab to check. */
   sessionId?: string
 }
 
-export type CancelRecordingParams = {
+export type CancelRrwebRecordingParams = {
   /** CDP tab session ID (pw-tab-*) to identify which tab to cancel. */
   sessionId?: string
 }
 
-export type StartRecordingMessage = {
+export type StartRrwebRecordingMessage = {
   id: number
-  method: 'startRecording'
-  params: StartRecordingParams
+  method: 'startRrwebRecording'
+  params: StartRrwebRecordingParams
 }
 
-export type StopRecordingMessage = {
+export type StopRrwebRecordingMessage = {
   id: number
-  method: 'stopRecording'
-  params: StopRecordingParams
+  method: 'stopRrwebRecording'
+  params: StopRrwebRecordingParams
 }
 
-export type IsRecordingMessage = {
+export type IsRrwebRecordingMessage = {
   id: number
-  method: 'isRecording'
-  params: IsRecordingParams
+  method: 'isRrwebRecording'
+  params: IsRrwebRecordingParams
 }
 
-export type CancelRecordingMessage = {
+export type CancelRrwebRecordingMessage = {
   id: number
-  method: 'cancelRecording'
-  params: CancelRecordingParams
+  method: 'cancelRrwebRecording'
+  params: CancelRrwebRecordingParams
 }
 
-export type RecordingCommandMessage =
-  | StartRecordingMessage
-  | StopRecordingMessage
-  | IsRecordingMessage
-  | CancelRecordingMessage
+export type RrwebRecordingCommandMessage =
+  | StartRrwebRecordingMessage
+  | StopRrwebRecordingMessage
+  | IsRrwebRecordingMessage
+  | CancelRrwebRecordingMessage
 
-// Recording result types
-export type StartRecordingResult =
+export type StartRrwebRecordingResult =
   | {
       success: true
       tabId: number
       startedAt: number
+      url?: string
     }
   | {
       success: false
@@ -157,7 +207,7 @@ export type StartRecordingResult =
     }
 
 /** Result from extension - doesn't include path/size since relay writes the file */
-export type ExtensionStopRecordingResult =
+export type ExtensionStopRrwebRecordingResult =
   | {
       success: true
       tabId: number
@@ -169,26 +219,29 @@ export type ExtensionStopRecordingResult =
     }
 
 /** Final result from relay - includes path/size after file is written */
-export type StopRecordingResult =
+export type StopRrwebRecordingResult =
   | {
       success: true
+      id?: string
       tabId: number
       duration: number
       path: string
       size: number
+      eventCount: number
     }
   | {
       success: false
       error: string
     }
 
-export type IsRecordingResult = {
+export type IsRrwebRecordingResult = {
   isRecording: boolean
   tabId?: number
   startedAt?: number
+  url?: string
 }
 
-export type CancelRecordingResult = {
+export type CancelRrwebRecordingResult = {
   success: boolean
   error?: string
 }

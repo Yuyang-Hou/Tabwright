@@ -9,12 +9,14 @@ import type { CDPCommand, CDPResponseBase, CDPEventBase, CDPEventFor, RelayServe
 import type {
   ExtensionMessage,
   ExtensionEventMessage,
-  RecordingDataMessage,
-  RecordingCancelledMessage,
-  StartRecordingBody,
-  StopRecordingParams,
-  CancelRecordingParams,
-  IsRecordingParams,
+  RrwebRecordingDataMessage,
+  RrwebRecordingCancelledMessage,
+  StartRrwebRecordingBody,
+  StopRrwebRecordingParams,
+  CancelRrwebRecordingParams,
+  IsRrwebRecordingParams,
+  ToolbarRecordingRequestMessage,
+  ToolbarRecordingResult,
 } from './protocol.js'
 import pc from 'picocolors'
 import util from 'node:util'
@@ -30,7 +32,12 @@ import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { VERSION, EXTENSION_IDS, shouldAutoEnablePlaywriter } from './utils.js'
 import { createCdpLogger, type CdpLogEntry, type CdpLogger } from './cdp-log.js'
-import { RecordingRelay } from './recording-relay.js'
+import {
+  RrwebRecordingRelay,
+  getSavedRrwebRecording,
+  getSavedRrwebRecordingWithEvents,
+  listSavedRrwebRecordings,
+} from './rrweb-recording-relay.js'
 import { appendSessionToWsUrl } from './chrome-discovery.js'
 import * as relayState from './relay-state.js'
 
@@ -462,7 +469,7 @@ export async function startPlayWriterCDPRelayServer({
     })
   }
 
-  const recordingRelays = new Map<string, RecordingRelay>()
+  const rrwebRecordingRelays = new Map<string, RrwebRecordingRelay>()
 
   // Find which extension connection owns a CDP tab session ID (pw-tab-*).
   // Used by recording routes where sessionId identifies the target tab.
@@ -488,24 +495,102 @@ export async function startPlayWriterCDPRelayServer({
     return { extensionId, sessionId }
   }
 
-  const getRecordingRelay = (extensionId?: string | null): RecordingRelay | null => {
+  const getRrwebRecordingRelay = (extensionId?: string | null): RrwebRecordingRelay | null => {
     const allowDefault = !extensionId && store.getState().extensions.size === 1
     const conn = getExtensionConnection(extensionId, { allowFallback: allowDefault })
     if (!conn) {
       return null
     }
     const connId = conn.id
-    if (!recordingRelays.has(connId)) {
-      recordingRelays.set(
+    if (!rrwebRecordingRelays.has(connId)) {
+      rrwebRecordingRelays.set(
         connId,
-        new RecordingRelay(
+        new RrwebRecordingRelay(
           (params) => sendToExtension({ extensionId: connId, ...params }),
           () => store.getState().extensions.has(connId),
           logger,
         ),
       )
     }
-    return recordingRelays.get(connId) || null
+    return rrwebRecordingRelays.get(connId) || null
+  }
+
+  const handleToolbarRecordingRequest = async (
+    extensionId: string,
+    message: ToolbarRecordingRequestMessage,
+  ): Promise<ToolbarRecordingResult> => {
+    logger?.log(
+      pc.blue(
+        `Toolbar recording request: ${message.params.action} requestId=${message.params.requestId} sessionId=${message.params.sessionId || 'none'}`,
+      ),
+    )
+    const rrwebRelay = getRrwebRecordingRelay(extensionId)
+    if (!rrwebRelay) {
+      logger?.log(pc.yellow(`Toolbar recording request failed: extension not connected requestId=${message.params.requestId}`))
+      return { success: false, isRecording: false, error: 'Extension not connected' }
+    }
+
+    const params = message.params.sessionId ? { sessionId: message.params.sessionId } : {}
+    const rrwebStatus = await rrwebRelay.isRecording(params)
+    const isRecording = rrwebStatus.isRecording
+    logger?.log(
+      pc.blue(
+        `Toolbar replay recording status: rrweb=${rrwebStatus.isRecording} requestId=${message.params.requestId} tabId=${rrwebStatus.tabId || 'none'}`,
+      ),
+    )
+
+    if (message.params.action === 'status') {
+      return {
+        success: true,
+        isRecording,
+        startedAt: rrwebStatus.startedAt,
+        tabId: rrwebStatus.tabId,
+      }
+    }
+
+    if (isRecording) {
+      const rrwebStopResult = await rrwebRelay.stopRecording(params)
+
+      if (!rrwebStopResult.success) {
+        const error = rrwebStopResult.error
+        logger?.log(pc.yellow(`Toolbar recording stop failed requestId=${message.params.requestId}: ${error}`))
+        return { success: false, isRecording: true, error }
+      }
+
+      return {
+        success: true,
+        isRecording: false,
+        id: rrwebStopResult.id,
+        tabId: rrwebStopResult.tabId,
+        path: rrwebStopResult.path,
+        duration: rrwebStopResult.duration,
+        size: rrwebStopResult.size,
+        replayId: rrwebStopResult.id,
+        replayPath: rrwebStopResult.path,
+        replayDuration: rrwebStopResult.duration,
+        replaySize: rrwebStopResult.size,
+        replayEventCount: rrwebStopResult.eventCount,
+      }
+    }
+
+    const rrwebStartResult = await rrwebRelay.startRecording({
+      ...params,
+      checkoutEveryNms: 10000,
+      maskAllInputs: false,
+    })
+
+    if (!rrwebStartResult.success) {
+      const error = rrwebStartResult.error || 'Failed to start replay recording'
+      logger?.log(pc.yellow(`Toolbar recording start failed requestId=${message.params.requestId}: ${error}`))
+      return { success: false, isRecording: false, error }
+    }
+
+    return {
+      success: true,
+      isRecording: true,
+      startedAt: rrwebStartResult.startedAt,
+      tabId: rrwebStartResult.tabId,
+    }
   }
 
   // Auto-create an initial blank tab when no targets exist. Set
@@ -1419,13 +1504,9 @@ export async function startPlayWriterCDPRelayServer({
             ws.close(1000, 'Extension not registered')
             return
           }
-          // Handle binary data (recording chunks)
+          // Older extension builds may still send legacy recording chunks. Ignore binary frames
+          // instead of breaking the WS connection.
           if (event.data instanceof ArrayBuffer || Buffer.isBuffer(event.data)) {
-            const buffer = Buffer.isBuffer(event.data) ? event.data : Buffer.from(event.data)
-            const relay = getRecordingRelay(connectionId)
-            if (relay) {
-              relay.handleBinaryData(buffer)
-            }
             return
           }
 
@@ -1481,16 +1562,33 @@ export async function startPlayWriterCDPRelayServer({
             const logFunc = logFn || logger?.log
             const prefix = pc.yellow(`[Extension] [${level.toUpperCase()}]`)
             logFunc?.(prefix, ...args)
-          } else if (message.method === 'recordingData') {
-            const relay = getRecordingRelay(connectionId)
+          } else if (message.method === 'rrwebRecordingData') {
+            const relay = getRrwebRecordingRelay(connectionId)
             if (relay) {
-              relay.handleRecordingData(message as RecordingDataMessage)
+              relay.handleRrwebRecordingData(message as RrwebRecordingDataMessage)
             }
-          } else if (message.method === 'recordingCancelled') {
-            const relay = getRecordingRelay(connectionId)
+          } else if (message.method === 'rrwebRecordingCancelled') {
+            const relay = getRrwebRecordingRelay(connectionId)
             if (relay) {
-              relay.handleRecordingCancelled(message as RecordingCancelledMessage)
+              relay.handleRrwebRecordingCancelled(message as RrwebRecordingCancelledMessage)
             }
+          } else if (message.method === 'toolbarRecordingRequest') {
+            const toolbarMessage = message as ToolbarRecordingRequestMessage
+            const result = await handleToolbarRecordingRequest(connectionId, toolbarMessage)
+            logger?.log(
+              pc.blue(
+                `Toolbar recording response: requestId=${toolbarMessage.params.requestId} success=${result.success} isRecording=${result.isRecording ?? 'unknown'}`,
+              ),
+            )
+            ws.send(
+              JSON.stringify({
+                method: 'toolbarRecordingResponse',
+                params: {
+                  requestId: toolbarMessage.params.requestId,
+                  result,
+                },
+              }),
+            )
           } else {
             const extensionEvent = message as ExtensionEventMessage
 
@@ -1749,15 +1847,6 @@ export async function startPlayWriterCDPRelayServer({
         onClose(event) {
           logger?.log(`Extension disconnected: code=${event.code} reason=${event.reason || 'none'} (${connectionId})`)
 
-          // Cancel recordings BEFORE removing extension state (cancelRecording checks isExtensionConnected)
-          const recordingRelay = recordingRelays.get(connectionId)
-          if (recordingRelay) {
-            recordingRelay.cancelRecording({}).catch(() => {
-              // Ignore errors during cleanup
-            })
-          }
-          recordingRelays.delete(connectionId)
-
           // Reject all pending I/O requests (state cleanup happens in removeExtension below)
           const closingExt = store.getState().extensions.get(connectionId)
           if (closingExt) {
@@ -1904,7 +1993,47 @@ export async function startPlayWriterCDPRelayServer({
 
   app.use('/cli/*', privilegedRouteMiddleware)
   app.use('/recording/*', privilegedRouteMiddleware)
+  app.use('/rrweb-recording/*', privilegedRouteMiddleware)
   app.use('/mcp-log', privilegedRouteMiddleware)
+
+  const reviewRouteMiddleware = async (
+    c: Parameters<Parameters<typeof app.use>[1]>[0],
+    next: () => Promise<void>,
+  ) => {
+    if (c.req.method === 'POST') {
+      const contentType = c.req.header('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        logger?.log(pc.red(`Rejecting ${c.req.path}: Content-Type must be application/json, got: ${contentType}`))
+        return c.text('Content-Type must be application/json', 415)
+      }
+    }
+
+    const origin = c.req.header('origin')
+    if (!origin) {
+      const secFetchSite = c.req.header('sec-fetch-site')
+      if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
+        logger?.log(pc.red(`Rejecting ${c.req.path}: cross-origin browser request (Sec-Fetch-Site: ${secFetchSite})`))
+        return c.text('Forbidden - Cross-origin requests not allowed', 403)
+      }
+      return next()
+    }
+
+    if (!origin.startsWith('chrome-extension://')) {
+      logger?.log(pc.red(`Rejecting ${c.req.path}: origin must be Playwriter extension, got: ${origin}`))
+      return c.text('Forbidden', 403)
+    }
+
+    const extensionId = origin.replace('chrome-extension://', '')
+    if (!EXTENSION_IDS.includes(extensionId)) {
+      logger?.log(pc.red(`Rejecting ${c.req.path}: unknown extension origin ${extensionId}`))
+      return c.text('Forbidden', 403)
+    }
+
+    return next()
+  }
+
+  app.use('/rrweb-recordings', reviewRouteMiddleware)
+  app.use('/rrweb-recordings/*', reviewRouteMiddleware)
 
   app.post('/cli/execute', async (c) => {
     try {
@@ -1992,6 +2121,28 @@ export async function startPlayWriterCDPRelayServer({
 
   app.get('/cli/session/suggest', (c) => {
     return c.json({ next: nextSessionNumber })
+  })
+
+  app.get('/rrweb-recordings', (c) => {
+    const rawLimit = Number(c.req.query('limit') || 50)
+    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(200, Math.floor(rawLimit))) : 50
+    return c.json({ recordings: listSavedRrwebRecordings({ limit }) })
+  })
+
+  app.get('/rrweb-recordings/:id', (c) => {
+    const recording = getSavedRrwebRecording(c.req.param('id'))
+    if (!recording) {
+      return c.json({ error: 'rrweb recording not found' }, 404)
+    }
+    return c.json({ recording })
+  })
+
+  app.get('/rrweb-recordings/:id/events', (c) => {
+    const result = getSavedRrwebRecordingWithEvents(c.req.param('id'))
+    if (!result) {
+      return c.json({ error: 'rrweb recording not found' }, 404)
+    }
+    return c.json(result)
   })
 
   app.post('/cli/session/new', async (c) => {
@@ -2180,69 +2331,92 @@ export async function startPlayWriterCDPRelayServer({
     }
   })
 
+  const legacyRecordingRemovedResponse = {
+    success: false,
+    error: 'Legacy video recording has been removed. Use /rrweb-recording/* and /rrweb-recordings instead.',
+  }
+
+  app.post('/recording/start', (c) => {
+    return c.json(legacyRecordingRemovedResponse, 410)
+  })
+
+  app.post('/recording/stop', (c) => {
+    return c.json(legacyRecordingRemovedResponse, 410)
+  })
+
+  app.get('/recording/status', (c) => {
+    return c.json({ isRecording: false })
+  })
+
+  app.post('/recording/cancel', (c) => {
+    return c.json(legacyRecordingRemovedResponse, 410)
+  })
+
   // ============================================================================
-  // Recording Endpoints - For screen recording via chrome.tabCapture
+  // rrweb Recording Endpoints - For DOM replay recordings.
   // ============================================================================
 
-  app.post('/recording/start', async (c) => {
+  app.post('/rrweb-recording/start', async (c) => {
     const body = (await c.req.json()) as {
       outputPath?: string
       sessionId?: string | number
-      frameRate?: number
-      audio?: boolean
-      videoBitsPerSecond?: number
-      audioBitsPerSecond?: number
+      checkoutEveryNms?: number
+      maskAllInputs?: boolean
+      recordCanvas?: boolean
+      inlineImages?: boolean
+      collectFonts?: boolean
+      mousemoveWait?: number
     }
     const sessionId = normalizeSessionId(body.sessionId)
     const { sessionId: _sessionId, ...recordingOptions } = body
     const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRecordingRelay(extensionId)
+    const relay = getRrwebRecordingRelay(extensionId)
     if (!relay) {
       return c.json({ success: false, error: 'Extension not connected' }, 500)
     }
     const recordingParams = (resolvedSessionId
       ? { ...recordingOptions, sessionId: resolvedSessionId }
-      : recordingOptions) as StartRecordingBody
+      : recordingOptions) as StartRrwebRecordingBody
     const result = await relay.startRecording(recordingParams)
     const status = result.success ? 200 : result.error?.includes('required') ? 400 : 500
     return c.json(result, status)
   })
 
-  app.post('/recording/stop', async (c) => {
+  app.post('/rrweb-recording/stop', async (c) => {
     const body = (await c.req.json()) as { sessionId?: string | number }
     const sessionId = normalizeSessionId(body.sessionId)
     const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRecordingRelay(extensionId)
+    const relay = getRrwebRecordingRelay(extensionId)
     if (!relay) {
       return c.json({ success: false, error: 'Extension not connected' }, 500)
     }
-    const stopParams: StopRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
+    const stopParams: StopRrwebRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
     const result = await relay.stopRecording(stopParams)
     const status = result.success ? 200 : result.error?.includes('not found') ? 404 : 500
     return c.json(result, status)
   })
 
-  app.get('/recording/status', async (c) => {
+  app.get('/rrweb-recording/status', async (c) => {
     const sessionId = normalizeSessionId(c.req.query('sessionId'))
     const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRecordingRelay(extensionId)
+    const relay = getRrwebRecordingRelay(extensionId)
     if (!relay) {
       return c.json({ isRecording: false })
     }
-    const isRecordingParams: IsRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
+    const isRecordingParams: IsRrwebRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
     const result = await relay.isRecording(isRecordingParams)
     return c.json(result)
   })
 
-  app.post('/recording/cancel', async (c) => {
+  app.post('/rrweb-recording/cancel', async (c) => {
     const body = (await c.req.json()) as { sessionId?: string | number }
     const sessionId = normalizeSessionId(body.sessionId)
     const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRecordingRelay(extensionId)
+    const relay = getRrwebRecordingRelay(extensionId)
     if (!relay) {
       return c.json({ success: false, error: 'Extension not connected' }, 500)
     }
-    const cancelParams: CancelRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
+    const cancelParams: CancelRrwebRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
     const result = await relay.cancelRecording(cancelParams)
     return c.json(result)
   })

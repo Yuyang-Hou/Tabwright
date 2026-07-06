@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Playwriter Recordings</title>
+    <script type="module" src="./options.ts"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="recordings-panel">
+        <header class="panel-header">
+          <div>
+            <h1>Recordings</h1>
+            <p id="status-text">Loading recordings...</p>
+          </div>
+          <button id="refresh-button" type="button">Refresh</button>
+        </header>
+        <h2 class="list-heading">DOM replays</h2>
+        <div id="replays-list" class="recordings-list"></div>
+      </section>
+      <section class="player-panel">
+        <div id="replay-player" class="replay-player"></div>
+        <div id="replay-details" class="recording-details">Select a DOM replay.</div>
+      </section>
+    </main>
+  </body>
+</html>

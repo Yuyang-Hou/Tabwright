@@ -42,6 +42,10 @@ import {
 } from './capability-registry.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import { buildCapabilityRunRecord, prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
+import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
+import { createReplayAiIndexFromRecording, saveReplayAiIndex } from './replay-ai-index.js'
+import { compileReplayWorkflow } from './replay-workflow-compiler.js'
+import { formatReplayEvalReport, runReplayEval } from './replay-eval.js'
 import type { ExecuteResult } from './executor.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -120,7 +124,7 @@ cli
         console.log(`  Extension: ${extensionPath}`)
         console.log(`  Profile: ${userDataDir}`)
         console.log(`  Mode: ${headless ? 'headless' : 'headed'}`)
-        console.log('  Permissions: recording/tabCapture flags enabled')
+        console.log('  Replay recording: rrweb DOM capture enabled')
 
         if (connectedExtensions.length > 0) {
           console.log('Playwriter extension connected to the relay server.')
@@ -421,6 +425,13 @@ interface CapabilityRefreshAuthOptions {
   browser?: string
   json?: boolean
   keepSession?: boolean
+}
+
+interface CapabilityInstallOptions {
+  project?: boolean
+  force?: boolean
+  draft?: boolean
+  json?: boolean
 }
 
 function parseCapabilityInput(options: { input?: string; inputJson?: string }): unknown {
@@ -772,6 +783,231 @@ function exitWithError(error: unknown): never {
   process.exit(1)
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function buildNestedExampleInput(pathValue: string): Record<string, unknown> {
+  const parts = pathValue.split('.').filter((part) => {
+    return part.length > 0
+  })
+  if (parts.length === 0) {
+    return { value: '...' }
+  }
+  return parts.reduceRight<Record<string, unknown> | string>((current, part) => {
+    if (typeof current === 'string') {
+      return { [part]: current }
+    }
+    return { [part]: current }
+  }, '...') as Record<string, unknown>
+}
+
+function buildReplayCapabilityRunCommand(capabilityId: string, valueInputPath: string): string {
+  const exampleInput = JSON.stringify(buildNestedExampleInput(valueInputPath))
+  return `playwriter capability run ${shellQuote(capabilityId)} --force --input-json ${shellQuote(exampleInput)}`
+}
+
+cli
+  .command('replay index <replayId>', 'Build an AI-readable index from an rrweb replay')
+  .option('--write', 'Save the index under ~/.playwriter/replay-ai-indexes')
+  .option('--json', 'Print JSON')
+  .action((replayId: string, options: { write?: boolean; json?: boolean }) => {
+    try {
+      const index = createReplayAiIndexFromRecording(replayId)
+      const saved = options.write ? saveReplayAiIndex(index) : undefined
+      if (options.json) {
+        console.log(JSON.stringify(saved ? { index, saved } : { index }, null, 2))
+        return
+      }
+      console.log(`Replay: ${index.replayId}`)
+      console.log(`URL: ${index.url || '-'}`)
+      console.log(`Actions: ${index.actions.length}`)
+      console.log(`Fields: ${index.fields.length}`)
+      console.log(`Annotations: ${index.annotations.length}`)
+      console.log(`Stats: ${JSON.stringify(index.stats)}`)
+      if (saved) {
+        console.log(`Saved: ${saved.path}`)
+      }
+      index.annotations.slice(0, 8).forEach((annotation, index) => {
+        const target = annotation.target?.label || annotation.target?.selectorHints[0] || annotation.target?.tagName || 'target'
+        console.log(`${index + 1}. ${pc.magenta('annotation')} ${target}: ${annotation.text}`)
+      })
+      index.actions.slice(0, 12).forEach((action, index) => {
+        const value = action.value === undefined ? '' : ` = ${JSON.stringify(action.value)}`
+        console.log(`${index + 1}. ${pc.cyan(action.kind)} ${action.label}${value}`)
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('replay compile <replayId> <capabilityId>', 'Compile an rrweb replay into a draft workflow capability')
+  .option('--title <title>', 'Capability title')
+  .option('--description <description>', 'Capability description')
+  .option('--goal <goal>', 'User goal to store as capability description')
+  .option('--value-input-path <path>', 'Input path for the appended value (default: value)')
+  .option('--force', 'Overwrite an existing capability')
+  .option('--json', 'Print JSON')
+  .action(
+    (
+      replayId: string,
+      capabilityId: string,
+      options: {
+        title?: string
+        description?: string
+        goal?: string
+        valueInputPath?: string
+        force?: boolean
+        json?: boolean
+      },
+    ) => {
+      try {
+        const valueInputPath = options.valueInputPath || 'value'
+        const compiled = compileReplayWorkflow({
+          replayId,
+          id: capabilityId,
+          cwd: process.cwd(),
+          title: options.title,
+          description: options.description || options.goal,
+          valueInputPath,
+          overwrite: options.force,
+        })
+        const runCommand = buildReplayCapabilityRunCommand(capabilityId, valueInputPath)
+        if (options.json) {
+          console.log(
+            JSON.stringify(
+              {
+                analysis: compiled.analysis,
+                capability: compiled.saved.capability,
+                next: {
+                  runCommand,
+                },
+              },
+              null,
+              2,
+            ),
+          )
+          return
+        }
+        console.log(`Compiled ${replayId} into ${capabilityId}`)
+        console.log(`Action: ${compiled.analysis.actionKind}`)
+        console.log(`Confidence: ${compiled.analysis.confidence}`)
+        console.log(`Observed value: ${compiled.analysis.demonstratedValue || '-'}`)
+        console.log(`Run with: ${runCommand}`)
+      } catch (error) {
+        exitWithError(error)
+      }
+    },
+  )
+
+cli
+  .command('replay make <replayId> <capabilityId>', 'Index and compile a replay into a runnable draft capability')
+  .option('--title <title>', 'Capability title')
+  .option('--description <description>', 'Capability description')
+  .option('--goal <goal>', 'User goal to store as capability description')
+  .option('--value-input-path <path>', 'Input path for the appended value (default: value)')
+  .option('--write-index', 'Save the generated replay index under ~/.playwriter/replay-ai-indexes')
+  .option('--force', 'Overwrite an existing capability')
+  .option('--json', 'Print JSON')
+  .action(
+    (
+      replayId: string,
+      capabilityId: string,
+      options: {
+        title?: string
+        description?: string
+        goal?: string
+        valueInputPath?: string
+        writeIndex?: boolean
+        force?: boolean
+        json?: boolean
+      },
+    ) => {
+      try {
+        const valueInputPath = options.valueInputPath || 'value'
+        const index = createReplayAiIndexFromRecording(replayId)
+        const savedIndex = options.writeIndex ? saveReplayAiIndex(index) : undefined
+        const compiled = compileReplayWorkflow({
+          replayId,
+          id: capabilityId,
+          cwd: process.cwd(),
+          title: options.title,
+          description: options.description || options.goal,
+          valueInputPath,
+          overwrite: options.force,
+        })
+        const runCommand = buildReplayCapabilityRunCommand(capabilityId, valueInputPath)
+        if (options.json) {
+          console.log(
+            JSON.stringify(
+              {
+                index,
+                savedIndex,
+                analysis: compiled.analysis,
+                capability: compiled.saved.capability,
+                next: {
+                  runCommand,
+                },
+              },
+              null,
+              2,
+            ),
+          )
+          return
+        }
+        console.log(`Replay: ${index.replayId}`)
+        console.log(`URL: ${index.url || '-'}`)
+        console.log(`Actions: ${index.actions.length}`)
+        console.log(`Fields: ${index.fields.length}`)
+        console.log(`Annotations: ${index.annotations.length}`)
+        if (savedIndex) {
+          console.log(`Saved index: ${savedIndex.path}`)
+        }
+        console.log(`Compiled capability: ${capabilityId}`)
+        console.log(`Action: ${compiled.analysis.actionKind}`)
+        console.log(`Confidence: ${compiled.analysis.confidence}`)
+        console.log(`Observed value: ${compiled.analysis.demonstratedValue || '-'}`)
+        console.log(`Run with: ${runCommand}`)
+      } catch (error) {
+        exitWithError(error)
+      }
+    },
+  )
+
+cli
+  .command('replay eval', 'Run replay-to-capability evaluation cases against local example pages')
+  .option('--case <id>', 'Run one evaluation case')
+  .option('--json', 'Print JSON')
+  .option('--report <path>', 'Write an HTML report')
+  .option('--keep-artifacts', 'Keep generated temporary recordings and capabilities')
+  .option('--headed', 'Run the evaluation browser in headed mode')
+  .action(
+    async (options: { case?: string; json?: boolean; report?: string; keepArtifacts?: boolean; headed?: boolean }) => {
+      try {
+        const report = await runReplayEval({
+          caseId: options.case,
+          reportPath: options.report,
+          keepArtifacts: options.keepArtifacts,
+          headed: options.headed,
+        })
+        if (options.json) {
+          console.log(JSON.stringify(report, null, 2))
+          return
+        }
+        console.log(formatReplayEvalReport(report))
+        if (options.report) {
+          console.log(`Report: ${path.resolve(options.report)}`)
+        }
+        if (report.failed > 0) {
+          process.exitCode = 1
+        }
+      } catch (error) {
+        exitWithError(error)
+      }
+    },
+  )
+
 cli
   .command('capability list', 'List saved Playwriter capabilities')
   .option('--json', 'Print JSON')
@@ -895,6 +1131,53 @@ cli
       }
     },
   )
+
+cli
+  .command('capability install <suite>', 'Install built-in Playwriter capabilities')
+  .option('--project', 'Install under .playwriter/capabilities in the current project')
+  .option('--force', 'Overwrite existing installed capabilities')
+  .option('--draft', 'Install as draft instead of trusted')
+  .option('--json', 'Print JSON')
+  .action((suite: string, options: CapabilityInstallOptions) => {
+    try {
+      const installed = installBuiltinCapabilitySuite({
+        suite,
+        cwd: process.cwd(),
+        location: options.project ? 'project' : 'user',
+        overwrite: options.force,
+        trust: options.draft ? false : true,
+      })
+      const summary = {
+        suite: installed.suite,
+        capabilities: installed.capabilities.map((capability) => {
+          return toCapabilitySummary(capability)
+        }),
+        next: installed.capabilities.flatMap((capability) => {
+          if (capability.manifest.auth.refresh !== 'from-browser') {
+            return []
+          }
+          return [`playwriter capability refresh-auth ${capability.manifest.id} --browser user --json`]
+        }),
+      }
+      if (options.json) {
+        console.log(JSON.stringify(summary, null, 2))
+        return
+      }
+      console.log(`Installed ${installed.suite}:`)
+      installed.capabilities.forEach((capability) => {
+        console.log(`- ${capability.manifest.id} (${capability.location}, ${capability.manifest.status})`)
+      })
+      if (summary.next.length > 0) {
+        console.log('')
+        console.log('Refresh auth with:')
+        summary.next.forEach((command) => {
+          console.log(`  ${command}`)
+        })
+      }
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
 
 cli
   .command('capability update <id>', 'Update a capability script from a file')
@@ -1932,7 +2215,7 @@ cli
       process.exit(1)
     }
 
-    // Expose the token to in-process callers (screen-recording.ts, etc.) so
+    // Expose the token to in-process callers so
     // they can attach Authorization: Bearer ... when calling the relay's own
     // privileged endpoints. Required because we no longer bypass auth for
     // loopback — see commit history for the tunnel-agent threat model.

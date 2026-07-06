@@ -13,6 +13,26 @@ import { killPortProcess } from './kill-port.js'
 const execAsync = promisify(exec)
 const extensionBuildQueues: Map<string, Promise<void>> = new Map()
 
+function getLocalChromeExecutable(): string | undefined {
+  const candidates = [
+    process.env.PLAYWRIGHT_CHROME_EXECUTABLE,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ].filter((candidate): candidate is string => {
+    return Boolean(candidate)
+  })
+
+  return candidates.find((candidate) => {
+    return fs.existsSync(candidate)
+  })
+}
+
 async function buildExtension({ port, distDir }: { port: number; distDir: string }): Promise<void> {
   const previous = extensionBuildQueues.get(distDir) || Promise.resolve()
   const buildPromise = previous
@@ -102,16 +122,16 @@ export async function setupTestContext({
   const extensionPath = path.resolve('../extension', distDir)
   const allExtensionPaths = [extensionPath, ...additionalExtensions].join(',')
 
+  const chromeExecutable = getLocalChromeExecutable()
   const browserContext = await chromium.launchPersistentContext(userDataDir, {
-    channel: 'chromium',
+    ...(chromeExecutable ? { executablePath: chromeExecutable } : { channel: 'chromium' }),
     headless: !process.env.HEADFUL,
     colorScheme: 'dark',
     args: [`--disable-extensions-except=${allExtensionPaths}`, `--load-extension=${allExtensionPaths}`],
   })
 
-  const serviceWorker = await getExtensionServiceWorker(browserContext)
-
   if (toggleExtension) {
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
     const page = await browserContext.newPage()
     await page.goto('about:blank')
     await serviceWorker.evaluate(async () => {

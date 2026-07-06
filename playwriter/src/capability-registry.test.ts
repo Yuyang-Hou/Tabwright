@@ -14,7 +14,9 @@ import {
   writeCapabilitySecrets,
 } from './capability-registry.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
+import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
 import { prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
+import { saveWorkflowCapability, saveWorkflowFromRecording } from './workflow-capability.js'
 
 function createTempDir(prefix: string): string {
   const tempRoot = path.join(process.cwd(), 'tmp')
@@ -80,6 +82,51 @@ describe('capability registry', () => {
     }
   })
 
+  test('installs built-in conan config capabilities', () => {
+    const cwd = createTempDir('capability-builtins-')
+    try {
+      const installed = installBuiltinCapabilitySuite({
+        suite: 'conan-config',
+        location: 'project',
+        cwd,
+      })
+
+      expect(installed.capabilities.map((capability) => capability.manifest.id)).toEqual([
+        'conan-config-search',
+        'conan-config-query',
+      ])
+      const projectCapabilityIds = listCapabilities({ cwd })
+        .filter((capability) => {
+          return capability.location === 'project'
+        })
+        .map((item) => item.manifest.id)
+      expect(projectCapabilityIds).toEqual([
+        'conan-config-query',
+        'conan-config-search',
+      ])
+      const query = listCapabilities({ cwd }).find((capability) => {
+        return capability.manifest.id === 'conan-config-query'
+      })
+      expect(query?.manifest).toMatchObject({
+        runtime: 'node',
+        status: 'trusted',
+        sideEffect: 'read',
+        requiresConfirmation: false,
+        auth: {
+          type: 'cookie',
+          refresh: 'from-browser',
+          secretKey: 'cookieHeader',
+        },
+      })
+      expect(readCapabilityScript({ id: 'conan-config-query', cwd })).toContain('/conan-config/api/newConfigs/')
+      expect(searchCapabilities({ cwd, query: '文案配置 查询 配置' })[0]?.capability.manifest.id).toMatch(
+        /^conan-config-/,
+      )
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   test('creates AI-readable capability contracts', () => {
     const cwd = createTempDir('capability-contract-')
     try {
@@ -117,9 +164,10 @@ describe('capability registry', () => {
         sideEffect: 'read',
         autonomousInvocation: { allowed: true },
       })
-      expect(searchCapabilities({ query: '当前 Bilibili 登录账号', cwd }).map((result) => result.capability.manifest.id)).toEqual([
-        'bilibili-current-user',
-      ])
+      const searchResults = searchCapabilities({ query: '当前 Bilibili 登录账号', cwd }).map((result) => {
+        return result.capability.manifest.id
+      })
+      expect(searchResults[0]).toBe('bilibili-current-user')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }
@@ -137,6 +185,123 @@ describe('capability registry', () => {
     })
 
     expect(result.valid).toBe(true)
+  })
+
+  test('saves recording-derived workflows as draft write capabilities', () => {
+    const cwd = createTempDir('workflow-capability-')
+    try {
+      const saved = saveWorkflowCapability({
+        id: 'create-material-from-demo',
+        title: 'Create Material From Demo',
+        description: 'Fill and submit material form from input',
+        cwd,
+        sourceRecordingId: 'recording-123',
+        script: 'return { title: input.title }',
+        inputSchema: {
+          type: 'object',
+          properties: { title: { type: 'string' } },
+          required: ['title'],
+        },
+      })
+
+      const capability = listCapabilities({ cwd }).find((item) => {
+        return item.manifest.id === 'create-material-from-demo'
+      })
+
+      expect(capability?.manifest).toMatchObject({
+        status: 'draft',
+        runtime: 'browser',
+        sideEffect: 'write',
+        requiresConfirmation: true,
+        tags: expect.arrayContaining(['workflow', 'recording-derived', 'recording:recording-123']),
+      })
+      expect(readCapabilityScript({ id: 'create-material-from-demo', cwd })).toBe('return { title: input.title }')
+      expect(saved.capability).toMatchObject({ id: 'create-material-from-demo', sideEffect: 'write' })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('generates batch workflow capabilities from recording-derived steps', () => {
+    const cwd = createTempDir('workflow-from-recording-')
+    try {
+      const saved = saveWorkflowFromRecording({
+        id: 'batch-create-material-from-demo',
+        title: 'Batch Create Material From Demo',
+        description: 'Replay the demonstrated material creation flow for each input item',
+        cwd,
+        recordingId: 'recording-456',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string' },
+                  image: { type: 'string' },
+                },
+                required: ['title', 'image'],
+              },
+            },
+          },
+          required: ['items'],
+        },
+        steps: [
+          { action: 'goto', url: { value: 'https://admin.example.com/materials/new' } },
+          { action: 'fill', locator: '[name="title"]', value: { inputPath: 'title' } },
+          { action: 'setInputFiles', locator: '[name="image"]', path: { inputPath: 'image' } },
+        ],
+        finalRequest: {
+          url: '**/api/materials/**',
+          method: 'POST',
+          title: 'Create material',
+          trigger: { action: 'click', locator: 'button[type="submit"]' },
+        },
+      })
+
+      const script = readCapabilityScript({ id: 'batch-create-material-from-demo', cwd })
+      const capability = listCapabilities({ cwd }).find((item) => {
+        return item.manifest.id === 'batch-create-material-from-demo'
+      })
+
+      expect(script).toContain('needs_ai')
+      expect(script).toContain('runOneWorkflowItem')
+      expect(script).not.toContain('taskQueue.run')
+      expect(script).not.toContain('approval.captureAndSubmit')
+      expect(script).toContain('const items')
+      expect(capability?.manifest.tags).toEqual(
+        expect.arrayContaining(['workflow', 'recording-derived', 'recording:recording-456']),
+      )
+      expect(saved.capability).toMatchObject({ id: 'batch-create-material-from-demo', requiresConfirmation: true })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('generates recording-derived workflows without forcing a final request', () => {
+    const cwd = createTempDir('workflow-from-recording-without-request-')
+    try {
+      saveWorkflowFromRecording({
+        id: 'draft-page-cleanup-from-demo',
+        title: 'Draft Page Cleanup From Demo',
+        cwd,
+        recordingId: 'recording-789',
+        steps: [
+          { action: 'goto', url: { value: 'https://admin.example.com/editor' } },
+          { action: 'fill', locator: '[name="title"]', value: { inputPath: 'title' } },
+        ],
+      })
+
+      const script = readCapabilityScript({ id: 'draft-page-cleanup-from-demo', cwd })
+
+      expect(script).toContain('const finalRequest = undefined')
+      expect(script).toContain('if (!finalRequest || !finalRequest.trigger)')
+      expect(script).not.toContain('approval.captureAndSubmit')
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
   })
 })
 

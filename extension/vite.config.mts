@@ -1,16 +1,17 @@
-import { fileURLToPath } from 'node:url'
-import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { defineConfig } from 'vite'
+import fs from 'node:fs'
+import path from 'node:path'
+import url from 'node:url'
+import * as esbuild from 'esbuild'
+import { defineConfig, type Plugin } from 'vite'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = url.fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // Bundle the playwriter package version into the extension so it can report
 // which playwriter version it was built against. CLI/MCP use this to warn
 // when the extension is outdated.
-const playwriterPkg = JSON.parse(readFileSync(resolve(__dirname, '../playwriter/package.json'), 'utf-8'))
+const playwriterPkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../playwriter/package.json'), 'utf-8'))
 
 const defineEnv: Record<string, string> = {
   'process.env.PLAYWRITER_PORT': JSON.stringify(process.env.PLAYWRITER_PORT || '19988'),
@@ -24,17 +25,60 @@ if (process.env.TESTING) {
 // Allow tests to build per-port extension outputs to avoid parallel run conflicts.
 const outDir = process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
 
+function escapeNonAscii(value: string): string {
+  return value.replace(/[^\x00-\x7F]/g, (character) => {
+    const codePoint = character.codePointAt(0)
+    if (codePoint === undefined) {
+      return character
+    }
+    if (codePoint <= 0xffff) {
+      return `\\u${codePoint.toString(16).padStart(4, '0')}`
+    }
+    const shifted = codePoint - 0x10000
+    const high = 0xd800 + (shifted >> 10)
+    const low = 0xdc00 + (shifted & 0x3ff)
+    return `\\u${high.toString(16).padStart(4, '0')}\\u${low.toString(16).padStart(4, '0')}`
+  })
+}
+
+function buildRrwebRecorderContentScript(): Plugin {
+  return {
+    name: 'build-rrweb-recorder-content-script',
+    async closeBundle() {
+      const outfile = path.resolve(__dirname, outDir, 'rrweb-recorder.js')
+      const result = await esbuild.build({
+        entryPoints: [path.resolve(__dirname, 'src/rrweb-recorder.ts')],
+        bundle: true,
+        charset: 'ascii',
+        format: 'iife',
+        globalName: 'PlaywriterRrwebRecorder',
+        outfile,
+        platform: 'browser',
+        target: 'chrome110',
+        write: false,
+      })
+      const outputFile = result.outputFiles[0]
+      if (!outputFile) {
+        throw new Error('Failed to build rrweb recorder content script')
+      }
+      // Chrome content scripts cannot depend on ESM chunk imports, so recorder is emitted as one IIFE file.
+      fs.mkdirSync(path.dirname(outfile), { recursive: true })
+      fs.writeFileSync(outfile, escapeNonAscii(outputFile.text))
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     viteStaticCopy({
       targets: [
         {
-          src: resolve(__dirname, 'icons/*'),
+          src: path.resolve(__dirname, 'icons/*'),
           dest: 'icons',
         },
 
         {
-          src: resolve(__dirname, 'manifest.json'),
+          src: path.resolve(__dirname, 'manifest.json'),
           dest: '.',
           transform: (content) => {
             const manifest = JSON.parse(content)
@@ -58,6 +102,7 @@ export default defineConfig({
         },
       ],
     }),
+    buildRrwebRecorderContentScript(),
   ],
 
   build: {
@@ -66,9 +111,9 @@ export default defineConfig({
     minify: false,
     rollupOptions: {
       input: {
-        background: resolve(__dirname, 'src/background.ts'),
-        offscreen: resolve(__dirname, 'src/offscreen.html'),
-        welcome: resolve(__dirname, 'src/welcome.html'),
+        background: path.resolve(__dirname, 'src/background.ts'),
+        options: path.resolve(__dirname, 'src/options.html'),
+        welcome: path.resolve(__dirname, 'src/welcome.html'),
       },
       output: {
         entryFileNames: '[name].js',

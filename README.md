@@ -43,13 +43,32 @@ playwriter -s 1 -e 'await page.locator("aria-ref=e5").click()'
 
 > **Tip:** Always use single quotes for `-e` to prevent bash from interpreting `$`, backticks, and `\` in your JS code. Use double quotes for strings inside the JS.
 
+## Replay Workflow Self-Test
+
+Turn a saved DOM replay into a runnable draft capability:
+
+```bash
+playwriter replay make <replay-id> <capability-id> --force --goal "add the requested list item"
+playwriter capability run <capability-id> --force --input-json '{"value":"test3"}'
+```
+
+Playwriter can evaluate the recording-to-capability product loop locally:
+
+```bash
+playwriter replay eval
+playwriter replay eval --json
+playwriter replay eval --report tmp/replay-eval-report.html --keep-artifacts
+```
+
+The suite creates local example pages, writes rrweb recordings, builds AI indexes, compiles draft capabilities, runs the generated scripts in a real browser, and verifies the final page/request result. Use it before changing replay recording, replay indexing, workflow compilation, or generated capability scripts.
+
 ## CLI Usage
 
 Each session has **isolated state**. Browser tabs are **shared** across sessions.
 
 ```bash
 # Browser management
-playwriter browser start             # auto-finds Chrome for Testing or Chromium, with recording flags enabled
+playwriter browser start             # auto-finds Chrome for Testing or Chromium
 playwriter browser start /path/to/browser-binary
 
 # Session management
@@ -146,8 +165,6 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | Bot detection | Always detected   | Can bypass (disconnect extension) |
 | Collaboration | Separate window   | Same browser as user              |
 
-> **Note:** Playwriter video recording is **100x more efficient than Playwright video recording**, which sends **base64 images for every frame**.
-
 |                 | Playwright CLI      | Playwriter                    |
 | --------------- | ------------------- | ----------------------------- |
 | Browser         | Spawns new browser  | **Uses your Chrome**          |
@@ -157,7 +174,6 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | Collaboration   | Separate window     | Same browser as user          |
 | Capabilities    | Limited command set | Anything Playwright can do    |
 | Raw CDP access  | No                  | Yes                           |
-| Video recording | File-based tracing  | Native tab capture (30–60fps) |
 
 ### vs BrowserMCP
 
