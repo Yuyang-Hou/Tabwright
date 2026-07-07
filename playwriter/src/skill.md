@@ -1093,7 +1093,7 @@ While recording, the toolbar's element selection button becomes an annotation to
 ```js
 await replay.start({
   page: state.page,
-  checkoutEveryNms: 10000,
+  checkoutEveryNms: 0,
   maskAllInputs: false,
   recordCanvas: false,
   inlineImages: false,

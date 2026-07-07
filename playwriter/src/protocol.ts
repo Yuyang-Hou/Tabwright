@@ -136,6 +136,7 @@ export type ExtensionMessage =
 export type StartRrwebRecordingParams = {
   /** CDP tab session ID (pw-tab-*) to identify which tab to record. */
   sessionId?: string
+  /** Milliseconds between full snapshot checkouts. Use 0 to disable periodic checkouts. */
   checkoutEveryNms?: number
   maskAllInputs?: boolean
   recordCanvas?: boolean

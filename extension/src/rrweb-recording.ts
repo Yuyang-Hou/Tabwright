@@ -49,6 +49,15 @@ export function getActiveRrwebRecordings(): Map<number, RrwebRecordingInfo> {
   return activeRrwebRecordings
 }
 
+type RrwebFrameMessageResult = {
+  frameId: number
+  response: RrwebRecorderResponse
+}
+
+type FailedRrwebFrameMessageResult = RrwebFrameMessageResult & {
+  response: Extract<RrwebRecorderResponse, { success: false }>
+}
+
 function resolveTabIdFromSessionId(sessionId?: string): number | undefined {
   if (!sessionId) {
     for (const [tabId, tab] of store.getState().tabs) {
@@ -105,34 +114,113 @@ export function isRrwebCancelledMessage(value: unknown): value is RrwebCancelled
   return (value as { action?: unknown }).action === 'playwriterRrwebCancelled'
 }
 
-async function sendTabMessage(tabId: number, message: unknown): Promise<RrwebRecorderResponse> {
-  const response = (await chrome.tabs.sendMessage(tabId, message)) as unknown
+function isFailedRrwebFrameMessageResult(result: RrwebFrameMessageResult): result is FailedRrwebFrameMessageResult {
+  return !result.response.success
+}
+
+async function getRrwebFrameIds(tabId: number): Promise<number[]> {
+  try {
+    const frames = await chrome.webNavigation.getAllFrames({ tabId })
+    return Array.from(
+      new Set([
+        0,
+        ...(frames || []).map((frame) => {
+          return frame.frameId
+        }),
+      ]),
+    )
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.debug('Could not enumerate rrweb recorder frames:', tabId, message)
+    return [0]
+  }
+}
+
+async function sendFrameMessage(options: {
+  tabId: number
+  frameId: number
+  message: unknown
+}): Promise<RrwebRecorderResponse> {
+  const response = (await chrome.tabs.sendMessage(options.tabId, options.message, {
+    frameId: options.frameId,
+  })) as unknown
   if (!isRrwebRecorderResponse(response)) {
     return { success: false, error: 'Invalid rrweb recorder response' }
   }
   return response
 }
 
+async function sendTabMessage(options: { tabId: number; message: unknown }): Promise<RrwebRecorderResponse> {
+  return await sendFrameMessage({
+    tabId: options.tabId,
+    frameId: 0,
+    message: options.message,
+  })
+}
+
+async function sendTabMessageToAllFrames(options: {
+  tabId: number
+  message: unknown
+}): Promise<RrwebFrameMessageResult[]> {
+  const frameIds = await getRrwebFrameIds(options.tabId)
+  return await Promise.all(
+    frameIds.map(async (frameId) => {
+      try {
+        return {
+          frameId,
+          response: await sendFrameMessage({
+            tabId: options.tabId,
+            frameId,
+            message: options.message,
+          }),
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.debug('rrweb recorder frame message failed:', options.tabId, frameId, message)
+        return {
+          frameId,
+          response: { success: false, error: message },
+        }
+      }
+    }),
+  )
+}
+
+function pickPrimaryRecorderResponse(results: RrwebFrameMessageResult[]): RrwebRecorderResponse {
+  const topFrameResponse = results.find((result) => {
+    return result.frameId === 0 && result.response.success
+  })?.response
+  if (topFrameResponse) {
+    return topFrameResponse
+  }
+
+  const firstSuccessfulResponse = results.find((result) => {
+    return result.response.success
+  })?.response
+  if (firstSuccessfulResponse) {
+    return firstSuccessfulResponse
+  }
+
+  const firstError = results.find(isFailedRrwebFrameMessageResult)?.response.error || 'No rrweb recorder frame responded'
+  return { success: false, error: firstError }
+}
+
 async function injectRrwebRecorder(tabId: number): Promise<void> {
   await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId, allFrames: true },
     files: ['rrweb-recorder.js'],
   })
 }
 
 async function ensureRrwebRecorderReady(tabId: number): Promise<void> {
   try {
-    const response = await sendTabMessage(tabId, { action: 'playwriterRrwebStatus' })
-    if (response.success) {
-      return
-    }
+    await injectRrwebRecorder(tabId)
   } catch (error: unknown) {
-    logger.debug('rrweb recorder status check failed before injection:', error)
+    logger.debug('rrweb recorder all-frame injection failed before status check:', error)
   }
 
   try {
-    await injectRrwebRecorder(tabId)
-    const response = await sendTabMessage(tabId, { action: 'playwriterRrwebStatus' })
+    const response = await sendTabMessage({ tabId, message: { action: 'playwriterRrwebStatus' } })
     if (response.success) {
       return
     }
@@ -149,13 +237,17 @@ async function startRecorderInTab(options: {
   params: StartRrwebRecordingParams
 }): Promise<RrwebRecorderResponse> {
   await ensureRrwebRecorderReady(options.tabId)
-  return await sendTabMessage(options.tabId, {
-    action: 'playwriterRrwebStart',
-    params: {
-      ...options.params,
-      startedAt: options.startedAt,
+  const results = await sendTabMessageToAllFrames({
+    tabId: options.tabId,
+    message: {
+      action: 'playwriterRrwebStart',
+      params: {
+        ...options.params,
+        startedAt: options.startedAt,
+      },
     },
   })
+  return pickPrimaryRecorderResponse(results)
 }
 
 export async function handleStartRrwebRecording(params: StartRrwebRecordingParams): Promise<StartRrwebRecordingResult> {
@@ -215,7 +307,8 @@ export async function handleStopRrwebRecording(params: StopRrwebRecordingParams)
   logger.debug('Stopping rrweb recording for tab:', tabId)
 
   try {
-    const response = await sendTabMessage(tabId, { action: 'playwriterRrwebStop' })
+    const results = await sendTabMessageToAllFrames({ tabId, message: { action: 'playwriterRrwebStop' } })
+    const response = pickPrimaryRecorderResponse(results)
     if (!response.success) {
       return { success: false, error: response.error || 'Failed to stop rrweb recorder' }
     }
@@ -243,7 +336,7 @@ export async function handleIsRrwebRecording(params: IsRrwebRecordingParams): Pr
   }
 
   try {
-    const response = await sendTabMessage(tabId, { action: 'playwriterRrwebStatus' })
+    const response = await sendTabMessage({ tabId, message: { action: 'playwriterRrwebStatus' } })
     return {
       isRecording: response.success ? Boolean(response.isRecording) : false,
       tabId,
@@ -269,7 +362,7 @@ export async function handleCancelRrwebRecording(params: CancelRrwebRecordingPar
   logger.debug('Cancelling rrweb recording for tab:', tabId)
 
   try {
-    await sendTabMessage(tabId, { action: 'playwriterRrwebCancel' })
+    await sendTabMessageToAllFrames({ tabId, message: { action: 'playwriterRrwebCancel' } })
     activeRrwebRecordings.delete(tabId)
 
     if (connectionManager.ws?.readyState === WebSocket.OPEN) {
@@ -311,7 +404,7 @@ export async function resumeRrwebRecordingForNavigation(tabId: number): Promise<
 export async function cleanupRrwebRecordingForTab(tabId: number): Promise<void> {
   if (!activeRrwebRecordings.has(tabId)) return
   try {
-    await sendTabMessage(tabId, { action: 'playwriterRrwebCancel' })
+    await sendTabMessageToAllFrames({ tabId, message: { action: 'playwriterRrwebCancel' } })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     logger.debug('Failed to cancel rrweb recorder during tab cleanup:', tabId, message)

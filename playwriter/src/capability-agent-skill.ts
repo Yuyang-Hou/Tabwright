@@ -31,6 +31,17 @@ export interface CapabilityAgentSkillShowResult {
   }>
 }
 
+export interface CapabilityAgentSkillStatus {
+  target: AgentSkillTarget
+  draftExists: boolean
+  draftPath: string
+  installedExists: boolean
+  installedPath: string
+  initCommand: string
+  showCommand: string
+  installCommand: string
+}
+
 const SKILL_TEMPLATE_MARKER = '<!-- PLAYWRITER_AGENT_SKILL_TEMPLATE: edit before install -->'
 
 export function initCapabilityAgentSkill(options: {
@@ -128,6 +139,26 @@ export function showCapabilityAgentSkill(options: {
     capabilityId: capability.manifest.id,
     dir,
     files,
+  }
+}
+
+export function getCapabilityAgentSkillStatus(options: {
+  capability: CapabilityRecord
+  target?: AgentSkillTarget
+  codexHome?: string
+}): CapabilityAgentSkillStatus {
+  const target = options.target || 'codex'
+  const draftDir = getCapabilityAgentSkillDir({ capability: options.capability, target })
+  const installedDir = path.join(getCodexHome(options.codexHome), 'skills', options.capability.manifest.id)
+  return {
+    target,
+    draftExists: fs.existsSync(path.join(draftDir, 'SKILL.md')),
+    draftPath: path.join(draftDir, 'SKILL.md'),
+    installedExists: fs.existsSync(path.join(installedDir, 'SKILL.md')),
+    installedPath: path.join(installedDir, 'SKILL.md'),
+    initCommand: `playwriter capability skill init ${options.capability.manifest.id}`,
+    showCommand: `playwriter capability skill show ${options.capability.manifest.id}`,
+    installCommand: `playwriter capability skill install ${options.capability.manifest.id}`,
   }
 }
 

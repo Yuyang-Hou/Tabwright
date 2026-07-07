@@ -1,4 +1,4 @@
-export type ConnectionState = 'idle' | 'connected' | 'extension-replaced'
+export type ConnectionState = 'idle' | 'connected' | 'extension-replaced' | 'relay-warning'
 export type TabState = 'connecting' | 'connected' | 'error'
 
 export interface TabInfo {

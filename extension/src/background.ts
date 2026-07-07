@@ -20,6 +20,7 @@ import type {
   ToolbarRecordingResult,
 } from 'playwriter/src/protocol'
 import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
+import { RelayConnectionProblemError, relayIssueText } from './relay-warning'
 // Inlined at build time via vite ?raw. Source: playwriter/src/ghost-cursor-client.ts
 import ghostCursorBundleCode from '../../playwriter/dist/ghost-cursor-client.js?raw'
 // Bippy: React fiber introspection library, used for "Copy React Source Path" context menu.
@@ -105,6 +106,50 @@ type ExtensionIdentity = {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function relayHttpUrl(pathname: string): string {
+  return new URL(pathname, `http://${RELAY_HOST}:${RELAY_PORT}/`).toString()
+}
+
+async function fetchRelayHead(options: { pathname: string }): Promise<Response> {
+  try {
+    return await fetch(relayHttpUrl(options.pathname), {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(2000),
+    })
+  } catch (error: unknown) {
+    throw new RelayConnectionProblemError({ issue: 'offline', cause: error })
+  }
+}
+
+async function checkRelayCompatibility(): Promise<void> {
+  const versionResponse = await fetchRelayHead({ pathname: '/version' })
+  if (!versionResponse.ok) {
+    throw new RelayConnectionProblemError({ issue: 'unavailable' })
+  }
+
+  const compatibilityResponses = await Promise.all(
+    ['/capabilities', '/rrweb-recordings?limit=1'].map((pathname) => {
+      return fetchRelayHead({ pathname })
+    }),
+  )
+
+  if (
+    compatibilityResponses.some((response) => {
+      return response.status === 404
+    })
+  ) {
+    throw new RelayConnectionProblemError({ issue: 'outdated' })
+  }
+
+  if (
+    compatibilityResponses.some((response) => {
+      return !response.ok
+    })
+  ) {
+    throw new RelayConnectionProblemError({ issue: 'unavailable' })
+  }
 }
 
 function createInstallId(): string {
@@ -484,17 +529,19 @@ class ConnectionManager {
     const maxAttempts = 5
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        await fetch(`http://${RELAY_HOST}:${RELAY_PORT}`, { method: 'HEAD', signal: AbortSignal.timeout(2000) })
+        await fetch(relayHttpUrl('/'), { method: 'HEAD', signal: AbortSignal.timeout(2000) })
         logger.debug('Server is available')
         break
-      } catch {
+      } catch (error: unknown) {
         if (attempt === maxAttempts - 1) {
-          throw new Error('Server not available')
+          throw new RelayConnectionProblemError({ issue: 'offline', cause: error })
         }
         logger.debug(`Server not available, retrying... (attempt ${attempt + 1}/${maxAttempts})`)
         await sleep(1000)
       }
     }
+
+    await checkRelayCompatibility()
 
     const identity = await getExtensionIdentity()
     const relayUrl = new URL(`ws://${RELAY_HOST}:${RELAY_PORT}/extension`)
@@ -882,10 +929,16 @@ class ConnectionManager {
           }
         }
         this.preserveTabsOnDetach = false
-      } catch (error: any) {
-        logger.debug('Connection attempt failed:', error.message)
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        logger.debug('Connection attempt failed:', errorMessage)
         // Check if rejected because another extension is actively in use
-        if (error.message === 'Extension Already In Use') {
+        if (error instanceof RelayConnectionProblemError) {
+          store.setState({
+            connectionState: 'relay-warning',
+            errorText: error.message,
+          })
+        } else if (errorMessage === 'Extension Already In Use') {
           store.setState({
             connectionState: 'extension-replaced',
             errorText: 'Another Playwriter extension is actively in use',
@@ -1730,21 +1783,22 @@ async function connectTab(tabId: number): Promise<void> {
     await attachTab(tabId)
 
     logger.debug(`Successfully connected to tab ${tabId}`)
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.debug(`Failed to connect to tab ${tabId}:`, error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
 
     // Distinguish between WS connection errors and tab-specific errors
-    // WS errors: keep in 'connecting' state, maintainLoop will retry when WS is available
+    // Relay/WS errors: show a global warning with the recovery command instead of
+    // leaving the toolbar icon stuck in the connecting "..." state.
     // Tab errors: show 'error' state (e.g., restricted page, debugger attach failed)
     // Extension in use: set global 'extension-replaced' state to enter polling mode
     const isExtensionInUse =
-      error.message === 'Extension Already In Use' ||
-      error.message === 'Another Playwriter extension is already connected'
+      errorMessage === 'Extension Already In Use' ||
+      errorMessage === 'Another Playwriter extension is already connected'
 
     const isWsError =
-      error.message === 'Server not available' ||
-      error.message === 'Connection timeout' ||
-      error.message.startsWith('WebSocket')
+      errorMessage === 'Connection timeout' ||
+      errorMessage.startsWith('WebSocket')
 
     if (isExtensionInUse) {
       logger.debug(`Another extension is in use, entering polling mode`)
@@ -1757,9 +1811,17 @@ async function connectTab(tabId: number): Promise<void> {
           errorText: 'Another Playwriter extension is actively in use',
         }
       })
-    } else if (isWsError) {
-      logger.debug(`WS connection failed, keeping tab ${tabId} in connecting state for retry`)
-      // Tab stays in 'connecting' state - maintainLoop will retry when WS becomes available
+    } else if (error instanceof RelayConnectionProblemError || isWsError) {
+      logger.debug(`Relay connection problem, showing warning for tab ${tabId}`)
+      store.setState((state) => {
+        const newTabs = new Map(state.tabs)
+        newTabs.delete(tabId)
+        return {
+          tabs: newTabs,
+          connectionState: 'relay-warning',
+          errorText: error instanceof RelayConnectionProblemError ? error.message : relayIssueText({ issue: 'offline' }),
+        }
+      })
     } else {
       // If the tab was closed mid-attach, don't write an error entry —
       // onTabRemoved already deleted it and we'd leak a dead tabId.
@@ -1784,7 +1846,7 @@ async function connectTab(tabId: number): Promise<void> {
       }
       store.setState((state) => {
         const newTabs = new Map(state.tabs)
-        newTabs.set(tabId, { state: 'error', errorText: `Error: ${error.message}` })
+        newTabs.set(tabId, { state: 'error', errorText: `Error: ${errorMessage}` })
         return { tabs: newTabs }
       })
     }
@@ -1942,6 +2004,17 @@ const icons = {
     badgeText: '!',
     badgeColor: [220, 38, 38, 255] as [number, number, number, number],
   },
+  relayWarning: {
+    path: {
+      '16': '/icons/icon-gray-16.png',
+      '32': '/icons/icon-gray-32.png',
+      '48': '/icons/icon-gray-48.png',
+      '128': '/icons/icon-gray-128.png',
+    },
+    title: relayIssueText({ issue: 'unavailable' }),
+    badgeText: '!',
+    badgeColor: [245, 158, 11, 255] as [number, number, number, number],
+  },
   tabError: {
     path: {
       '16': '/icons/icon-gray-16.png',
@@ -1971,6 +2044,7 @@ async function updateIcons(): Promise<void> {
 
     const iconConfig = (() => {
       if (connectionState === 'extension-replaced') return icons.extensionReplaced
+      if (connectionState === 'relay-warning') return icons.relayWarning
       if (tabId !== undefined && isRestrictedUrl(tabUrl)) return icons.restricted
       if (tabInfo?.state === 'error') return icons.tabError
       if (tabInfo?.state === 'connecting') return icons.connecting
@@ -1980,6 +2054,7 @@ async function updateIcons(): Promise<void> {
 
     const title = (() => {
       if (connectionState === 'extension-replaced' && errorText) return errorText
+      if (connectionState === 'relay-warning' && errorText) return errorText
       if (tabInfo?.errorText) return tabInfo.errorText
       return iconConfig.title
     })()
@@ -2031,6 +2106,13 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   // If another Playwriter extension took over, clear error state and try to reconnect this tab
   if (connectionState === 'extension-replaced') {
     logger.debug('Clearing extension-replaced state, attempting to reconnect')
+    store.setState({ connectionState: 'idle', errorText: undefined })
+    await connectTab(tab.id)
+    return
+  }
+
+  if (connectionState === 'relay-warning') {
+    logger.debug('Clearing relay-warning state, attempting to reconnect')
     store.setState({ connectionState: 'idle', errorText: undefined })
     await connectTab(tab.id)
     return
@@ -2609,11 +2691,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Note: SPA route changes (pushState/replaceState) don't trigger this because
 // the document is not reset — the toolbar DOM persists across SPA navigations.
 chrome.webNavigation.onDOMContentLoaded.addListener((details) => {
-  if (details.frameId !== 0) return // top frame only
   const { tabs } = store.getState()
   const tabInfo = tabs.get(details.tabId)
   if (!tabInfo || tabInfo.state !== 'connected') return
 
-  injectToolbar(details.tabId)
+  if (details.frameId === 0) {
+    injectToolbar(details.tabId)
+  }
   void resumeRrwebRecordingForNavigation(details.tabId)
 })

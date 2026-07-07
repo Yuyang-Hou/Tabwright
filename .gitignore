@@ -10,6 +10,9 @@ coverage
 *.zip
 *.log
 tmp
+.playwriter/capabilities/*/artifacts/
+.playwriter/capabilities/*/runs.jsonl
+.playwriter/capabilities/*/secrets.json
 playwriter/src/assets/*.png
 playwriter/src/assets/framer.html
 *-snapshot.txt

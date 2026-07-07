@@ -38,6 +38,7 @@ import {
   getSavedRrwebRecordingWithEvents,
   listSavedRrwebRecordings,
 } from './rrweb-recording-relay.js'
+import { getCapabilityOptionsDetail, listCapabilityOptions } from './capability-options.js'
 import { appendSessionToWsUrl } from './chrome-discovery.js'
 import * as relayState from './relay-state.js'
 
@@ -575,7 +576,7 @@ export async function startPlayWriterCDPRelayServer({
 
     const rrwebStartResult = await rrwebRelay.startRecording({
       ...params,
-      checkoutEveryNms: 10000,
+      checkoutEveryNms: 0,
       maskAllInputs: false,
     })
 
@@ -2034,6 +2035,8 @@ export async function startPlayWriterCDPRelayServer({
 
   app.use('/rrweb-recordings', reviewRouteMiddleware)
   app.use('/rrweb-recordings/*', reviewRouteMiddleware)
+  app.use('/capabilities', reviewRouteMiddleware)
+  app.use('/capabilities/*', reviewRouteMiddleware)
 
   app.post('/cli/execute', async (c) => {
     try {
@@ -2141,6 +2144,18 @@ export async function startPlayWriterCDPRelayServer({
     const result = getSavedRrwebRecordingWithEvents(c.req.param('id'))
     if (!result) {
       return c.json({ error: 'rrweb recording not found' }, 404)
+    }
+    return c.json(result)
+  })
+
+  app.get('/capabilities', (c) => {
+    return c.json(listCapabilityOptions({ cwd: process.cwd() }))
+  })
+
+  app.get('/capabilities/:id', (c) => {
+    const result = getCapabilityOptionsDetail({ cwd: process.cwd(), id: c.req.param('id') })
+    if (!result) {
+      return c.json({ error: 'capability not found' }, 404)
     }
     return c.json(result)
   })

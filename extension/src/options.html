@@ -3,25 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Playwriter Recordings</title>
+    <title>Playwriter</title>
     <script type="module" src="./options.ts"></script>
   </head>
   <body>
     <main class="shell">
-      <section class="recordings-panel">
+      <section class="list-panel">
         <header class="panel-header">
-          <div>
-            <h1>Recordings</h1>
-            <p id="status-text">Loading recordings...</p>
+          <div class="header-row">
+            <div>
+              <h1>Playwriter</h1>
+              <p id="status-text">Loading recordings...</p>
+            </div>
+            <button id="refresh-button" type="button">Refresh</button>
           </div>
-          <button id="refresh-button" type="button">Refresh</button>
+          <div class="tabs">
+            <button class="tab-button active" data-tab="recordings" type="button">Recordings</button>
+            <button class="tab-button" data-tab="skills" type="button">Skills</button>
+          </div>
         </header>
-        <h2 class="list-heading">DOM replays</h2>
-        <div id="replays-list" class="recordings-list"></div>
+        <section id="recordings-view">
+          <h2 class="list-heading">DOM replays</h2>
+          <div id="replays-list" class="list-body"></div>
+        </section>
+        <section id="skills-view" hidden>
+          <h2 class="list-heading">Capabilities</h2>
+          <div id="skills-list" class="list-body"></div>
+        </section>
       </section>
-      <section class="player-panel">
-        <div id="replay-player" class="replay-player"></div>
-        <div id="replay-details" class="recording-details">Select a DOM replay.</div>
+      <section class="detail-panel">
+        <div id="replay-view" class="replay-view">
+          <div id="replay-player" class="replay-player"></div>
+          <div id="replay-controls" class="replay-controls" hidden>
+            <button id="replay-play-toggle" type="button">Play</button>
+            <input id="replay-timeline" type="range" min="0" max="0" value="0" step="100" aria-label="Replay timeline" />
+            <span id="replay-time" class="replay-time">0:00 / 0:00</span>
+          </div>
+          <div id="replay-details" class="recording-details">Select a DOM replay.</div>
+        </div>
+        <div id="skill-detail" class="skill-detail" hidden>
+          <div class="empty-state">Select a capability.</div>
+        </div>
       </section>
     </main>
   </body>

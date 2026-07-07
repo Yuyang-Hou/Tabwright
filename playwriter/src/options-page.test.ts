@@ -20,7 +20,7 @@ function getExtensionDistRoot(): string {
     path.resolve(process.cwd(), '..', 'extension', `dist-${TEST_PORT}`),
   ]
   const distRoot = candidates.find((candidate) => {
-    return fs.existsSync(path.join(candidate, 'extension', 'src', 'options.html'))
+    return fs.existsSync(path.join(candidate, 'src', 'options.html'))
   })
   if (!distRoot) {
     throw new Error(`Could not find extension dist for port ${TEST_PORT}`)
@@ -32,7 +32,7 @@ async function createStaticServer(rootDir: string): Promise<StaticServer> {
   const openSockets: Set<net.Socket> = new Set()
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1')
-    const pathname = url.pathname === '/' ? '/extension/src/options.html' : url.pathname
+    const pathname = url.pathname === '/' ? '/src/options.html' : url.pathname
     const filePath = path.resolve(rootDir, `.${pathname}`)
 
     if (filePath !== rootDir && !filePath.startsWith(`${rootDir}${path.sep}`)) {
@@ -122,6 +122,16 @@ describe('extension options page', () => {
       sessionId: 'pw-tab-options',
       url: 'https://example.com/materials/new',
     }
+    const recordings = Array.from({ length: 30 }, (_, index) => {
+      return {
+        ...replay,
+        id: index === 0 ? replay.id : `replay-options-smoke-${index}`,
+        path: index === 0 ? replay.path : `/Users/test/.playwriter/rrweb-recordings/replay-options-smoke-${index}.json`,
+        startedAt: replay.startedAt - index * 1000,
+        savedAt: replay.savedAt - index * 1000,
+        tabId: replay.tabId + index,
+      }
+    })
     const replayEvents = [
       {
         type: 4,
@@ -132,6 +142,11 @@ describe('extension options page', () => {
         type: 2,
         timestamp: replay.startedAt + 100,
         data: { node: { id: 1, type: 0, childNodes: [] } },
+      },
+      {
+        type: 5,
+        timestamp: replay.startedAt + 5000,
+        data: { tag: 'end', payload: {} },
       },
     ]
 
@@ -155,7 +170,7 @@ describe('extension options page', () => {
           await route.fulfill({
             status: 200,
             headers: { ...corsHeaders, 'content-type': 'application/json' },
-            body: JSON.stringify({ recordings: [replay] }),
+            body: JSON.stringify({ recordings }),
           })
           return
         }
@@ -173,20 +188,195 @@ describe('extension options page', () => {
         await route.fulfill({ status: 404, headers: corsHeaders, body: 'not found' })
       })
 
-      await page.goto(`${staticServer.baseUrl}/extension/src/options.html`)
+      await page.goto(`${staticServer.baseUrl}/src/options.html`)
       const recordingItem = page.locator('.recording-item').filter({ hasText: 'tab 7' })
       await recordingItem.waitFor({ timeout: 10000 })
       await expect.poll(async () => {
         return await recordingItem.textContent()
       }).toContain('2 events')
+      const replaysList = page.locator('#replays-list')
+      await expect.poll(async () => {
+        return await replaysList.evaluate((element) => {
+          const list = element as unknown as { scrollHeight: number; clientHeight: number }
+          return list.scrollHeight > list.clientHeight
+        })
+      }).toBe(true)
+      await replaysList.evaluate((element) => {
+        const list = element as unknown as { scrollHeight: number; scrollTop: number }
+        list.scrollTop = list.scrollHeight
+      })
+      await expect.poll(async () => {
+        return await replaysList.evaluate((element) => {
+          const list = element as unknown as { scrollTop: number }
+          return list.scrollTop > 0
+        })
+      }).toBe(true)
+      await replaysList.evaluate((element) => {
+        const list = element as unknown as { scrollTop: number }
+        list.scrollTop = 0
+      })
       await recordingItem.click()
 
       await expect.poll(() => {
         return replayEventsRequested
       }).toBe(true)
       await expect.poll(async () => {
+        return await page.locator('#status-text').textContent()
+      }).toContain('Replay ready')
+      await expect.poll(async () => {
+        return await page.locator('#replay-controls').isVisible()
+      }).toBe(true)
+      await expect.poll(async () => {
+        return await page.locator('#replay-play-toggle').textContent()
+      }).toBe('Play')
+      await expect.poll(async () => {
+        return Number(await page.locator('#replay-timeline').inputValue())
+      }).toBe(0)
+      await page.locator('#replay-play-toggle').click()
+      await expect.poll(async () => {
+        return await page.locator('#replay-play-toggle').textContent()
+      }).toBe('Pause')
+      await page.locator('#replay-play-toggle').click()
+      await expect.poll(async () => {
+        return await page.locator('#replay-play-toggle').textContent()
+      }).toBe('Play')
+      await expect.poll(async () => {
         return await page.locator('#replay-details').textContent()
       }).toContain('replay-options-smoke')
+      await page.locator('#replay-player .replayer-wrapper').waitFor()
+      await expect.poll(async () => {
+        const playerBox = await page.locator('#replay-player').boundingBox()
+        const wrapperBox = await page.locator('#replay-player .replayer-wrapper').boundingBox()
+        if (!playerBox || !wrapperBox) {
+          return false
+        }
+        return wrapperBox.width <= playerBox.width + 1 && wrapperBox.height <= playerBox.height + 1
+      }).toBe(true)
+    } finally {
+      await page.close()
+      await staticServer.close()
+    }
+  }, 30000)
+
+  test('shows capabilities and AI prompt actions from the options page', async () => {
+    if (!testCtx) {
+      throw new Error('Test context is not initialized')
+    }
+
+    const distRoot = getExtensionDistRoot()
+    const staticServer = await createStaticServer(distRoot)
+    const capability = {
+      id: 'query-user',
+      title: 'Query User',
+      description: 'Look up a user by email.',
+      status: 'trusted',
+      runtime: 'node',
+      match: ['https://admin.example.com/users*'],
+      routingHint: 'exact-match-direct-run',
+      permissions: ['network'],
+      sideEffect: 'read',
+      requiresConfirmation: false,
+      whenToUse: ['Use when the user asks to look up an admin user by email.'],
+      whenNotToUse: ['Do not use for public profile lookup.'],
+      tags: ['admin'],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          email: { type: 'string' },
+        },
+        required: ['email'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      location: 'project',
+      dir: '/Users/test/project/.playwriter/capabilities/query-user',
+      autonomousInvocation: {
+        allowed: true,
+        reasons: ['trusted read-only capability'],
+      },
+      recentRuns: [
+        {
+          id: 'run-1',
+          status: 'success',
+          durationMs: 42,
+          inputHash: 'abc',
+          createdAt: '2026-07-07T00:00:00.000Z',
+        },
+      ],
+      agentSkill: {
+        target: 'codex',
+        draftExists: true,
+        draftPath: '/Users/test/project/.playwriter/capabilities/query-user/agent-skills/codex/SKILL.md',
+        installedExists: false,
+        installedPath: '/Users/test/.codex/skills/query-user/SKILL.md',
+        initCommand: 'playwriter capability skill init query-user',
+        showCommand: 'playwriter capability skill show query-user',
+        installCommand: 'playwriter capability skill install query-user',
+      },
+    }
+
+    const page = await testCtx.browserContext.newPage()
+    page.setDefaultTimeout(10000)
+    try {
+      await page.route(`http://127.0.0.1:${TEST_PORT}/**`, async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        const corsHeaders = {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'GET,POST,OPTIONS',
+          'access-control-allow-headers': 'content-type',
+        }
+
+        if (request.method() === 'OPTIONS') {
+          await route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+          return
+        }
+
+        if (url.pathname === '/rrweb-recordings') {
+          await route.fulfill({
+            status: 200,
+            headers: { ...corsHeaders, 'content-type': 'application/json' },
+            body: JSON.stringify({ recordings: [] }),
+          })
+          return
+        }
+
+        if (url.pathname === '/capabilities') {
+          await route.fulfill({
+            status: 200,
+            headers: { ...corsHeaders, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              cwd: '/Users/test/project',
+              capabilities: [capability],
+            }),
+          })
+          return
+        }
+
+        await route.fulfill({ status: 404, headers: corsHeaders, body: 'not found' })
+      })
+
+      await page.goto(`${staticServer.baseUrl}/src/options.html`, { waitUntil: 'domcontentloaded' })
+      const skillsTab = page.getByRole('button', { name: 'Skills' })
+      await skillsTab.waitFor()
+      await skillsTab.click()
+      const capabilityItem = page.locator('.skill-item').filter({ hasText: 'Query User' })
+      await capabilityItem.waitFor({ timeout: 10000 })
+      await capabilityItem.click()
+
+      await expect.poll(async () => {
+        return await page.locator('#skill-detail').textContent()
+      }).toContain('query-user')
+      await expect.poll(async () => {
+        return await page.locator('#skill-detail').textContent()
+      }).toContain('Copy edit prompt')
+      await expect.poll(async () => {
+        return await page.locator('#skill-detail').textContent()
+      }).toContain('email: string')
     } finally {
       await page.close()
       await staticServer.close()

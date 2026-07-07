@@ -140,13 +140,15 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
         }
         scheduleFlush()
       },
-      checkoutEveryNms: params.checkoutEveryNms ?? 10000,
+      // Periodic full snapshots reset rrweb's top-frame mirror while cross-origin iframe recorders keep posting events.
+      // That can attach iframe DOM to stale parent ids and leave the replay visually blank.
+      checkoutEveryNms: params.checkoutEveryNms ?? 0,
       maskAllInputs: params.maskAllInputs ?? false,
       recordCanvas: params.recordCanvas ?? false,
       inlineImages: params.inlineImages ?? false,
       collectFonts: params.collectFonts ?? false,
       mousemoveWait: params.mousemoveWait ?? 50,
-      recordCrossOriginIframes: false,
+      recordCrossOriginIframes: true,
     }
   }
 
