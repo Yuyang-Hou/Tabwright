@@ -6,8 +6,10 @@ import 'rrweb/dist/style.css'
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
 const RELAY_BASE_URL = `http://${RELAY_HOST}:${RELAY_PORT}`
+const LANGUAGE_STORAGE_KEY = 'playwriterOptionsLanguage'
 
 type ActiveTab = 'recordings' | 'skills'
+type LanguageCode = 'en' | 'zh_CN'
 type RrwebEvent = eventWithTime
 type ReplayMetaEvent = Extract<RrwebEvent, { type: EventType.Meta }>
 
@@ -90,315 +92,275 @@ interface CapabilitiesResponse {
   capabilities: CapabilityContract[]
 }
 
-const style = document.createElement('style')
-style.textContent = `
-  :root {
-    color-scheme: light;
-    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: #111827;
-    background: #f8fafc;
+const messageFallbacks = {
+  app_title: 'Playwriter',
+  app_subtitle: 'Local browser automation cockpit',
+  status_label: 'Status',
+  status_loading_recordings: 'Loading recordings...',
+  refresh_button: 'Refresh',
+  recordings_tab: 'Recordings',
+  capabilities_tab: 'Capabilities',
+  language_label: 'Language',
+  language_switch_aria_label: 'Language switch',
+  language_en: 'English',
+  language_zh_cn: 'Chinese',
+  recordings_eyebrow: 'Replay library',
+  recordings_heading: 'DOM replays',
+  recordings_description: 'Review saved page recordings and turn repeatable flows into capabilities.',
+  capabilities_eyebrow: 'Automation library',
+  capabilities_heading: 'Capabilities',
+  capabilities_description: 'Inspect runnable capabilities, trust status, schemas, and agent skill coverage.',
+  search_label: 'Search',
+  search_recordings_placeholder: 'Filter recordings',
+  search_capabilities_placeholder: 'Filter capabilities',
+  metric_replays: 'Replays',
+  metric_total_duration: 'Total duration',
+  metric_events: 'Events',
+  metric_capabilities: 'Capabilities',
+  metric_trusted: 'AI-ready',
+  metric_agent_skills: 'Agent skills',
+  detail_eyebrow: 'Detail',
+  replay_detail_title: 'Replay preview',
+  capability_detail_title: 'Capability detail',
+  select_replay: 'Select a DOM replay.',
+  select_capability: 'Select a capability.',
+  play_button: 'Play',
+  pause_button: 'Pause',
+  sections_aria_label: 'Options sections',
+  metrics_aria_label: 'Current view summary',
+  replay_timeline_label: 'Replay timeline',
+  status_copied: '$1 copied',
+  status_loading_replay: 'Loading replay $1...',
+  status_replay_ready: 'Replay ready $1',
+  status_replay_count_one: '$1 replay',
+  status_replay_count_other: '$1 replays',
+  status_loading_capabilities: 'Loading capabilities...',
+  status_capability_count_one: '$1 capability from $2',
+  status_capability_count_other: '$1 capabilities from $2',
+  error_load_replay: 'Failed to load replay: $1',
+  error_invalid_replay_events: 'Invalid replay events response',
+  error_load_recordings: 'Failed to load recordings: $1',
+  error_invalid_recordings: 'Invalid recordings response',
+  error_load_capabilities: 'Failed to load capabilities: $1',
+  error_invalid_capabilities: 'Invalid capabilities response',
+  empty_no_replays: 'No DOM replays yet.',
+  empty_no_capabilities: 'No capabilities yet.',
+  empty_no_matches: 'No matches for this search.',
+  copy_handoff: 'Copy handoff',
+  copy_compile: 'Copy compile',
+  copy_edit_prompt: 'Copy edit prompt',
+  copy_use_prompt: 'Copy use prompt',
+  copy_skill_prompt: 'Copy skill prompt',
+  copy_run: 'Copy run',
+  label_ai_handoff: 'AI handoff',
+  label_compile_command: 'Compile command',
+  label_edit_prompt: 'Edit prompt',
+  label_use_prompt: 'Use prompt',
+  label_skill_prompt: 'Skill prompt',
+  label_run_command: 'Run command',
+  detail_id: 'ID',
+  detail_path: 'Path',
+  detail_saved: 'Saved',
+  detail_duration: 'Duration',
+  detail_size: 'Size',
+  detail_events: 'Events',
+  detail_tab: 'Tab',
+  detail_url: 'URL',
+  detail_session: 'Session',
+  detail_ai_handoff: 'AI handoff',
+  events_count: '$1 events',
+  tab_label: 'tab $1',
+  no_fields_declared: 'No fields declared.',
+  field_description: 'Description',
+  field_when_to_use: 'When to use',
+  field_when_not_to_use: 'When not to use',
+  field_match: 'Match',
+  field_permissions: 'Permissions',
+  field_input: 'Input',
+  field_output: 'Output',
+  field_autonomy: 'Autonomy',
+  field_recent_runs: 'Recent runs',
+  field_agent_skill: 'Agent skill',
+  autonomy_trusted_readonly: 'trusted read-only capability',
+  agent_skill_installed: 'installed: $1',
+  agent_skill_draft: 'draft: $1',
+  agent_skill_missing: 'not created',
+  open_replay_aria: 'Open replay $1',
+  open_capability_aria: 'Open capability $1',
+} as const
+
+type MessageKey = keyof typeof messageFallbacks
+type LocaleMessages = Partial<Record<MessageKey, string>>
+
+let activeLanguage: LanguageCode = 'en'
+let activeMessages: LocaleMessages = {}
+
+function chromeMessage(key: string, substitutions?: string | string[]): string {
+  if (typeof chrome === 'undefined' || !chrome.i18n?.getMessage) {
+    return ''
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-width: 820px;
-    overflow: hidden;
+  return chrome.i18n.getMessage(key, substitutions)
+}
+
+function languageFromLocale(locale: string): LanguageCode {
+  return locale.toLowerCase().startsWith('zh') ? 'zh_CN' : 'en'
+}
+
+function applyFallbackSubstitutions(text: string, substitutions?: string | string[]): string {
+  if (!substitutions) {
+    return text
   }
-  .shell {
-    display: grid;
-    grid-template-columns: minmax(280px, 380px) minmax(480px, 1fr);
-    gap: 14px;
-    height: 100vh;
-    padding: 14px;
-    overflow: hidden;
+  const values: string[] = Array.isArray(substitutions) ? substitutions : [substitutions]
+  return values.reduce((result, value, index) => {
+    return result.replaceAll(`$${index + 1}`, value)
+  }, text)
+}
+
+function msg(key: MessageKey, substitutions?: string | string[]): string {
+  const activeMessage = activeMessages[key]
+  if (activeMessage) {
+    return applyFallbackSubstitutions(activeMessage, substitutions)
   }
-  .list-panel,
-  .detail-panel {
-    min-width: 0;
-    overflow: hidden;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    background: #fff;
-  }
-  .list-panel {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .panel-header {
-    display: grid;
-    gap: 10px;
-    flex: none;
-    padding: 14px;
-    border-bottom: 1px solid #e5e7eb;
-  }
-  .header-row,
-  .tabs,
-  .recording-actions,
-  .skill-actions,
-  .badge-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .header-row {
-    justify-content: space-between;
-    gap: 12px;
-  }
-  h1,
-  h2,
-  h3 {
-    margin: 0;
-    letter-spacing: 0;
-  }
-  h1 {
-    font-size: 16px;
-    font-weight: 650;
-  }
-  h2 {
-    font-size: 18px;
-    font-weight: 650;
-  }
-  h3 {
-    font-size: 12px;
-    font-weight: 650;
-    color: #334155;
-  }
-  #status-text {
-    margin: 5px 0 0;
-    color: #64748b;
-    font-size: 12px;
-  }
-  button {
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    background: #fff;
-    color: #111827;
-    padding: 6px 10px;
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  button:hover {
-    background: #f3f4f6;
-  }
-  button:focus-visible {
-    outline: 2px solid #2563eb;
-    outline-offset: 2px;
-  }
-  .tab-button.active {
-    border-color: #2563eb;
-    background: #eff6ff;
-    color: #1d4ed8;
-  }
-  .list-heading {
-    flex: none;
-    margin: 10px 10px 4px;
-    color: #334155;
-    font-size: 12px;
-    font-weight: 650;
-  }
-  #recordings-view,
-  #skills-view {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    flex-direction: column;
-  }
-  .list-body {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    padding: 8px;
-  }
-  .recording-item,
-  .skill-item {
-    width: 100%;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    padding: 10px;
-    background: transparent;
-    text-align: left;
-  }
-  .recording-item:hover,
-  .skill-item:hover {
-    background: #f8fafc;
-  }
-  .recording-item.active,
-  .skill-item.active {
-    border-color: #93c5fd;
-    background: #eff6ff;
-  }
-  .recording-title,
-  .skill-title {
-    color: #0f172a;
-    font-size: 13px;
-    font-weight: 650;
-  }
-  .recording-meta,
-  .skill-meta,
-  .detail-meta,
-  .field-value {
-    margin-top: 5px;
-    color: #64748b;
-    font-size: 11px;
-    line-height: 1.45;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-  }
-  .detail-panel {
-    min-height: 0;
-  }
-  .replay-view {
-    display: grid;
-    grid-template-rows: minmax(280px, 1fr) auto minmax(120px, auto);
-    height: 100%;
-    min-height: 0;
-  }
-  .replay-player {
-    position: relative;
-    min-height: 0;
-    overflow: hidden;
-    background: #111827;
-  }
-  .replay-player .replayer-wrapper {
-    position: absolute;
-    left: 0;
-    top: 0;
-    transform-origin: top left;
-    will-change: transform;
-  }
-  .replay-player iframe {
-    border: 0;
-    background: #fff;
-  }
-  .replay-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 44px;
-    border-top: 1px solid #0f172a;
-    border-bottom: 1px solid #e5e7eb;
-    padding: 8px 10px;
-    background: #fff;
-  }
-  .replay-controls input[type="range"] {
-    flex: 1;
-    min-width: 0;
-  }
-  .replay-time {
-    min-width: 78px;
-    color: #475569;
-    font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-    text-align: right;
-  }
-  .recording-details,
-  .skill-detail {
-    padding: 12px;
-    color: #334155;
-    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .recording-details {
-    max-height: 190px;
-    min-height: 120px;
-    overflow: auto;
-    border-top: 1px solid #e5e7eb;
-  }
-  .skill-detail {
-    display: grid;
-    gap: 14px;
-    height: 100%;
-    min-height: 0;
-    overflow: auto;
-    font: 12px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    white-space: normal;
-  }
-  .skill-header {
-    display: grid;
-    gap: 6px;
-  }
-  .skill-actions {
-    flex-wrap: wrap;
-  }
-  .field-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
-  .field {
-    min-width: 0;
-    border-top: 1px solid #e5e7eb;
-    padding-top: 10px;
-  }
-  .field.full {
-    grid-column: 1 / -1;
-  }
-  .field-value {
-    font-size: 12px;
-    white-space: pre-wrap;
-  }
-  .badge-row {
-    flex-wrap: wrap;
-    margin-top: 7px;
-  }
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    min-height: 20px;
-    border: 1px solid #e5e7eb;
-    border-radius: 999px;
-    padding: 0 7px;
-    color: #475569;
-    background: #f8fafc;
-    font-size: 11px;
-    line-height: 1;
-  }
-  .badge-trusted,
-  .badge-read,
-  .badge-ready {
-    border-color: #bbf7d0;
-    color: #166534;
-    background: #f0fdf4;
-  }
-  .badge-draft,
-  .badge-write {
-    border-color: #fed7aa;
-    color: #9a3412;
-    background: #fff7ed;
-  }
-  .badge-disabled,
-  .badge-dangerous,
-  .badge-blocked {
-    border-color: #fecaca;
-    color: #991b1b;
-    background: #fef2f2;
-  }
-  .empty-state {
-    color: #64748b;
-    padding: 10px;
-    font-size: 12px;
-  }
-  [hidden] {
-    display: none !important;
-  }
-  @media (max-width: 880px) {
-    body {
-      min-width: 0;
-    }
-    .shell {
-      grid-template-columns: 1fr;
-    }
-    .field-grid {
-      grid-template-columns: 1fr;
+  if (activeLanguage === languageFromLocale(getUiLocale())) {
+    const browserMessage = chromeMessage(key, substitutions)
+    if (browserMessage) {
+      return browserMessage
     }
   }
-`
-document.head.appendChild(style)
+  return applyFallbackSubstitutions(messageFallbacks[key], substitutions)
+}
+
+function isMessageKey(value: string): value is MessageKey {
+  return Object.prototype.hasOwnProperty.call(messageFallbacks, value)
+}
+
+function isLanguageCode(value: unknown): value is LanguageCode {
+  return value === 'en' || value === 'zh_CN'
+}
+
+function getUiLocale(): string {
+  return chromeMessage('@@ui_locale') || navigator.language || 'en'
+}
+
+function isChineseLocale(): boolean {
+  return activeLanguage === 'zh_CN'
+}
+
+function localeMessagesUrl(language: LanguageCode): string {
+  const path = `_locales/${language}/messages.json`
+  if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+    return chrome.runtime.getURL(path)
+  }
+  return `../${path}`
+}
+
+function parseLocaleMessages(value: unknown): LocaleMessages {
+  if (!isRecord(value)) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, rawMessage]) => {
+      if (!isMessageKey(key) || !isRecord(rawMessage) || typeof rawMessage.message !== 'string') {
+        return []
+      }
+      return [[key, rawMessage.message]]
+    }),
+  )
+}
+
+async function loadActiveMessages(language: LanguageCode): Promise<void> {
+  if (language === 'en') {
+    activeMessages = {}
+    return
+  }
+  try {
+    const response = await fetch(localeMessagesUrl(language))
+    if (!response.ok) {
+      throw new Error(`Failed to load locale messages: ${response.status}`)
+    }
+    activeMessages = parseLocaleMessages(await response.json())
+  } catch (error: unknown) {
+    activeMessages = {}
+    console.warn(error)
+  }
+}
+
+async function readSavedLanguage(): Promise<LanguageCode | null> {
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    const result = await chrome.storage.local.get(LANGUAGE_STORAGE_KEY)
+    const value: unknown = result[LANGUAGE_STORAGE_KEY]
+    return isLanguageCode(value) ? value : null
+  }
+  const value = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
+  return isLanguageCode(value) ? value : null
+}
+
+async function saveSelectedLanguage(language: LanguageCode): Promise<void> {
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    await chrome.storage.local.set({ [LANGUAGE_STORAGE_KEY]: language })
+    return
+  }
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
+}
+
+function setText(element: HTMLElement | null, text: string): void {
+  if (!element) {
+    return
+  }
+  element.textContent = text
+}
+
+function setMessage(element: HTMLElement | null, key: MessageKey, substitutions?: string | string[]): void {
+  setText(element, msg(key, substitutions))
+}
+
+function localizeDocument(): void {
+  const direction = chromeMessage('@@bidi_dir') || 'ltr'
+  document.documentElement.lang = getUiLocale().replace('_', '-')
+  document.documentElement.dir = direction
+  document.title = msg('app_title')
+
+  document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((element) => {
+    const key = element.dataset.i18n
+    if (!key || !isMessageKey(key)) {
+      return
+    }
+    element.textContent = msg(key)
+  })
+
+  document.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]').forEach((element) => {
+    const key = element.dataset.i18nPlaceholder
+    if (!key || !isMessageKey(key)) {
+      return
+    }
+    element.placeholder = msg(key)
+  })
+
+  document.querySelectorAll<HTMLElement>('[data-i18n-aria-label]').forEach((element) => {
+    const key = element.dataset.i18nAriaLabel
+    if (!key || !isMessageKey(key)) {
+      return
+    }
+    element.setAttribute('aria-label', msg(key))
+  })
+}
 
 const statusText = document.querySelector<HTMLParagraphElement>('#status-text')
 const refreshButton = document.querySelector<HTMLButtonElement>('#refresh-button')
+const searchInput = document.querySelector<HTMLInputElement>('#search-input')
+const viewEyebrow = document.querySelector<HTMLParagraphElement>('#view-eyebrow')
+const viewTitle = document.querySelector<HTMLHeadingElement>('#view-title')
+const viewDescription = document.querySelector<HTMLParagraphElement>('#view-description')
+const recordingsCount = document.querySelector<HTMLSpanElement>('#recordings-count')
+const skillsCount = document.querySelector<HTMLSpanElement>('#skills-count')
+const localeText = document.querySelector<HTMLElement>('#locale-text')
+const languageButtons = document.querySelectorAll<HTMLButtonElement>('.language-button')
+const metricPrimaryLabel = document.querySelector<HTMLSpanElement>('#metric-primary-label')
+const metricPrimaryValue = document.querySelector<HTMLElement>('#metric-primary-value')
+const metricSecondaryLabel = document.querySelector<HTMLSpanElement>('#metric-secondary-label')
+const metricSecondaryValue = document.querySelector<HTMLElement>('#metric-secondary-value')
+const metricTertiaryLabel = document.querySelector<HTMLSpanElement>('#metric-tertiary-label')
+const metricTertiaryValue = document.querySelector<HTMLElement>('#metric-tertiary-value')
 const recordingsView = document.querySelector<HTMLElement>('#recordings-view')
 const skillsView = document.querySelector<HTMLElement>('#skills-view')
 const replayView = document.querySelector<HTMLElement>('#replay-view')
@@ -415,8 +377,10 @@ const replayDetails = document.querySelector<HTMLDivElement>('#replay-details')
 let activeTab: ActiveTab = 'recordings'
 let selectedReplayId: string | null = null
 let selectedCapabilityId: string | null = null
+let replayRecordings: SavedReplayRecording[] = []
 let capabilities: CapabilityContract[] = []
 let capabilityCwd = ''
+let searchQuery = ''
 let replayFitCleanup: (() => void) | null = null
 let activeReplayer: Replayer | null = null
 let replayIsPlaying = false
@@ -582,6 +546,175 @@ function formatSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function replayCountText(count: number): string {
+  return count === 1 ? msg('status_replay_count_one', String(count)) : msg('status_replay_count_other', String(count))
+}
+
+function capabilityCountText(count: number, cwd: string): string {
+  const key: MessageKey = count === 1 ? 'status_capability_count_one' : 'status_capability_count_other'
+  return msg(key, [String(count), cwd])
+}
+
+function normalizeSearchText(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function recordingSearchText(recording: SavedReplayRecording): string {
+  return [
+    recording.id,
+    recording.path,
+    formatDate(recording.savedAt),
+    String(recording.eventCount),
+    String(recording.tabId),
+    recording.url || '',
+    recording.sessionId || '',
+  ].join('\n')
+}
+
+function capabilitySearchText(capability: CapabilityContract): string {
+  return [
+    capability.id,
+    capability.title,
+    capability.description,
+    capability.status,
+    capability.runtime,
+    capability.location,
+    capability.sideEffect,
+    capability.routingHint,
+    capability.tags.join('\n'),
+    capability.match.join('\n'),
+  ].join('\n')
+}
+
+function getFilteredRecordings(): SavedReplayRecording[] {
+  if (!searchQuery) {
+    return replayRecordings
+  }
+  return replayRecordings.filter((recording) => {
+    return recordingSearchText(recording).toLowerCase().includes(searchQuery)
+  })
+}
+
+function getFilteredCapabilities(): CapabilityContract[] {
+  if (!searchQuery) {
+    return capabilities
+  }
+  return capabilities.filter((capability) => {
+    return capabilitySearchText(capability).toLowerCase().includes(searchQuery)
+  })
+}
+
+function updateTabCounts(): void {
+  setText(recordingsCount, String(replayRecordings.length))
+  setText(skillsCount, String(capabilities.length))
+}
+
+function updateViewLabels(): void {
+  if (activeTab === 'recordings') {
+    setMessage(viewEyebrow, 'recordings_eyebrow')
+    setMessage(viewTitle, 'recordings_heading')
+    setMessage(viewDescription, 'recordings_description')
+    setMessage(metricPrimaryLabel, 'metric_replays')
+    setMessage(metricSecondaryLabel, 'metric_total_duration')
+    setMessage(metricTertiaryLabel, 'metric_events')
+    if (searchInput) {
+      searchInput.placeholder = msg('search_recordings_placeholder')
+    }
+    return
+  }
+
+  setMessage(viewEyebrow, 'capabilities_eyebrow')
+  setMessage(viewTitle, 'capabilities_heading')
+  setMessage(viewDescription, 'capabilities_description')
+  setMessage(metricPrimaryLabel, 'metric_capabilities')
+  setMessage(metricSecondaryLabel, 'metric_trusted')
+  setMessage(metricTertiaryLabel, 'metric_agent_skills')
+  if (searchInput) {
+    searchInput.placeholder = msg('search_capabilities_placeholder')
+  }
+}
+
+function updateMetrics(): void {
+  updateTabCounts()
+  if (activeTab === 'recordings') {
+    const totalDuration = replayRecordings.reduce((total, recording) => {
+      return total + recording.duration
+    }, 0)
+    const eventCount = replayRecordings.reduce((total, recording) => {
+      return total + recording.eventCount
+    }, 0)
+    setText(metricPrimaryValue, String(replayRecordings.length))
+    setText(metricSecondaryValue, formatReplayTime(totalDuration))
+    setText(metricTertiaryValue, String(eventCount))
+    return
+  }
+
+  const trustedCount = capabilities.filter((capability) => {
+    return capability.autonomousInvocation.allowed
+  }).length
+  const skillCount = capabilities.filter((capability) => {
+    return capability.agentSkill.installedExists || capability.agentSkill.draftExists
+  }).length
+  setText(metricPrimaryValue, String(capabilities.length))
+  setText(metricSecondaryValue, String(trustedCount))
+  setText(metricTertiaryValue, String(skillCount))
+}
+
+function languageLabel(language: LanguageCode): string {
+  return language === 'en' ? msg('language_en') : msg('language_zh_cn')
+}
+
+function updateLanguageControls(): void {
+  setText(localeText, languageLabel(activeLanguage))
+  languageButtons.forEach((button) => {
+    const isActive = button.dataset.language === activeLanguage
+    button.classList.toggle('active', isActive)
+    button.setAttribute('aria-pressed', String(isActive))
+  })
+}
+
+function rerenderLocalizedContent(): void {
+  localizeDocument()
+  updateLanguageControls()
+  updateViewLabels()
+  updateMetrics()
+  updateReplayControls()
+
+  if (selectedReplayId) {
+    const selectedRecording = replayRecordings.find((recording) => {
+      return recording.id === selectedReplayId
+    })
+    if (selectedRecording) {
+      setReplayDetails(selectedRecording)
+    }
+  }
+
+  if (activeTab === 'recordings') {
+    renderReplays()
+    setStatus(replayCountText(replayRecordings.length))
+    return
+  }
+
+  renderCapabilities()
+  setStatus(capabilityCountText(capabilities.length, capabilityCwd))
+}
+
+async function applyLanguage(language: LanguageCode): Promise<void> {
+  activeLanguage = language
+  await loadActiveMessages(language)
+  rerenderLocalizedContent()
+}
+
+async function selectLanguage(language: LanguageCode): Promise<void> {
+  await saveSelectedLanguage(language)
+  await applyLanguage(language)
+}
+
+async function initializeLanguage(): Promise<void> {
+  const savedLanguage = await readSavedLanguage()
+  await applyLanguage(savedLanguage || languageFromLocale(getUiLocale()))
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
 }
@@ -604,7 +737,7 @@ function createBadge(text: string, tone = text): HTMLSpanElement {
 
 async function copyTextToClipboard(options: { label: string; text: string }): Promise<void> {
   await navigator.clipboard.writeText(options.text)
-  setStatus(`${options.label} copied`)
+  setStatus(msg('status_copied', options.label))
 }
 
 function copyWithStatus(options: { label: string; text: string }): void {
@@ -618,9 +751,18 @@ function setActiveTab(tab: ActiveTab): void {
   if (tab !== 'recordings' && activeReplayer && replayIsPlaying) {
     activeReplayer.pause()
   }
+  const tabChanged = activeTab !== tab
   activeTab = tab
+  if (tabChanged) {
+    searchQuery = ''
+    if (searchInput) {
+      searchInput.value = ''
+    }
+  }
   document.querySelectorAll<HTMLButtonElement>('.tab-button').forEach((button) => {
-    button.classList.toggle('active', button.dataset.tab === tab)
+    const isActive = button.dataset.tab === tab
+    button.classList.toggle('active', isActive)
+    button.setAttribute('aria-selected', String(isActive))
   })
   if (recordingsView) {
     recordingsView.hidden = tab !== 'recordings'
@@ -633,6 +775,14 @@ function setActiveTab(tab: ActiveTab): void {
   }
   if (skillDetail) {
     skillDetail.hidden = tab !== 'skills'
+  }
+  updateViewLabels()
+  updateMetrics()
+  if (tab === 'recordings') {
+    renderReplays()
+  }
+  if (tab === 'skills') {
+    renderCapabilities()
   }
   if (tab === 'skills' && capabilities.length === 0) {
     loadCapabilities().catch((error: unknown) => {
@@ -672,6 +822,24 @@ function replayRunCommand(recording: SavedReplayRecording): string {
 }
 
 function replayAiHandoffText(recording: SavedReplayRecording): string {
+  if (isChineseLocale()) {
+    return [
+      '使用这个 Playwriter DOM replay 作为工作流证据。',
+      `Replay id: ${recording.id}`,
+      recording.url ? `录制 URL: ${recording.url}` : '',
+      '',
+      '编译能力：',
+      replayMakeCommand(recording),
+      '',
+      '修改输入后运行：',
+      replayRunCommand(recording),
+    ]
+      .filter((line) => {
+        return line.length > 0
+      })
+      .join('\n')
+  }
+
   return [
     'Use this Playwriter DOM replay as workflow evidence.',
     `Replay id: ${recording.id}`,
@@ -692,17 +860,17 @@ function replayAiHandoffText(recording: SavedReplayRecording): string {
 function setReplayDetails(recording: SavedReplayRecording): void {
   if (!replayDetails) return
   replayDetails.textContent = [
-    `ID: ${recording.id}`,
-    `Path: ${recording.path}`,
-    `Saved: ${formatDate(recording.savedAt)}`,
-    `Duration: ${formatDuration(recording.duration)}`,
-    `Size: ${formatSize(recording.size)}`,
-    `Events: ${recording.eventCount}`,
-    `Tab: ${recording.tabId}`,
-    recording.url ? `URL: ${recording.url}` : '',
-    recording.sessionId ? `Session: ${recording.sessionId}` : '',
+    `${msg('detail_id')}: ${recording.id}`,
+    `${msg('detail_path')}: ${recording.path}`,
+    `${msg('detail_saved')}: ${formatDate(recording.savedAt)}`,
+    `${msg('detail_duration')}: ${formatDuration(recording.duration)}`,
+    `${msg('detail_size')}: ${formatSize(recording.size)}`,
+    `${msg('detail_events')}: ${recording.eventCount}`,
+    `${msg('detail_tab')}: ${recording.tabId}`,
+    recording.url ? `${msg('detail_url')}: ${recording.url}` : '',
+    recording.sessionId ? `${msg('detail_session')}: ${recording.sessionId}` : '',
     '',
-    'AI handoff:',
+    `${msg('detail_ai_handoff')}:`,
     replayAiHandoffText(recording),
   ]
     .filter((line) => {
@@ -797,7 +965,7 @@ function updateReplayControls(timeOffset = activeReplayer?.getCurrentTime() ?? 0
     replayTime.textContent = `${formatReplayTime(currentTime)} / ${formatReplayTime(replayTotalTime)}`
   }
   if (replayPlayToggle) {
-    replayPlayToggle.textContent = replayIsPlaying ? 'Pause' : 'Play'
+    replayPlayToggle.textContent = replayIsPlaying ? msg('pause_button') : msg('play_button')
     replayPlayToggle.disabled = !activeReplayer
   }
 }
@@ -910,20 +1078,20 @@ function seekReplayToTimeline(): void {
 async function playReplay(recording: SavedReplayRecording): Promise<void> {
   selectedReplayId = recording.id
   updateActiveReplay()
-  setStatus(`Loading replay ${recording.id}...`)
+  setStatus(msg('status_loading_replay', recording.id))
   setReplayDetails(recording)
 
   const response = await fetch(`${RELAY_BASE_URL}/rrweb-recordings/${encodeURIComponent(recording.id)}/events`)
   if (!response.ok) {
-    throw new Error(`Failed to load replay: ${response.status}`)
+    throw new Error(msg('error_load_replay', String(response.status)))
   }
   const data: unknown = await response.json()
   if (!isReplayEventsResponse(data)) {
-    throw new Error('Invalid replay events response')
+    throw new Error(msg('error_invalid_replay_events'))
   }
   setReplayDetails(data.recording)
   mountReplay(data.events)
-  setStatus(`Replay ready ${recording.id}`)
+  setStatus(msg('status_replay_ready', recording.id))
 }
 
 function createRecordingActions(recording: SavedReplayRecording): HTMLDivElement {
@@ -932,18 +1100,18 @@ function createRecordingActions(recording: SavedReplayRecording): HTMLDivElement
 
   const handoff = document.createElement('button')
   handoff.type = 'button'
-  handoff.textContent = 'Copy handoff'
+  handoff.textContent = msg('copy_handoff')
   handoff.addEventListener('click', (event: MouseEvent) => {
     event.stopPropagation()
-    copyWithStatus({ label: 'AI handoff', text: replayAiHandoffText(recording) })
+    copyWithStatus({ label: msg('label_ai_handoff'), text: replayAiHandoffText(recording) })
   })
 
   const compile = document.createElement('button')
   compile.type = 'button'
-  compile.textContent = 'Copy compile'
+  compile.textContent = msg('copy_compile')
   compile.addEventListener('click', (event: MouseEvent) => {
     event.stopPropagation()
-    copyWithStatus({ label: 'Compile command', text: replayMakeCommand(recording) })
+    copyWithStatus({ label: msg('label_compile_command'), text: replayMakeCommand(recording) })
   })
 
   actions.replaceChildren(handoff, compile)
@@ -955,7 +1123,7 @@ function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement
   item.type = 'button'
   item.className = 'recording-item'
   item.dataset.replayId = recording.id
-  item.ariaLabel = `Open replay ${recording.id}`
+  item.ariaLabel = msg('open_replay_aria', recording.id)
 
   const title = document.createElement('div')
   title.className = 'recording-title'
@@ -965,9 +1133,9 @@ function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement
   meta.className = 'recording-meta'
   meta.textContent = [
     formatDuration(recording.duration),
-    `${recording.eventCount} events`,
+    msg('events_count', String(recording.eventCount)),
     formatSize(recording.size),
-    `tab ${recording.tabId}`,
+    msg('tab_label', String(recording.tabId)),
     recording.url || '',
   ]
     .filter((part) => {
@@ -985,13 +1153,23 @@ function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement
   return item
 }
 
-function renderReplays(recordings: SavedReplayRecording[]): void {
+function renderReplays(): void {
   if (!replaysList) return
+  updateMetrics()
 
+  if (replayRecordings.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'empty-state'
+    empty.textContent = msg('empty_no_replays')
+    replaysList.replaceChildren(empty)
+    return
+  }
+
+  const recordings = getFilteredRecordings()
   if (recordings.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'empty-state'
-    empty.textContent = 'No DOM replays yet.'
+    empty.textContent = msg('empty_no_matches')
     replaysList.replaceChildren(empty)
     return
   }
@@ -1005,17 +1183,18 @@ function renderReplays(recordings: SavedReplayRecording[]): void {
 }
 
 async function loadReplays(): Promise<void> {
-  setStatus('Loading recordings...')
+  setStatus(msg('status_loading_recordings'))
   const response = await fetch(`${RELAY_BASE_URL}/rrweb-recordings`)
   if (!response.ok) {
-    throw new Error(`Failed to load recordings: ${response.status}`)
+    throw new Error(msg('error_load_recordings', String(response.status)))
   }
   const data: unknown = await response.json()
   if (!isReplaysResponse(data)) {
-    throw new Error('Invalid recordings response')
+    throw new Error(msg('error_invalid_recordings'))
   }
-  renderReplays(data.recordings)
-  setStatus(`${data.recordings.length} replay${data.recordings.length === 1 ? '' : 's'}`)
+  replayRecordings = data.recordings
+  renderReplays()
+  setStatus(replayCountText(data.recordings.length))
 }
 
 function schemaExampleValue(schema: unknown): unknown {
@@ -1057,7 +1236,7 @@ function schemaSummary(schema: Record<string, unknown>): string {
   const properties = isRecord(schema.properties) ? schema.properties : {}
   const entries = Object.entries(properties)
   if (entries.length === 0) {
-    return 'No fields declared.'
+    return msg('no_fields_declared')
   }
   return entries
     .map(([key, propertySchema]) => {
@@ -1088,6 +1267,24 @@ function capabilityRouteCommand(): string {
 }
 
 function capabilityEditPrompt(capability: CapabilityContract): string {
+  if (!isChineseLocale()) {
+    return [
+      `Please help me update this Playwriter capability: ${capability.id}`,
+      `Current directory: ${capability.dir}`,
+      '',
+      'Inspect the current capability first:',
+      `playwriter capability describe ${capability.id} --json`,
+      `playwriter capability show ${capability.id} --script`,
+      '',
+      'My requested change: <describe the change here>',
+      '',
+      'Requirements:',
+      '- Decide whether this only changes the contract or also script.js',
+      '- Run this package typecheck or the relevant tests after editing',
+      '- Do not trust this capability unless I explicitly ask',
+    ].join('\n')
+  }
+
   return [
     `请帮我修改 Playwriter capability：${capability.id}`,
     `当前目录：${capability.dir}`,
@@ -1106,6 +1303,20 @@ function capabilityEditPrompt(capability: CapabilityContract): string {
 }
 
 function capabilityUsePrompt(capability: CapabilityContract): string {
+  if (!isChineseLocale()) {
+    return [
+      `Please use this Playwriter capability: ${capability.id}`,
+      '',
+      'Try routing first:',
+      capabilityRouteCommand(),
+      '',
+      'If direct execution is appropriate, use:',
+      capabilityRunCommand(capability),
+      '',
+      'My task: <write the task or paste the URL here>',
+    ].join('\n')
+  }
+
   return [
     `请使用 Playwriter capability：${capability.id}`,
     '',
@@ -1120,6 +1331,27 @@ function capabilityUsePrompt(capability: CapabilityContract): string {
 }
 
 function capabilitySkillPrompt(capability: CapabilityContract): string {
+  if (!isChineseLocale()) {
+    return [
+      `Please create or improve the agent skill for this Playwriter capability: ${capability.id}.`,
+      '',
+      'Inspect the current capability first:',
+      `playwriter capability describe ${capability.id} --json`,
+      '',
+      capability.agentSkill.draftExists ? `Existing draft: ${capability.agentSkill.draftPath}` : capability.agentSkill.initCommand,
+      capability.agentSkill.draftExists ? capability.agentSkill.showCommand : '',
+      '',
+      'The skill should define when to use it, when not to use it, the first command, auth/sandbox notes, and the default output shape.',
+      '',
+      'Install it after editing:',
+      capability.agentSkill.installCommand,
+    ]
+      .filter((line) => {
+        return line.length > 0
+      })
+      .join('\n')
+  }
+
   return [
     `请帮我为 Playwriter capability：${capability.id} 创建或完善 agent skill。`,
     '',
@@ -1161,30 +1393,30 @@ function createCapabilityActions(capability: CapabilityContract): HTMLDivElement
 
   const editPrompt = document.createElement('button')
   editPrompt.type = 'button'
-  editPrompt.textContent = 'Copy edit prompt'
+  editPrompt.textContent = msg('copy_edit_prompt')
   editPrompt.addEventListener('click', () => {
-    copyWithStatus({ label: 'Edit prompt', text: capabilityEditPrompt(capability) })
+    copyWithStatus({ label: msg('label_edit_prompt'), text: capabilityEditPrompt(capability) })
   })
 
   const usePrompt = document.createElement('button')
   usePrompt.type = 'button'
-  usePrompt.textContent = 'Copy use prompt'
+  usePrompt.textContent = msg('copy_use_prompt')
   usePrompt.addEventListener('click', () => {
-    copyWithStatus({ label: 'Use prompt', text: capabilityUsePrompt(capability) })
+    copyWithStatus({ label: msg('label_use_prompt'), text: capabilityUsePrompt(capability) })
   })
 
   const skillPrompt = document.createElement('button')
   skillPrompt.type = 'button'
-  skillPrompt.textContent = 'Copy skill prompt'
+  skillPrompt.textContent = msg('copy_skill_prompt')
   skillPrompt.addEventListener('click', () => {
-    copyWithStatus({ label: 'Skill prompt', text: capabilitySkillPrompt(capability) })
+    copyWithStatus({ label: msg('label_skill_prompt'), text: capabilitySkillPrompt(capability) })
   })
 
   const runCommand = document.createElement('button')
   runCommand.type = 'button'
-  runCommand.textContent = 'Copy run'
+  runCommand.textContent = msg('copy_run')
   runCommand.addEventListener('click', () => {
-    copyWithStatus({ label: 'Run command', text: capabilityRunCommand(capability) })
+    copyWithStatus({ label: msg('label_run_command'), text: capabilityRunCommand(capability) })
   })
 
   actions.replaceChildren(editPrompt, usePrompt, skillPrompt, runCommand)
@@ -1220,21 +1452,21 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   const fields = document.createElement('div')
   fields.className = 'field-grid'
   fields.replaceChildren(
-    createField({ title: 'Description', value: capability.description || '-', full: true }),
-    createField({ title: 'When to use', value: displayList(capability.whenToUse, '-'), full: true }),
-    createField({ title: 'When not to use', value: displayList(capability.whenNotToUse, '-'), full: true }),
-    createField({ title: 'Match', value: displayList(capability.match, '-') }),
-    createField({ title: 'Permissions', value: displayList(capability.permissions, '-') }),
-    createField({ title: 'Input', value: schemaSummary(capability.inputSchema) }),
-    createField({ title: 'Output', value: schemaSummary(capability.outputSchema) }),
+    createField({ title: msg('field_description'), value: capability.description || '-', full: true }),
+    createField({ title: msg('field_when_to_use'), value: displayList(capability.whenToUse, '-'), full: true }),
+    createField({ title: msg('field_when_not_to_use'), value: displayList(capability.whenNotToUse, '-'), full: true }),
+    createField({ title: msg('field_match'), value: displayList(capability.match, '-') }),
+    createField({ title: msg('field_permissions'), value: displayList(capability.permissions, '-') }),
+    createField({ title: msg('field_input'), value: schemaSummary(capability.inputSchema) }),
+    createField({ title: msg('field_output'), value: schemaSummary(capability.outputSchema) }),
     createField({
-      title: 'Autonomy',
+      title: msg('field_autonomy'),
       value: capability.autonomousInvocation.allowed
-        ? 'trusted read-only capability'
+        ? msg('autonomy_trusted_readonly')
         : displayList(capability.autonomousInvocation.reasons, '-'),
     }),
     createField({
-      title: 'Recent runs',
+      title: msg('field_recent_runs'),
       value:
         capability.recentRuns.length === 0
           ? '-'
@@ -1245,11 +1477,11 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
               .join('\n'),
     }),
     createField({
-      title: 'Agent skill',
+      title: msg('field_agent_skill'),
       value: [
-        capability.agentSkill.installedExists ? `installed: ${capability.agentSkill.installedPath}` : '',
-        capability.agentSkill.draftExists ? `draft: ${capability.agentSkill.draftPath}` : '',
-        capability.agentSkill.draftExists || capability.agentSkill.installedExists ? '' : 'not created',
+        capability.agentSkill.installedExists ? msg('agent_skill_installed', capability.agentSkill.installedPath) : '',
+        capability.agentSkill.draftExists ? msg('agent_skill_draft', capability.agentSkill.draftPath) : '',
+        capability.agentSkill.draftExists || capability.agentSkill.installedExists ? '' : msg('agent_skill_missing'),
       ]
         .filter((line) => {
           return line.length > 0
@@ -1280,7 +1512,7 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
   item.type = 'button'
   item.className = 'skill-item'
   item.dataset.capabilityId = capability.id
-  item.ariaLabel = `Open capability ${capability.id}`
+  item.ariaLabel = msg('open_capability_aria', capability.id)
 
   const title = document.createElement('div')
   title.className = 'skill-title'
@@ -1307,11 +1539,24 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
 
 function renderCapabilities(): void {
   if (!skillsList) return
+  updateMetrics()
 
   if (capabilities.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'empty-state'
-    empty.textContent = 'No capabilities yet.'
+    empty.textContent = msg('empty_no_capabilities')
+    skillsList.replaceChildren(empty)
+    if (skillDetail) {
+      skillDetail.replaceChildren(empty.cloneNode(true))
+    }
+    return
+  }
+
+  const filteredCapabilities = getFilteredCapabilities()
+  if (filteredCapabilities.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'empty-state'
+    empty.textContent = msg('empty_no_matches')
     skillsList.replaceChildren(empty)
     if (skillDetail) {
       skillDetail.replaceChildren(empty.cloneNode(true))
@@ -1320,11 +1565,11 @@ function renderCapabilities(): void {
   }
 
   skillsList.replaceChildren(
-    ...capabilities.map((capability) => {
+    ...filteredCapabilities.map((capability) => {
       return createCapabilityItem(capability)
     }),
   )
-  const selected = capabilities.find((capability) => {
+  const selected = filteredCapabilities.find((capability) => {
     return capability.id === selectedCapabilityId
   })
   if (selected) {
@@ -1335,25 +1580,25 @@ function renderCapabilities(): void {
   if (skillDetail) {
     const empty = document.createElement('div')
     empty.className = 'empty-state'
-    empty.textContent = 'Select a capability.'
+    empty.textContent = msg('select_capability')
     skillDetail.replaceChildren(empty)
   }
 }
 
 async function loadCapabilities(): Promise<void> {
-  setStatus('Loading capabilities...')
+  setStatus(msg('status_loading_capabilities'))
   const response = await fetch(`${RELAY_BASE_URL}/capabilities`)
   if (!response.ok) {
-    throw new Error(`Failed to load capabilities: ${response.status}`)
+    throw new Error(msg('error_load_capabilities', String(response.status)))
   }
   const data: unknown = await response.json()
   if (!isCapabilitiesResponse(data)) {
-    throw new Error('Invalid capabilities response')
+    throw new Error(msg('error_invalid_capabilities'))
   }
   capabilityCwd = data.cwd
   capabilities = data.capabilities
   renderCapabilities()
-  setStatus(`${data.capabilities.length} ${data.capabilities.length === 1 ? 'capability' : 'capabilities'} from ${capabilityCwd}`)
+  setStatus(capabilityCountText(data.capabilities.length, capabilityCwd))
 }
 
 refreshButton?.addEventListener('click', () => {
@@ -1376,6 +1621,28 @@ replayTimeline?.addEventListener('change', () => {
   seekReplayToTimeline()
 })
 
+searchInput?.addEventListener('input', () => {
+  searchQuery = normalizeSearchText(searchInput.value)
+  if (activeTab === 'recordings') {
+    renderReplays()
+    return
+  }
+  renderCapabilities()
+})
+
+languageButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const language = button.dataset.language
+    if (!isLanguageCode(language)) {
+      return
+    }
+    selectLanguage(language).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      setStatus(message)
+    })
+  })
+})
+
 document.querySelectorAll<HTMLButtonElement>('.tab-button').forEach((button) => {
   button.addEventListener('click', () => {
     if (button.dataset.tab === 'recordings' || button.dataset.tab === 'skills') {
@@ -1384,8 +1651,13 @@ document.querySelectorAll<HTMLButtonElement>('.tab-button').forEach((button) => 
   })
 })
 
-setActiveTab('recordings')
-loadReplays().catch((error: unknown) => {
+async function initializeOptionsPage(): Promise<void> {
+  await initializeLanguage()
+  setActiveTab('recordings')
+  await loadReplays()
+}
+
+initializeOptionsPage().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
   setStatus(message)
 })

@@ -1,0 +1,152 @@
+{
+  "app_title": { "message": "Playwriter" },
+  "app_subtitle": { "message": "本地浏览器自动化工作台" },
+  "extension_description": { "message": "用 Cursor、Claude、VS Code 自动化你的浏览器。比 Playwright MCP 更强，也更省上下文。" },
+  "action_default_title": { "message": "点击以附加调试器" },
+  "status_label": { "message": "状态" },
+  "status_loading_recordings": { "message": "正在加载录制..." },
+  "refresh_button": { "message": "刷新" },
+  "recordings_tab": { "message": "录制" },
+  "capabilities_tab": { "message": "能力" },
+  "language_label": { "message": "语言" },
+  "language_switch_aria_label": { "message": "语言切换" },
+  "language_en": { "message": "英文" },
+  "language_zh_cn": { "message": "中文" },
+  "recordings_eyebrow": { "message": "回放库" },
+  "recordings_heading": { "message": "DOM 回放" },
+  "recordings_description": { "message": "查看已保存的页面录制，并把可复用流程沉淀成能力。" },
+  "capabilities_eyebrow": { "message": "自动化库" },
+  "capabilities_heading": { "message": "能力" },
+  "capabilities_description": { "message": "检查可运行能力、信任状态、输入输出结构和 agent skill 覆盖。" },
+  "search_label": { "message": "搜索" },
+  "search_recordings_placeholder": { "message": "筛选录制" },
+  "search_capabilities_placeholder": { "message": "筛选能力" },
+  "metric_replays": { "message": "回放" },
+  "metric_total_duration": { "message": "总时长" },
+  "metric_events": { "message": "事件" },
+  "metric_capabilities": { "message": "能力" },
+  "metric_trusted": { "message": "AI 就绪" },
+  "metric_agent_skills": { "message": "Agent skills" },
+  "detail_eyebrow": { "message": "详情" },
+  "replay_detail_title": { "message": "回放预览" },
+  "capability_detail_title": { "message": "能力详情" },
+  "select_replay": { "message": "选择一个 DOM 回放。" },
+  "select_capability": { "message": "选择一个能力。" },
+  "play_button": { "message": "播放" },
+  "pause_button": { "message": "暂停" },
+  "sections_aria_label": { "message": "选项分区" },
+  "metrics_aria_label": { "message": "当前视图摘要" },
+  "replay_timeline_label": { "message": "回放时间轴" },
+  "status_copied": {
+    "message": "$label$ 已复制",
+    "placeholders": { "label": { "content": "$1" } }
+  },
+  "status_loading_replay": {
+    "message": "正在加载回放 $id$...",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "status_replay_ready": {
+    "message": "回放已就绪 $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "status_replay_count_one": {
+    "message": "$count$ 个回放",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "status_replay_count_other": {
+    "message": "$count$ 个回放",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "status_loading_capabilities": { "message": "正在加载能力..." },
+  "status_capability_count_one": {
+    "message": "$cwd$ 下 $count$ 个能力",
+    "placeholders": {
+      "count": { "content": "$1" },
+      "cwd": { "content": "$2" }
+    }
+  },
+  "status_capability_count_other": {
+    "message": "$cwd$ 下 $count$ 个能力",
+    "placeholders": {
+      "count": { "content": "$1" },
+      "cwd": { "content": "$2" }
+    }
+  },
+  "error_load_replay": {
+    "message": "加载回放失败：$status$",
+    "placeholders": { "status": { "content": "$1" } }
+  },
+  "error_invalid_replay_events": { "message": "回放事件响应无效" },
+  "error_load_recordings": {
+    "message": "加载录制失败：$status$",
+    "placeholders": { "status": { "content": "$1" } }
+  },
+  "error_invalid_recordings": { "message": "录制响应无效" },
+  "error_load_capabilities": {
+    "message": "加载能力失败：$status$",
+    "placeholders": { "status": { "content": "$1" } }
+  },
+  "error_invalid_capabilities": { "message": "能力响应无效" },
+  "empty_no_replays": { "message": "还没有 DOM 回放。" },
+  "empty_no_capabilities": { "message": "还没有能力。" },
+  "empty_no_matches": { "message": "没有匹配的结果。" },
+  "copy_handoff": { "message": "复制交接" },
+  "copy_compile": { "message": "复制编译" },
+  "copy_edit_prompt": { "message": "复制编辑提示" },
+  "copy_use_prompt": { "message": "复制使用提示" },
+  "copy_skill_prompt": { "message": "复制 skill 提示" },
+  "copy_run": { "message": "复制运行" },
+  "label_ai_handoff": { "message": "AI 交接" },
+  "label_compile_command": { "message": "编译命令" },
+  "label_edit_prompt": { "message": "编辑提示" },
+  "label_use_prompt": { "message": "使用提示" },
+  "label_skill_prompt": { "message": "Skill 提示" },
+  "label_run_command": { "message": "运行命令" },
+  "detail_id": { "message": "ID" },
+  "detail_path": { "message": "路径" },
+  "detail_saved": { "message": "保存时间" },
+  "detail_duration": { "message": "时长" },
+  "detail_size": { "message": "大小" },
+  "detail_events": { "message": "事件" },
+  "detail_tab": { "message": "标签页" },
+  "detail_url": { "message": "URL" },
+  "detail_session": { "message": "会话" },
+  "detail_ai_handoff": { "message": "AI 交接" },
+  "events_count": {
+    "message": "$count$ 个事件",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "tab_label": {
+    "message": "tab $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "no_fields_declared": { "message": "未声明字段。" },
+  "field_description": { "message": "说明" },
+  "field_when_to_use": { "message": "何时使用" },
+  "field_when_not_to_use": { "message": "何时不用" },
+  "field_match": { "message": "匹配规则" },
+  "field_permissions": { "message": "权限" },
+  "field_input": { "message": "输入" },
+  "field_output": { "message": "输出" },
+  "field_autonomy": { "message": "自主调用" },
+  "field_recent_runs": { "message": "最近运行" },
+  "field_agent_skill": { "message": "Agent skill" },
+  "autonomy_trusted_readonly": { "message": "可信只读能力" },
+  "agent_skill_installed": {
+    "message": "已安装：$path$",
+    "placeholders": { "path": { "content": "$1" } }
+  },
+  "agent_skill_draft": {
+    "message": "草稿：$path$",
+    "placeholders": { "path": { "content": "$1" } }
+  },
+  "agent_skill_missing": { "message": "未创建" },
+  "open_replay_aria": {
+    "message": "打开回放 $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "open_capability_aria": {
+    "message": "打开能力 $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "app_title": { "message": "Playwriter" },
+  "app_subtitle": { "message": "Local browser automation cockpit" },
+  "extension_description": { "message": "Automate your browser using Cursor, Claude, VS Code. More capable and context efficient than Playwright MCP." },
+  "action_default_title": { "message": "Click to attach debugger" },
+  "status_label": { "message": "Status" },
+  "status_loading_recordings": { "message": "Loading recordings..." },
+  "refresh_button": { "message": "Refresh" },
+  "recordings_tab": { "message": "Recordings" },
+  "capabilities_tab": { "message": "Capabilities" },
+  "language_label": { "message": "Language" },
+  "language_switch_aria_label": { "message": "Language switch" },
+  "language_en": { "message": "English" },
+  "language_zh_cn": { "message": "Chinese" },
+  "recordings_eyebrow": { "message": "Replay library" },
+  "recordings_heading": { "message": "DOM replays" },
+  "recordings_description": { "message": "Review saved page recordings and turn repeatable flows into capabilities." },
+  "capabilities_eyebrow": { "message": "Automation library" },
+  "capabilities_heading": { "message": "Capabilities" },
+  "capabilities_description": { "message": "Inspect runnable capabilities, trust status, schemas, and agent skill coverage." },
+  "search_label": { "message": "Search" },
+  "search_recordings_placeholder": { "message": "Filter recordings" },
+  "search_capabilities_placeholder": { "message": "Filter capabilities" },
+  "metric_replays": { "message": "Replays" },
+  "metric_total_duration": { "message": "Total duration" },
+  "metric_events": { "message": "Events" },
+  "metric_capabilities": { "message": "Capabilities" },
+  "metric_trusted": { "message": "AI-ready" },
+  "metric_agent_skills": { "message": "Agent skills" },
+  "detail_eyebrow": { "message": "Detail" },
+  "replay_detail_title": { "message": "Replay preview" },
+  "capability_detail_title": { "message": "Capability detail" },
+  "select_replay": { "message": "Select a DOM replay." },
+  "select_capability": { "message": "Select a capability." },
+  "play_button": { "message": "Play" },
+  "pause_button": { "message": "Pause" },
+  "sections_aria_label": { "message": "Options sections" },
+  "metrics_aria_label": { "message": "Current view summary" },
+  "replay_timeline_label": { "message": "Replay timeline" },
+  "status_copied": {
+    "message": "$label$ copied",
+    "placeholders": { "label": { "content": "$1" } }
+  },
+  "status_loading_replay": {
+    "message": "Loading replay $id$...",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "status_replay_ready": {
+    "message": "Replay ready $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "status_replay_count_one": {
+    "message": "$count$ replay",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "status_replay_count_other": {
+    "message": "$count$ replays",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "status_loading_capabilities": { "message": "Loading capabilities..." },
+  "status_capability_count_one": {
+    "message": "$count$ capability from $cwd$",
+    "placeholders": {
+      "count": { "content": "$1" },
+      "cwd": { "content": "$2" }
+    }
+  },
+  "status_capability_count_other": {
+    "message": "$count$ capabilities from $cwd$",
+    "placeholders": {
+      "count": { "content": "$1" },
+      "cwd": { "content": "$2" }
+    }
+  },
+  "error_load_replay": {
+    "message": "Failed to load replay: $status$",
+    "placeholders": { "status": { "content": "$1" } }
+  },
+  "error_invalid_replay_events": { "message": "Invalid replay events response" },
+  "error_load_recordings": {
+    "message": "Failed to load recordings: $status$",
+    "placeholders": { "status": { "content": "$1" } }
+  },
+  "error_invalid_recordings": { "message": "Invalid recordings response" },
+  "error_load_capabilities": {
+    "message": "Failed to load capabilities: $status$",
+    "placeholders": { "status": { "content": "$1" } }
+  },
+  "error_invalid_capabilities": { "message": "Invalid capabilities response" },
+  "empty_no_replays": { "message": "No DOM replays yet." },
+  "empty_no_capabilities": { "message": "No capabilities yet." },
+  "empty_no_matches": { "message": "No matches for this search." },
+  "copy_handoff": { "message": "Copy handoff" },
+  "copy_compile": { "message": "Copy compile" },
+  "copy_edit_prompt": { "message": "Copy edit prompt" },
+  "copy_use_prompt": { "message": "Copy use prompt" },
+  "copy_skill_prompt": { "message": "Copy skill prompt" },
+  "copy_run": { "message": "Copy run" },
+  "label_ai_handoff": { "message": "AI handoff" },
+  "label_compile_command": { "message": "Compile command" },
+  "label_edit_prompt": { "message": "Edit prompt" },
+  "label_use_prompt": { "message": "Use prompt" },
+  "label_skill_prompt": { "message": "Skill prompt" },
+  "label_run_command": { "message": "Run command" },
+  "detail_id": { "message": "ID" },
+  "detail_path": { "message": "Path" },
+  "detail_saved": { "message": "Saved" },
+  "detail_duration": { "message": "Duration" },
+  "detail_size": { "message": "Size" },
+  "detail_events": { "message": "Events" },
+  "detail_tab": { "message": "Tab" },
+  "detail_url": { "message": "URL" },
+  "detail_session": { "message": "Session" },
+  "detail_ai_handoff": { "message": "AI handoff" },
+  "events_count": {
+    "message": "$count$ events",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "tab_label": {
+    "message": "tab $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "no_fields_declared": { "message": "No fields declared." },
+  "field_description": { "message": "Description" },
+  "field_when_to_use": { "message": "When to use" },
+  "field_when_not_to_use": { "message": "When not to use" },
+  "field_match": { "message": "Match" },
+  "field_permissions": { "message": "Permissions" },
+  "field_input": { "message": "Input" },
+  "field_output": { "message": "Output" },
+  "field_autonomy": { "message": "Autonomy" },
+  "field_recent_runs": { "message": "Recent runs" },
+  "field_agent_skill": { "message": "Agent skill" },
+  "autonomy_trusted_readonly": { "message": "trusted read-only capability" },
+  "agent_skill_installed": {
+    "message": "installed: $path$",
+    "placeholders": { "path": { "content": "$1" } }
+  },
+  "agent_skill_draft": {
+    "message": "draft: $path$",
+    "placeholders": { "path": { "content": "$1" } }
+  },
+  "agent_skill_missing": { "message": "not created" },
+  "open_replay_aria": {
+    "message": "Open replay $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  },
+  "open_capability_aria": {
+    "message": "Open capability $id$",
+    "placeholders": { "id": { "content": "$1" } }
+  }
+}

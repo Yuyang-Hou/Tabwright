@@ -68,6 +68,19 @@ function buildRrwebRecorderContentScript(): Plugin {
   }
 }
 
+function copyLocales(): Plugin {
+  return {
+    name: 'copy-extension-locales',
+    closeBundle() {
+      const source = path.resolve(__dirname, '_locales')
+      if (!fs.existsSync(source)) {
+        return
+      }
+      fs.cpSync(source, path.resolve(__dirname, outDir, '_locales'), { recursive: true })
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     viteStaticCopy({
@@ -102,6 +115,7 @@ export default defineConfig({
         },
       ],
     }),
+    copyLocales(),
     buildRrwebRecorderContentScript(),
   ],
 
