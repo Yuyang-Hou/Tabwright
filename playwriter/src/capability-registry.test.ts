@@ -16,6 +16,7 @@ import {
 } from './capability-registry.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
+import { initCapabilityAgentSkill, installCapabilityAgentSkill, showCapabilityAgentSkill } from './capability-agent-skill.js'
 import { prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
 import { saveWorkflowCapability, saveWorkflowFromRecording } from './workflow-capability.js'
 
@@ -182,6 +183,64 @@ describe('capability registry', () => {
       expect(searchCapabilities({ cwd, query: '文案配置 查询 配置' })[0]?.capability.manifest.id).toMatch(
         /^conan-config-/,
       )
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('scaffolds and installs agent skills for AI-authored capabilities', () => {
+    const cwd = createTempDir('capability-agent-skill-')
+    try {
+      createCapability({
+        id: 'query-user',
+        title: 'Query User',
+        description: 'Query a user by email in the admin API',
+        location: 'project',
+        cwd,
+        runtime: 'node',
+      })
+      updateCapabilityManifest({
+        id: 'query-user',
+        cwd,
+        patch: {
+          status: 'trusted',
+          match: ['admin user email query'],
+          routingHint: 'exact-match-direct-run',
+        },
+      })
+
+      const initialized = initCapabilityAgentSkill({ id: 'query-user', cwd })
+      const skillPath = path.join(initialized.dir, 'SKILL.md')
+      const openAiPath = path.join(initialized.dir, 'agents', 'openai.yaml')
+      expect(initialized.files.map((file) => file.relativePath)).toEqual(['SKILL.md', 'agents/openai.yaml'])
+      expect(fs.readFileSync(skillPath, 'utf-8')).toContain('PLAYWRITER_AGENT_SKILL_TEMPLATE')
+      expect(fs.readFileSync(openAiPath, 'utf-8')).toContain('Query User')
+      expect(showCapabilityAgentSkill({ id: 'query-user', cwd }).files[0]?.content).toContain('TODO')
+
+      const codexHome = path.join(cwd, 'codex-home')
+      expect(() => {
+        installCapabilityAgentSkill({ id: 'query-user', cwd, codexHome })
+      }).toThrow(/Edit the skill content before installing/)
+
+      const editedSkill = fs
+        .readFileSync(skillPath, 'utf-8')
+        .replace('<!-- PLAYWRITER_AGENT_SKILL_TEMPLATE: edit before install -->\n\n', '')
+        .replace('TODO: Explain when agents should use the query-user Playwriter capability. Mention concrete user phrasing, exact-match signals, and when not to use it.', 'Use when the user asks to look up an admin user by email.')
+        .replace('- TODO: Describe the concrete user intent, URL pattern, page state, or data shape that should trigger this capability.', '- Use for admin user lookup requests that include an email address.')
+        .replace('- TODO: State when this capability should not be used.', '- Do not use for public profile lookup.')
+        .replace('- TODO: Define the default answer shape.', '- Return user id, email, and status.')
+        .replace('- TODO: Say when to show a short summary versus when to point to artifacts.', '- Keep chat output short and point to artifacts for raw API output.')
+        .replace('- TODO: Say whether large outputs should be saved, filtered, or exported only on request.', '- Export only when the user asks.')
+      fs.writeFileSync(skillPath, editedSkill)
+
+      const installed = installCapabilityAgentSkill({ id: 'query-user', cwd, codexHome })
+      expect(installed.dir).toBe(path.join(codexHome, 'skills', 'query-user'))
+      expect(
+        fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'SKILL.md'), 'utf-8'),
+      ).toContain('Use when the user asks to look up an admin user by email.')
+      expect(
+        fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'agents', 'openai.yaml'), 'utf-8'),
+      ).toContain('Query User')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

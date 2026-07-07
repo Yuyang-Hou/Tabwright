@@ -29,6 +29,20 @@ In Codex sandboxed environments, `playwriter capability run ...` writes the capa
 
 Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Playwriter skill.
 
+## Creating Saved Capabilities
+
+When an AI is creating or refining a saved capability, put machine-readable behavior in the capability contract and executable behavior in `script.js`. Create a capability-specific agent skill only for high-frequency, exact-match, easy-to-misuse, auth-sensitive, or display-sensitive capabilities.
+
+Use the CLI to scaffold and install, but do not treat generated scaffold text as final prose:
+
+```bash
+playwriter capability skill init <capability-id>
+# edit the generated SKILL.md with the real workflow and display rules
+playwriter capability skill install <capability-id>
+```
+
+`capability skill install` refuses untouched scaffold templates. Simple capabilities usually need only a good contract, not a separate agent skill.
+
 ## REQUIRED: Read Full Documentation First
 
 For saved capability routing (`playwriter capability route`, `list`, or direct trusted node capability `run`), do not read the full documentation first. These commands are already contract-driven and should stay fast.

@@ -41,6 +41,7 @@ import {
   type CapabilityManifestPatch,
   type CapabilityRecord,
 } from './capability-registry.js'
+import { initCapabilityAgentSkill, installCapabilityAgentSkill, showCapabilityAgentSkill } from './capability-agent-skill.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import { buildCapabilityRunRecord, prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
 import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
@@ -1192,6 +1193,91 @@ cli
       }
     },
   )
+
+cli
+  .command('capability skill init <id>', 'Create an editable agent skill scaffold for a saved capability')
+  .option('--force', 'Overwrite an existing agent skill draft')
+  .option('--json', 'Print JSON')
+  .action((id: string, options: { force?: boolean; json?: boolean }) => {
+    try {
+      const result = initCapabilityAgentSkill({
+        id,
+        cwd: process.cwd(),
+        overwrite: options.force,
+      })
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2))
+        return
+      }
+      console.log(`Created agent skill draft for ${result.capabilityId}: ${result.dir}`)
+      result.files.forEach((file) => {
+        console.log(`- ${file.status}: ${file.path}`)
+      })
+      console.log('')
+      console.log('Next:')
+      result.next.forEach((step) => {
+        console.log(`  ${step}`)
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability skill install <id>', 'Install an edited capability agent skill into Codex')
+  .option('--force', 'Overwrite an existing installed agent skill')
+  .option('--codex-home <dir>', 'Codex home directory (defaults to CODEX_HOME or ~/.codex)')
+  .option('--json', 'Print JSON')
+  .action((id: string, options: { force?: boolean; codexHome?: string; json?: boolean }) => {
+    try {
+      const result = installCapabilityAgentSkill({
+        id,
+        cwd: process.cwd(),
+        overwrite: options.force,
+        codexHome: options.codexHome,
+      })
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2))
+        return
+      }
+      console.log(`Installed agent skill for ${result.capabilityId}: ${result.dir}`)
+      result.files.forEach((file) => {
+        console.log(`- ${file.status}: ${file.path}`)
+      })
+      console.log('')
+      console.log('Next:')
+      result.next.forEach((step) => {
+        console.log(`  ${step}`)
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability skill show <id>', 'Show the editable agent skill draft for a saved capability')
+  .option('--json', 'Print JSON')
+  .action((id: string, options: { json?: boolean }) => {
+    try {
+      const result = showCapabilityAgentSkill({
+        id,
+        cwd: process.cwd(),
+      })
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2))
+        return
+      }
+      const skill = result.files.find((file) => {
+        return file.relativePath === 'SKILL.md'
+      })
+      if (!skill) {
+        throw new Error(`Agent skill draft missing SKILL.md for ${id}`)
+      }
+      console.log(skill.content)
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
 
 cli
   .command('capability install <suite>', 'Install built-in Playwriter capabilities')

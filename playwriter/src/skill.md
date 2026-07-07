@@ -287,6 +287,24 @@ playwriter capability update bilibili-current-user --contract-file contract.json
 playwriter capability trust query-user
 ```
 
+When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
+
+- Put machine-readable behavior in the capability contract: `match`, `routingHint`, schemas, `sideEffect`, `requiresConfirmation`, `auth`, and examples.
+- Put executable behavior in `script.js`.
+- Put capability-specific agent instructions in an agent skill only when the capability is high-frequency, easy to misuse, has exact-match routing, needs auth/sandbox guidance, or needs nontrivial output/display rules.
+- Do not rely on the CLI to write final skill prose. The CLI only scaffolds and installs; the AI that learned the workflow must edit the skill content.
+
+Create an editable agent skill scaffold only when the capability needs one:
+
+```bash
+playwriter capability skill init query-user
+# edit .playwriter/capabilities/query-user/agent-skills/codex/SKILL.md
+playwriter capability skill show query-user
+playwriter capability skill install query-user
+```
+
+`capability skill install` refuses to install the untouched scaffold marker. Before installing, the AI should write: when to use the capability, when not to use it, the first command or route workflow, auth/sandbox notes, and the default output/display discipline. Simple capabilities usually do not need an agent skill; a strong contract is enough.
+
 Run a capability with structured JSON input. `node` runtime capabilities run locally without opening Chrome. `browser` runtime capabilities create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
 
 ```bash
