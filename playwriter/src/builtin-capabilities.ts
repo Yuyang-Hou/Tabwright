@@ -1,3 +1,7 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import * as nodeUrl from 'node:url'
 import {
   createCapability,
   readCapabilityScript,
@@ -13,11 +17,14 @@ export interface InstallBuiltinCapabilitySuiteOptions {
   location?: CapabilityLocation
   overwrite?: boolean
   trust?: boolean
+  installAgentSkills?: boolean
+  codexHome?: string
 }
 
 export interface InstalledBuiltinCapabilitySuite {
   suite: string
   capabilities: CapabilityRecord[]
+  agentSkills: InstalledBuiltinAgentSkill[]
 }
 
 interface BuiltinCapabilityDefinition {
@@ -26,6 +33,29 @@ interface BuiltinCapabilityDefinition {
   description: string
   script: string
   manifest: Parameters<typeof updateCapabilityManifest>[0]['patch']
+}
+
+interface BuiltinAgentSkillFileDefinition {
+  relativePath: string
+  bundledPath: string
+}
+
+interface BuiltinAgentSkillDefinition {
+  target: 'codex'
+  name: string
+  files: BuiltinAgentSkillFileDefinition[]
+}
+
+export interface InstalledBuiltinAgentSkillFile {
+  path: string
+  status: 'created' | 'updated' | 'unchanged'
+}
+
+export interface InstalledBuiltinAgentSkill {
+  target: 'codex'
+  name: string
+  dir: string
+  files: InstalledBuiltinAgentSkillFile[]
 }
 
 const conanConfigSearchScript = String.raw`
@@ -287,6 +317,7 @@ function normalizeInput(rawInput) {
     namespace,
     key,
     includeRawValue: nextInput.includeRawValue === true,
+    saveArtifacts: nextInput.saveArtifacts !== false,
   };
 }
 
@@ -506,6 +537,71 @@ function buildMarkdown(meta, schemaSummary, labeledValue, valueSummary) {
   ].join("\n");
 }
 
+function sanitizeArtifactPart(value) {
+  const sanitized = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return sanitized || "unknown";
+}
+
+function artifactTimestamp(value) {
+  const date = typeof value === "number" ? new Date(value) : new Date();
+  return date.toISOString().replace(/[:.]/g, "-");
+}
+
+function saveConfigArtifacts(output) {
+  if (typeof artifacts === "undefined" || !artifacts.writeJson || !artifacts.writeText || !artifacts.path) {
+    return undefined;
+  }
+
+  const baseDir =
+    "conan-config/" +
+    sanitizeArtifactPart(output.namespace) +
+    "/" +
+    sanitizeArtifactPart(output.key);
+  const stamp = artifactTimestamp(output.updatedTime);
+  const artifactPaths = {
+    root: artifacts.root,
+    latestFullJson: artifacts.path({ filename: baseDir + "/latest.full.json" }),
+    latestValueJson: artifacts.path({ filename: baseDir + "/latest.value.json" }),
+    latestLabeledValueJson: artifacts.path({ filename: baseDir + "/latest.labeled-value.json" }),
+    latestSummaryJson: artifacts.path({ filename: baseDir + "/latest.summary.json" }),
+    latestSummaryMarkdown: artifacts.path({ filename: baseDir + "/latest.summary.md" }),
+    snapshotFullJson: artifacts.path({ filename: baseDir + "/" + stamp + ".full.json" }),
+  };
+  const summary = {
+    action: output.action,
+    namespace: output.namespace,
+    key: output.key,
+    configId: output.configId,
+    schemaId: output.schemaId,
+    metadata: output.metadata,
+    updatedTime: output.updatedTime,
+    hasDraft: output.hasDraft,
+    view: {
+      kind: output.view.kind,
+      summary: output.view.summary,
+      schemaFields: output.view.schemaFields,
+      tables: output.view.tables,
+    },
+    artifacts: artifactPaths,
+  };
+  const outputWithArtifacts = {
+    ...output,
+    artifacts: artifactPaths,
+  };
+
+  artifacts.writeJson({ filename: baseDir + "/latest.value.json", value: output.value });
+  artifacts.writeJson({ filename: baseDir + "/latest.labeled-value.json", value: output.view.labeledValue });
+  artifacts.writeJson({ filename: baseDir + "/latest.summary.json", value: summary });
+  artifacts.writeText({ filename: baseDir + "/latest.summary.md", text: output.view.markdown + "\n" });
+  artifacts.writeJson({ filename: baseDir + "/latest.full.json", value: outputWithArtifacts });
+  artifacts.writeJson({ filename: baseDir + "/" + stamp + ".full.json", value: outputWithArtifacts });
+
+  return artifactPaths;
+}
+
 async function requestJson(path, options = {}) {
   const cookieHeader = secrets.cookieHeader;
   if (!cookieHeader) {
@@ -588,7 +684,7 @@ async function loadConfig(normalized) {
     hasDraft: !!draft,
   };
 
-  return {
+  const output = {
     action: "query",
     namespace: meta.namespace,
     key: meta.key,
@@ -615,6 +711,17 @@ async function loadConfig(normalized) {
     updatedTime: meta.updatedTime,
     hasDraft: !!draft,
   };
+  if (!normalized.saveArtifacts) {
+    return output;
+  }
+  const artifactPaths = saveConfigArtifacts(output);
+  if (!artifactPaths) {
+    return output;
+  }
+  return {
+    ...output,
+    artifacts: artifactPaths,
+  };
 }
 
 const normalized = normalizeInput(input);
@@ -640,7 +747,8 @@ const conanConfigCapabilityDefinitions: BuiltinCapabilityDefinition[] = [
         '需要按 config、configValue、grouping 三种搜索维度查询配置项',
       ],
       whenNotToUse: [
-        '用户已经给出明确 key 并要读取完整配置 value；应使用 conan-config-query',
+        '用户已经给出明确 key 并要读取完整配置 value；应通过 playwriter capability run conan-config-query 使用查询能力',
+        '用户给的是包含 Space_Enhanced_Config、key、rootGroupingKey 或 namespace 的 Conan/Buff 配置后台链接；应通过 playwriter capability run conan-config-query 直接查询',
         '用户要修改、发布、回滚配置；当前内置能力只读',
       ],
       tags: ['conan-config', 'copywriting', 'search', 'searchTree', 'node-runtime', 'read-only'],
@@ -684,18 +792,26 @@ const conanConfigCapabilityDefinitions: BuiltinCapabilityDefinition[] = [
     id: 'conan-config-query',
     title: 'Conan config query',
     description:
-      'Read a Conan config by admin URL or namespace/key using saved browser cookie auth, returning raw value, schema summary, and markdown view.',
+      'Read a Conan config by exact Space_Enhanced_Config admin URL or namespace/key using saved browser cookie auth, saving local artifacts and returning raw value, schema summary, and markdown view.',
     script: conanConfigQueryScript,
     manifest: {
       runtime: 'node',
       status: 'trusted',
+      match: [
+        'https://buff.zhenguanyu.com/*Space_Enhanced_Config*key=*rootGroupingKey=*',
+        'https://conan.zhenguanyu.com/*Space_Enhanced_Config*key=*rootGroupingKey=*',
+        'Space_Enhanced_Config key rootGroupingKey namespace',
+      ],
+      routingHint: 'exact-match-direct-run',
       permissions: ['network:https://conan.zhenguanyu.com/*'],
       sideEffect: 'read',
       requiresConfirmation: false,
       whenToUse: [
+        '用户给 Conan/Buff 配置后台链接，且 URL 包含 Space_Enhanced_Config、key、rootGroupingKey 或 namespace',
         '用户给 Conan/Buff 文案配置后台链接，想直接查看配置内容',
         '用户给 namespace/rootGroupingKey 和 key，想查询当前配置 value',
         '用户要看配置 schema 字段、字段 label、顶层结构或完整 JSON',
+        '用户后续还要让 AI 检索或继续分析同一份配置；默认会把完整结果保存到本地 artifacts',
       ],
       whenNotToUse: [
         '用户要修改、发布、回滚配置；当前内置能力只读',
@@ -720,6 +836,7 @@ const conanConfigCapabilityDefinitions: BuiltinCapabilityDefinition[] = [
           grouping: { type: 'string', description: 'namespace 的别名。' },
           key: { type: 'string', description: '配置 key；如果 url 中已有 key 可省略。' },
           includeRawValue: { type: 'boolean', description: '是否返回未解析的 rawValue 字符串，默认 false。' },
+          saveArtifacts: { type: 'boolean', description: '是否把完整配置、value、摘要 markdown 保存到本地 artifacts，默认 true。' },
         },
         required: [],
       },
@@ -735,6 +852,7 @@ const conanConfigCapabilityDefinitions: BuiltinCapabilityDefinition[] = [
           value: { type: 'object' },
           schema: { type: 'object' },
           view: { type: 'object' },
+          artifacts: { type: 'object' },
           updatedTime: { type: 'number' },
           hasDraft: { type: 'boolean' },
         },
@@ -742,11 +860,34 @@ const conanConfigCapabilityDefinitions: BuiltinCapabilityDefinition[] = [
       },
       examples: [
         {
+          description: '用户给 Space_Enhanced_Config 后台链接时，直接解析 URL 并查询配置。',
+          input: {
+            url: 'https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia',
+          },
+        },
+        {
           description: '按 key 和 namespace 查询配置',
           input: { namespace: 'Space_Pedia', key: 'member_order_config' },
         },
       ],
     },
+  },
+]
+
+const conanConfigAgentSkillDefinitions: BuiltinAgentSkillDefinition[] = [
+  {
+    target: 'codex',
+    name: 'conan-config-query',
+    files: [
+      {
+        relativePath: 'SKILL.md',
+        bundledPath: 'agent-skills/conan-config-query/SKILL.md',
+      },
+      {
+        relativePath: 'agents/openai.yaml',
+        bundledPath: 'agent-skills/conan-config-query/agents/openai.yaml',
+      },
+    ],
   },
 ]
 
@@ -787,5 +928,101 @@ export function installBuiltinCapabilitySuite(
     }
     return capability
   })
-  return { suite: options.suite, capabilities }
+  const agentSkills =
+    options.installAgentSkills === false
+      ? []
+      : installBuiltinAgentSkills({
+          definitions: conanConfigAgentSkillDefinitions,
+          overwrite: options.overwrite,
+          codexHome: options.codexHome,
+        })
+  return { suite: options.suite, capabilities, agentSkills }
+}
+
+function installBuiltinAgentSkills(options: {
+  definitions: BuiltinAgentSkillDefinition[]
+  overwrite?: boolean
+  codexHome?: string
+}): InstalledBuiltinAgentSkill[] {
+  return options.definitions.map((definition) => {
+    if (definition.target !== 'codex') {
+      throw new Error(`Unsupported builtin agent skill target: ${definition.target}`)
+    }
+    return installCodexAgentSkill({
+      definition,
+      overwrite: options.overwrite,
+      codexHome: options.codexHome,
+    })
+  })
+}
+
+function installCodexAgentSkill(options: {
+  definition: BuiltinAgentSkillDefinition
+  overwrite?: boolean
+  codexHome?: string
+}): InstalledBuiltinAgentSkill {
+  const codexHome = options.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
+  const dir = path.join(codexHome, 'skills', options.definition.name)
+  const files = options.definition.files.map((file) => {
+    return installCodexAgentSkillFile({
+      skillDir: dir,
+      file,
+      overwrite: options.overwrite,
+    })
+  })
+  return {
+    target: 'codex',
+    name: options.definition.name,
+    dir,
+    files,
+  }
+}
+
+function installCodexAgentSkillFile(options: {
+  skillDir: string
+  file: BuiltinAgentSkillFileDefinition
+  overwrite?: boolean
+}): InstalledBuiltinAgentSkillFile {
+  const targetPath = resolveInsideDirectory({
+    root: options.skillDir,
+    relativePath: options.file.relativePath,
+  })
+  const content = readBundledAgentSkillFile(options.file.bundledPath)
+  if (fs.existsSync(targetPath)) {
+    const existing = fs.readFileSync(targetPath, 'utf-8')
+    if (existing === content) {
+      return { path: targetPath, status: 'unchanged' }
+    }
+    if (!options.overwrite) {
+      throw new Error(`Agent skill file already exists with different content: ${targetPath}. Use --force to overwrite.`)
+    }
+  }
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  const status = fs.existsSync(targetPath) ? 'updated' : 'created'
+  fs.writeFileSync(targetPath, content)
+  return { path: targetPath, status }
+}
+
+function readBundledAgentSkillFile(relativePath: string): string {
+  const moduleDir = path.dirname(nodeUrl.fileURLToPath(import.meta.url))
+  const candidates = [
+    path.join(moduleDir, relativePath),
+    path.join(moduleDir, '..', 'src', relativePath),
+  ]
+  const sourcePath = candidates.find((candidate) => {
+    return fs.existsSync(candidate)
+  })
+  if (!sourcePath) {
+    throw new Error(`Bundled agent skill file not found: ${relativePath}`)
+  }
+  return fs.readFileSync(sourcePath, 'utf-8')
+}
+
+function resolveInsideDirectory(options: { root: string; relativePath: string }): string {
+  const root = path.resolve(options.root)
+  const targetPath = path.resolve(root, ...options.relativePath.split('/'))
+  if (targetPath !== root && !targetPath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`Agent skill file must stay inside skill directory: ${options.relativePath}`)
+  }
+  return targetPath
 }

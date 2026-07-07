@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 import util from 'node:util'
 import vm from 'node:vm'
 import {
@@ -41,6 +42,13 @@ export interface NodeCapabilityRunResult {
   text: string
   isError: boolean
   runRecord: CapabilityRunRecord
+}
+
+interface CapabilityArtifacts {
+  root: string
+  path(options: { filename: string }): string
+  writeJson(options: { filename: string; value: unknown }): string
+  writeText(options: { filename: string; text: string }): string
 }
 
 export function prepareCapabilityRun(options: {
@@ -215,6 +223,7 @@ async function executeNodeCapabilityScript(options: {
 }): Promise<unknown> {
   const script = fs.readFileSync(options.capability.scriptPath, 'utf-8')
   const secrets = readCapabilitySecrets({ capability: options.capability })
+  const artifacts = createCapabilityArtifacts({ capability: options.capability })
   const vmContext = vm.createContext({
     input: options.input,
     capability: {
@@ -225,6 +234,7 @@ async function executeNodeCapabilityScript(options: {
       runtime: options.capability.manifest.runtime,
     },
     secrets,
+    artifacts,
     console,
     fetch,
     URL,
@@ -263,6 +273,45 @@ async function executeNodeCapabilityScript(options: {
       }, options.timeout)
     }),
   ])
+}
+
+function createCapabilityArtifacts(options: { capability: CapabilityRecord }): CapabilityArtifacts {
+  const root = path.join(options.capability.dir, 'artifacts')
+  return {
+    root,
+    path: (pathOptions) => {
+      return resolveArtifactPath({ root, filename: pathOptions.filename })
+    },
+    writeJson: (writeOptions) => {
+      return writeArtifactText({
+        root,
+        filename: writeOptions.filename,
+        text: `${JSON.stringify(writeOptions.value, null, 2)}\n`,
+      })
+    },
+    writeText: (writeOptions) => {
+      return writeArtifactText({ root, filename: writeOptions.filename, text: writeOptions.text })
+    },
+  }
+}
+
+function writeArtifactText(options: { root: string; filename: string; text: string }): string {
+  const filePath = resolveArtifactPath({ root: options.root, filename: options.filename })
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, options.text)
+  return filePath
+}
+
+function resolveArtifactPath(options: { root: string; filename: string }): string {
+  const root = path.resolve(options.root)
+  if (!options.filename.trim()) {
+    throw new Error('Artifact filename must not be empty')
+  }
+  const filePath = path.resolve(root, options.filename)
+  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`Artifact filename must stay inside artifacts directory: ${options.filename}`)
+  }
+  return filePath
 }
 
 function formatNodeOutput(output: unknown): string {

@@ -31,6 +31,7 @@ import {
   createCapability,
   listCapabilities,
   readCapabilityScript,
+  routeCapabilities,
   searchCapabilities,
   toCapabilityContract,
   toCapabilitySummary,
@@ -431,6 +432,7 @@ interface CapabilityInstallOptions {
   project?: boolean
   force?: boolean
   draft?: boolean
+  skipAgentSkills?: boolean
   json?: boolean
 }
 
@@ -565,6 +567,49 @@ function printCapabilitySearch(options: {
     return `${result.capability.manifest.id}  score=${result.score}  ${result.capability.manifest.runtime}/${autonomy}  ${result.capability.manifest.title}`
   })
   console.log(lines.join('\n'))
+}
+
+function printCapabilityRoutes(options: {
+  task: string
+  routes: ReturnType<typeof routeCapabilities>
+  json?: boolean
+}): void {
+  const routeSummaries = options.routes.map((route) => {
+    return {
+      shellCommand: route.shellCommand,
+      command: route.command,
+      capabilityId: route.capability.manifest.id,
+      id: route.capability.manifest.id,
+      title: route.capability.manifest.title,
+      location: route.capability.location,
+      routingHint: route.capability.manifest.routingHint,
+      input: route.input,
+      commandWarning: route.commandWarning,
+      executionHint: route.executionHint,
+      reasons: route.reasons,
+      matchedText: route.matchedText,
+    }
+  })
+  if (options.json) {
+    console.log(JSON.stringify(routeSummaries, null, 2))
+    return
+  }
+  if (routeSummaries.length === 0) {
+    console.log(`No exact direct-run capability matched: ${options.task}`)
+    console.log(`Next: playwriter capability search ${quoteShell(options.task)}`)
+    return
+  }
+  console.log(
+    routeSummaries
+      .map((route) => {
+        return `run: ${route.shellCommand}\ncapabilityId: ${route.capabilityId}\nwarning: ${route.commandWarning}`
+      })
+      .join('\n'),
+  )
+}
+
+function quoteShell(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
 }
 
 function readCapabilityManifestPatchFromFile(filePath: string): CapabilityManifestPatch {
@@ -1020,6 +1065,22 @@ cli
   })
 
 cli
+  .command('capability route <task>', 'Find an exact-match direct-run capability for a concrete task or URL')
+  .option('--limit <n>', z.number().default(3).describe('Maximum number of routes'))
+  .option('--json', 'Print JSON')
+  .action((task: string, options: { limit?: number; json?: boolean }) => {
+    try {
+      printCapabilityRoutes({
+        task,
+        routes: routeCapabilities({ task, cwd: process.cwd(), limit: options.limit || 3 }),
+        json: options.json,
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
   .command('capability search <query>', 'Search saved Playwriter capabilities by user intent')
   .option('--limit <n>', z.number().default(10).describe('Maximum number of results'))
   .option('--json', 'Print JSON')
@@ -1137,6 +1198,7 @@ cli
   .option('--project', 'Install under .playwriter/capabilities in the current project')
   .option('--force', 'Overwrite existing installed capabilities')
   .option('--draft', 'Install as draft instead of trusted')
+  .option('--skip-agent-skills', 'Do not install bundled agent skills such as Codex skills')
   .option('--json', 'Print JSON')
   .action((suite: string, options: CapabilityInstallOptions) => {
     try {
@@ -1146,12 +1208,14 @@ cli
         location: options.project ? 'project' : 'user',
         overwrite: options.force,
         trust: options.draft ? false : true,
+        installAgentSkills: options.skipAgentSkills ? false : true,
       })
       const summary = {
         suite: installed.suite,
         capabilities: installed.capabilities.map((capability) => {
           return toCapabilitySummary(capability)
         }),
+        agentSkills: installed.agentSkills,
         next: installed.capabilities.flatMap((capability) => {
           if (capability.manifest.auth.refresh !== 'from-browser') {
             return []
@@ -1167,6 +1231,13 @@ cli
       installed.capabilities.forEach((capability) => {
         console.log(`- ${capability.manifest.id} (${capability.location}, ${capability.manifest.status})`)
       })
+      if (installed.agentSkills.length > 0) {
+        console.log('')
+        console.log('Installed agent skills:')
+        installed.agentSkills.forEach((agentSkill) => {
+          console.log(`- ${agentSkill.target}:${agentSkill.name} at ${agentSkill.dir}`)
+        })
+      }
       if (summary.next.length > 0) {
         console.log('')
         console.log('Refresh auth with:')

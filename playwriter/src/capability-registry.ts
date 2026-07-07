@@ -9,6 +9,7 @@ export type CapabilityRuntime = 'browser' | 'node'
 export type CapabilitySideEffect = 'read' | 'write' | 'dangerous'
 export type CapabilityAuthType = 'none' | 'cookie' | 'token' | 'custom'
 export type CapabilityAuthRefresh = 'none' | 'manual' | 'from-browser'
+export type CapabilityRoutingHint = 'search-first' | 'exact-match-direct-run'
 
 export interface CapabilityAuthConfig {
   type: CapabilityAuthType
@@ -34,6 +35,8 @@ export interface CapabilityManifest {
   whenNotToUse: string[]
   tags: string[]
   match: string[]
+  // Agents may skip search/describe only when this is exact-match-direct-run and autonomy is allowed; a URL alone is not enough.
+  routingHint: CapabilityRoutingHint
   inputSchema: Record<string, unknown>
   outputSchema: Record<string, unknown>
   permissions: string[]
@@ -78,11 +81,28 @@ export interface CapabilitySearchResult {
   reasons: string[]
 }
 
+export interface CapabilityRouteResult {
+  capability: CapabilityRecord
+  input: Record<string, unknown>
+  command: string
+  shellCommand: string
+  commandWarning: string
+  executionHint: {
+    routeCanRunSandboxed: boolean
+    runRequiresEscalatedSandbox: boolean
+    commandMustStartWith: string
+    reason: string
+  }
+  reasons: string[]
+  matchedText: string
+}
+
 export type CapabilityManifestPatch = Partial<Omit<CapabilityManifest, 'schemaVersion' | 'id' | 'createdAt'>>
 
 const CapabilityStatusSchema = z.enum(['draft', 'trusted', 'disabled'])
 const CapabilityRuntimeSchema = z.enum(['browser', 'node'])
 const CapabilitySideEffectSchema = z.enum(['read', 'write', 'dangerous'])
+const CapabilityRoutingHintSchema = z.enum(['search-first', 'exact-match-direct-run'])
 const CapabilityAuthConfigSchema = z
   .object({
     type: z.enum(['none', 'cookie', 'token', 'custom']).default('none'),
@@ -126,6 +146,7 @@ const CapabilityManifestSchema = z
     whenNotToUse: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
     match: z.array(z.string()).default([]),
+    routingHint: CapabilityRoutingHintSchema.default('search-first'),
     inputSchema: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),
     outputSchema: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),
     permissions: z.array(z.string()).default([]),
@@ -256,14 +277,18 @@ export function requireCapability(options: { id: string; cwd?: string }): Capabi
   return capability
 }
 
-export function capabilityMatchesUrl(options: { capability: CapabilityManifest; url: string }): boolean {
+export function capabilityMatchesText(options: { capability: CapabilityManifest; text: string }): boolean {
   if (options.capability.match.length === 0) {
     return true
   }
   return options.capability.match.some((pattern) => {
     const regex = new RegExp(`^${pattern.split('*').map(escapeRegex).join('.*')}$`)
-    return regex.test(options.url)
+    return regex.test(options.text)
   })
+}
+
+export function capabilityMatchesUrl(options: { capability: CapabilityManifest; url: string }): boolean {
+  return capabilityMatchesText({ capability: options.capability, text: options.url })
 }
 
 function escapeRegex(value: string): string {
@@ -298,6 +323,7 @@ export function createCapability(options: {
     whenNotToUse: [],
     tags: [],
     match: [],
+    routingHint: 'search-first',
     inputSchema: { type: 'object', properties: {}, required: [] },
     outputSchema: { type: 'object', properties: {} },
     permissions: options.runtime === 'node' ? ['network'] : ['browser.read'],
@@ -541,6 +567,54 @@ export function searchCapabilities(options: { query: string; cwd?: string; limit
   return typeof options.limit === 'number' ? results.slice(0, options.limit) : results
 }
 
+export function routeCapabilities(options: { task: string; cwd?: string; limit?: number }): CapabilityRouteResult[] {
+  const task = options.task.trim()
+  if (!task) {
+    return []
+  }
+  const candidates = getRouteCandidateTexts(task)
+  const routes = dedupeCapabilitiesById(listCapabilities({ cwd: options.cwd }))
+    .filter((capability) => {
+      return capability.manifest.routingHint === 'exact-match-direct-run'
+    })
+    .filter((capability) => {
+      return getCapabilityAutonomy(capability).allowed
+    })
+    .flatMap((capability) => {
+      const matchedText = candidates.find((candidate) => {
+        return capability.manifest.match.length > 0 && capabilityMatchesText({ capability: capability.manifest, text: candidate })
+      })
+      if (!matchedText) {
+        return []
+      }
+      const input = buildRouteInput({ capability, task, matchedText })
+      const shellCommand = buildCapabilityRunCommand({ id: capability.manifest.id, input })
+      return [
+        {
+          capability,
+          input,
+          command: shellCommand,
+          shellCommand,
+          commandWarning: buildCapabilityCommandWarning({ id: capability.manifest.id }),
+          executionHint: {
+            routeCanRunSandboxed: true,
+            runRequiresEscalatedSandbox: true,
+            commandMustStartWith: 'playwriter capability run ',
+            reason:
+              'capability run writes runs.jsonl and may write artifacts under ~/.playwriter/capabilities; use escalated/unsandboxed execution in Codex sandbox',
+          },
+          reasons: [
+            'routingHint: exact-match-direct-run',
+            'autonomousInvocation: trusted read-only capability',
+            `matched: ${matchedText}`,
+          ],
+          matchedText,
+        },
+      ]
+    })
+  return typeof options.limit === 'number' ? routes.slice(0, options.limit) : routes
+}
+
 function dedupeCapabilitiesById(capabilities: CapabilityRecord[]): CapabilityRecord[] {
   return capabilities.filter((capability, index) => {
     return (
@@ -551,6 +625,50 @@ function dedupeCapabilitiesById(capabilities: CapabilityRecord[]): CapabilityRec
   })
 }
 
+function getRouteCandidateTexts(task: string): string[] {
+  const urls = task.match(/https?:\/\/[^\s<>"']+/g) || []
+  return Array.from(
+    new Set(
+      [task, ...urls].map((value) => {
+        return value.replace(/[),，。；;]+$/g, '')
+      }),
+    ),
+  )
+}
+
+function buildRouteInput(options: {
+  capability: CapabilityRecord
+  task: string
+  matchedText: string
+}): Record<string, unknown> {
+  if (options.matchedText.startsWith('http') && hasInputProperty({ capability: options.capability, name: 'url' })) {
+    return { url: options.matchedText }
+  }
+  if (hasInputProperty({ capability: options.capability, name: 'query' })) {
+    return { query: options.task }
+  }
+  return {}
+}
+
+function hasInputProperty(options: { capability: CapabilityRecord; name: string }): boolean {
+  const properties = isPlainObject(options.capability.manifest.inputSchema.properties)
+    ? options.capability.manifest.inputSchema.properties
+    : {}
+  return properties[options.name] !== undefined
+}
+
+export function buildCapabilityRunCommand(options: { id: string; input: Record<string, unknown> }): string {
+  return `playwriter capability run ${options.id} --input-json ${quoteShell(JSON.stringify(options.input))} --json`
+}
+
+function buildCapabilityCommandWarning(options: { id: string }): string {
+  return `${options.id} is a Playwriter capability id, not a shell command. Do not run "${options.id} ..."; run shellCommand exactly.`
+}
+
+function quoteShell(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
 export function toCapabilitySummary(capability: CapabilityRecord): Record<string, unknown> {
   return {
     id: capability.manifest.id,
@@ -559,6 +677,7 @@ export function toCapabilitySummary(capability: CapabilityRecord): Record<string
     status: capability.manifest.status,
     runtime: capability.manifest.runtime,
     match: capability.manifest.match,
+    routingHint: capability.manifest.routingHint,
     permissions: capability.manifest.permissions,
     sideEffect: capability.manifest.sideEffect,
     requiresConfirmation: capability.manifest.requiresConfirmation,

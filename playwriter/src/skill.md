@@ -11,6 +11,18 @@ bunx playwriter@latest session new
 
 If using npx or bunx always use @latest for the first session command. so we are sure of using the latest version of the package
 
+### Capability routing shortcuts
+
+For concrete user tasks, first check saved capability contracts. When a capability has `routingHint: "exact-match-direct-run"`, its `match` patterns exactly fit the task, and `autonomousInvocation.allowed` is true (`trusted`, `sideEffect: "read"`, `requiresConfirmation: false`), run that capability directly with the extracted input. Do not search, describe, or open a page first.
+
+If the exact-match capability index is not already visible in the current skill or tool context, use `playwriter capability route "<task-or-url>" --json` as the metadata check. Do not use `capability search` or `capability describe` for an exact-match direct-run candidate.
+
+When using route output, run the returned `shellCommand` exactly. Do not infer a shell command from the capability id; capability ids are not shell commands.
+
+In Codex sandboxed environments, `playwriter capability run ...` writes the capability run log and may write artifacts under `~/.playwriter/capabilities/...`. Run trusted capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `playwriter capability route ... --json` is metadata-only and can run sandboxed.
+
+Do not treat every URL as a direct-run signal. This shortcut only applies to exact capability matches, and it also applies to non-URL tasks when a capability's `match` patterns are specific enough. Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Playwriter skill. If there is no exact match, use `capability search` and `capability describe` before running or creating new automation.
+
 ### Sandboxed agent environments
 
 Playwriter controls the real user browser through a local relay on `127.0.0.1:19988`. If you are running inside an agent sandbox that restricts localhost access, use that environment's elevated/unsandboxed command mode for Playwriter commands that create sessions, list browsers, run `-s ... -e ...`, run browser-backed capabilities, or read relay logs. Do this immediately for Playwriter browser/relay commands instead of first trying a sandboxed command and diagnosing the relay as broken.
@@ -259,6 +271,7 @@ Before writing new browser automation, search whether a saved capability already
 
 ```bash
 playwriter capability list
+playwriter capability route "current bilibili account"
 playwriter capability search "current bilibili account"
 playwriter capability describe bilibili-current-user --json
 playwriter capability show query-user
@@ -287,21 +300,6 @@ When multiple Chrome extension connections exist, pass a browser key from `playw
 
 When turning a user demonstration into a repeatable workflow, do not analyze during recording. Keep the recording/replay id as evidence, then generate a draft browser capability only after the user gives the id plus a concrete goal. Generated workflow scripts should run directly and return `needs_ai` with page context when the live page diverges.
 
-### Conan/Buff 文案配置能力
-
-When the user asks to search, query, understand, or inspect Conan/Buff 文案配置, use the built-in `conan-config` capability suite instead of creating an external CLI or one-off browser automation:
-
-```bash
-playwriter capability install conan-config
-playwriter capability refresh-auth conan-config-search --browser user --json
-playwriter capability refresh-auth conan-config-query --browser user --json
-playwriter capability search "文案配置 查询" --json
-playwriter capability run conan-config-search --input-json '{"query":"会员订单"}' --json
-playwriter capability run conan-config-query --input-json '{"namespace":"Space_Pedia","key":"member_order_config"}' --json
-```
-
-These capabilities are read-only node capabilities. They call the Conan config APIs directly and use Playwriter only to refresh cookie auth from the user's current Chrome session. If a command reports missing or expired cookie auth, ask the user to log in to `conan.zhenguanyu.com` or `buff.zhenguanyu.com`, then run `capability refresh-auth` again. Do not print cookie values.
-
 Refresh cookie auth only after explicit user confirmation. This updates the local `secrets.json` and does not print cookie values:
 
 ```bash
@@ -322,14 +320,17 @@ return {
 }
 ```
 
-Node capability scripts receive `input`, `capability`, `secrets`, `fetch`, URL helpers, timers, `Buffer`, text encoders, and `crypto` globals:
+Node capability scripts receive `input`, `capability`, `secrets`, `artifacts`, `fetch`, URL helpers, timers, `Buffer`, text encoders, and `crypto` globals. Use `artifacts.writeJson({ filename, value })` and `artifacts.writeText({ filename, text })` to persist query results under the capability's scoped `artifacts` directory:
 
 ```js
 const response = await fetch("https://api.example.com/me", {
   headers: { cookie: secrets.cookieHeader },
 })
 
-return await response.json()
+const data = await response.json()
+const filePath = artifacts.writeJson({ filename: "latest.json", value: data })
+
+return { data, artifacts: { filePath } }
 ```
 
 Agents should use capability search and describe before creating new automation. A capability can be called autonomously only when it is `trusted`, has `sideEffect: "read"`, and has `requiresConfirmation: false`. Draft capabilities require `--force` before they can run. Editing a trusted capability's script automatically downgrades it to draft. Updating the AI contract through `--contract-file` also downgrades trusted capabilities to draft unless the patch explicitly sets a status. Use `playwriter studio` to start the standalone local management page for capabilities.

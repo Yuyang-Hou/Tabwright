@@ -1,0 +1,4 @@
+interface:
+  display_name: "Conan Config Query"
+  short_description: "Query Conan/Buff Space_Enhanced_Config URLs"
+  default_prompt: "帮我查看这个配置：<Space_Enhanced_Config URL>"

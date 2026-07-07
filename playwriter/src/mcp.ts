@@ -22,6 +22,7 @@ import crypto from 'node:crypto'
 import {
   listCapabilities,
   readCapabilityScript,
+  routeCapabilities,
   searchCapabilities,
   toCapabilityContract,
   toCapabilitySummary,
@@ -288,12 +289,14 @@ server.tool(
   dedent`
     Search, inspect, refresh auth for, or run saved Playwriter capabilities. Capabilities are reusable Playwriter scripts with AI-readable contracts, local secrets, and run logs.
 
-    Use action "search" before creating new browser code. Use action "describe" to read the contract before running. Use action "run" when a trusted matching capability exists. Only use action "refresh_auth" after explicit user confirmation because it updates local credentials.
+    For concrete user tasks, use action "route" first. If it returns an exact-match direct-run capability, use action "run" directly with the returned input; do not search, describe, or open a page first.
+    Capability ids are not shell commands. If route output includes shellCommand, use that exact Playwriter CLI command; never run the capability id directly as a binary.
+    Do not treat every URL as a direct-run signal. If "route" returns no match, use action "search" before creating new browser code and action "describe" before running. Only use action "refresh_auth" after explicit user confirmation because it updates local credentials.
   `,
   {
-    action: z.enum(['list', 'search', 'show', 'describe', 'run', 'refresh_auth']).describe('Capability action'),
+    action: z.enum(['list', 'route', 'search', 'show', 'describe', 'run', 'refresh_auth']).describe('Capability action'),
     id: z.string().optional().describe('Capability id for show/describe/run/refresh_auth'),
-    query: z.string().optional().describe('Search query for action "search"'),
+    query: z.string().optional().describe('Task or URL for action "route"; search query for action "search"'),
     limit: z.number().default(10).describe('Maximum number of search results'),
     input: z.record(z.string(), z.unknown()).optional().describe('JSON input for run'),
     force: z.boolean().optional().describe('Run draft capabilities or bypass URL match checks'),
@@ -323,6 +326,36 @@ server.tool(
                     score: result.score,
                     reasons: result.reasons,
                     ...toCapabilityContract(result.capability),
+                  }
+                }),
+                null,
+                2,
+              ),
+            },
+          ],
+        }
+      }
+
+      if (action === 'route') {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                routeCapabilities({ task: query || '', cwd: process.cwd(), limit }).map((route) => {
+                  return {
+                    shellCommand: route.shellCommand,
+                    command: route.command,
+                    capabilityId: route.capability.manifest.id,
+                    id: route.capability.manifest.id,
+                    title: route.capability.manifest.title,
+                    location: route.capability.location,
+                    routingHint: route.capability.manifest.routingHint,
+                    input: route.input,
+                    commandWarning: route.commandWarning,
+                    executionHint: route.executionHint,
+                    reasons: route.reasons,
+                    matchedText: route.matchedText,
                   }
                 }),
                 null,

@@ -6,6 +6,7 @@ import {
   getProjectCapabilitiesDir,
   listCapabilities,
   readCapabilityScript,
+  routeCapabilities,
   searchCapabilities,
   toCapabilityContract,
   updateCapabilityManifest,
@@ -85,16 +86,26 @@ describe('capability registry', () => {
   test('installs built-in conan config capabilities', () => {
     const cwd = createTempDir('capability-builtins-')
     try {
+      const codexHome = path.join(cwd, 'codex-home')
       const installed = installBuiltinCapabilitySuite({
         suite: 'conan-config',
         location: 'project',
         cwd,
+        codexHome,
       })
 
       expect(installed.capabilities.map((capability) => capability.manifest.id)).toEqual([
         'conan-config-search',
         'conan-config-query',
       ])
+      expect(installed.agentSkills.map((agentSkill) => agentSkill.name)).toEqual(['conan-config-query'])
+      expect(installed.agentSkills[0]?.target).toBe('codex')
+      expect(
+        fs.readFileSync(path.join(codexHome, 'skills', 'conan-config-query', 'SKILL.md'), 'utf-8'),
+      ).toContain('never a shell command')
+      expect(
+        fs.readFileSync(path.join(codexHome, 'skills', 'conan-config-query', 'agents', 'openai.yaml'), 'utf-8'),
+      ).toContain('Conan Config Query')
       const projectCapabilityIds = listCapabilities({ cwd })
         .filter((capability) => {
           return capability.location === 'project'
@@ -107,9 +118,18 @@ describe('capability registry', () => {
       const query = listCapabilities({ cwd }).find((capability) => {
         return capability.manifest.id === 'conan-config-query'
       })
-      expect(query?.manifest).toMatchObject({
+      if (!query) {
+        throw new Error('Expected conan-config-query to be installed')
+      }
+      expect(query.manifest).toMatchObject({
         runtime: 'node',
         status: 'trusted',
+        match: [
+          'https://buff.zhenguanyu.com/*Space_Enhanced_Config*key=*rootGroupingKey=*',
+          'https://conan.zhenguanyu.com/*Space_Enhanced_Config*key=*rootGroupingKey=*',
+          'Space_Enhanced_Config key rootGroupingKey namespace',
+        ],
+        routingHint: 'exact-match-direct-run',
         sideEffect: 'read',
         requiresConfirmation: false,
         auth: {
@@ -118,7 +138,47 @@ describe('capability registry', () => {
           secretKey: 'cookieHeader',
         },
       })
+      expect(toCapabilityContract(query)).toMatchObject({
+        id: 'conan-config-query',
+        routingHint: 'exact-match-direct-run',
+        autonomousInvocation: { allowed: true },
+      })
+      expect(query.manifest.whenToUse.join('\n')).toContain('Space_Enhanced_Config')
       expect(readCapabilityScript({ id: 'conan-config-query', cwd })).toContain('/conan-config/api/newConfigs/')
+      expect(readCapabilityScript({ id: 'conan-config-query', cwd })).toContain('saveConfigArtifacts')
+      expect(readCapabilityScript({ id: 'conan-config-query', cwd })).toContain('latest.full.json')
+      expect(query.manifest.inputSchema.properties).toMatchObject({
+        saveArtifacts: { type: 'boolean' },
+      })
+      expect(query.manifest.outputSchema.properties).toMatchObject({
+        artifacts: { type: 'object' },
+      })
+      expect(
+        searchCapabilities({
+          cwd,
+          query:
+            'https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia',
+        })[0]?.capability.manifest.id,
+      ).toBe('conan-config-query')
+      const routes = routeCapabilities({
+        cwd,
+        task:
+          '查这个配置 https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia&config=%E5%8F%91%E5%88%B8',
+      })
+      expect(routes[0]?.capability.manifest.id).toBe('conan-config-query')
+      expect(routes[0]?.input).toEqual({
+        url: 'https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia&config=%E5%8F%91%E5%88%B8',
+      })
+      expect(routes[0]?.command).toContain('playwriter capability run conan-config-query')
+      expect(routes[0]?.shellCommand).toBe(routes[0]?.command)
+      expect(routes[0]?.commandWarning).toContain('not a shell command')
+      expect(routes[0]?.commandWarning).toContain('run shellCommand exactly')
+      expect(routes[0]?.executionHint).toMatchObject({
+        routeCanRunSandboxed: true,
+        runRequiresEscalatedSandbox: true,
+        commandMustStartWith: 'playwriter capability run ',
+      })
+      expect(routeCapabilities({ cwd, task: 'https://example.com/not-a-known-config' })).toEqual([])
       expect(searchCapabilities({ cwd, query: '文案配置 查询 配置' })[0]?.capability.manifest.id).toMatch(
         /^conan-config-/,
       )
@@ -161,6 +221,7 @@ describe('capability registry', () => {
       expect(contract).toMatchObject({
         id: 'bilibili-current-user',
         runtime: 'node',
+        routingHint: 'search-first',
         sideEffect: 'read',
         autonomousInvocation: { allowed: true },
       })
@@ -394,6 +455,45 @@ describe('capability runner', () => {
       })
 
       expect(result.output).toEqual({ token: 'secret-token', input: { ok: true } })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('node capabilities can write scoped artifacts', async () => {
+    const cwd = createTempDir('capability-node-artifacts-')
+    try {
+      createCapability({
+        id: 'node-artifact-tool',
+        location: 'project',
+        cwd,
+        runtime: 'node',
+      })
+      updateCapabilityScript({
+        id: 'node-artifact-tool',
+        cwd,
+        source: [
+          'const jsonPath = artifacts.writeJson({ filename: "results/latest.json", value: input });',
+          'const textPath = artifacts.writeText({ filename: "results/latest.md", text: "# ok\\n" });',
+          'return { root: artifacts.root, jsonPath, textPath };',
+        ].join('\n'),
+      })
+      updateCapabilityManifest({
+        id: 'node-artifact-tool',
+        cwd,
+        patch: { status: 'trusted' },
+      })
+
+      const result = await runNodeCapability({
+        id: 'node-artifact-tool',
+        cwd,
+        input: { ok: true },
+      })
+      const output = result.output as { jsonPath: string; textPath: string; root: string }
+
+      expect(output.root).toBe(path.join(getProjectCapabilitiesDir({ cwd }), 'node-artifact-tool', 'artifacts'))
+      expect(JSON.parse(fs.readFileSync(output.jsonPath, 'utf-8'))).toEqual({ ok: true })
+      expect(fs.readFileSync(output.textPath, 'utf-8')).toBe('# ok\n')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

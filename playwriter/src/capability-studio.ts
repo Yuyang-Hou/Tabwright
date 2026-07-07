@@ -7,6 +7,7 @@ import {
   updateCapabilityManifest,
   updateCapabilityScript,
   type CapabilityManifestPatch,
+  type CapabilityRoutingHint,
   type CapabilityStatus,
 } from './capability-registry.js'
 
@@ -156,6 +157,9 @@ function buildManifestPatch(body: Record<string, unknown>): CapabilityManifestPa
   if (Array.isArray(body.match) && body.match.every((item) => typeof item === 'string')) {
     patch.match = body.match
   }
+  if (isCapabilityRoutingHint(body.routingHint)) {
+    patch.routingHint = body.routingHint
+  }
   if (Array.isArray(body.permissions) && body.permissions.every((item) => typeof item === 'string')) {
     patch.permissions = body.permissions
   }
@@ -224,6 +228,10 @@ function buildManifestPatch(body: Record<string, unknown>): CapabilityManifestPa
 
 function isCapabilityStatus(value: unknown): value is CapabilityStatus {
   return value === 'draft' || value === 'trusted' || value === 'disabled'
+}
+
+function isCapabilityRoutingHint(value: unknown): value is CapabilityRoutingHint {
+  return value === 'search-first' || value === 'exact-match-direct-run'
 }
 
 async function readJsonBody(request: http.IncomingMessage): Promise<Record<string, unknown>> {
@@ -451,6 +459,12 @@ function renderStudioHtml(): string {
                 <option value="disabled">disabled</option>
               </select>
             </label>
+            <label>Routing hint
+              <select id="routingHint">
+                <option value="search-first">search-first</option>
+                <option value="exact-match-direct-run">exact-match-direct-run</option>
+              </select>
+            </label>
             <label>Match patterns<textarea id="match" style="min-height: 90px;"></textarea></label>
             <label>Permissions<textarea id="permissions" style="min-height: 90px;"></textarea></label>
             <label>Input schema<textarea id="inputSchema" style="min-height: 140px;"></textarea></label>
@@ -511,6 +525,7 @@ function renderStudioHtml(): string {
       el('title').value = capability.title || ''
       el('description').value = capability.description || ''
       el('status').value = capability.status || 'draft'
+      el('routingHint').value = capability.routingHint || 'search-first'
       el('match').value = (capability.match || []).join('\\n')
       el('permissions').value = (capability.permissions || []).join('\\n')
       el('inputSchema').value = JSON.stringify(capability.inputSchema || {}, null, 2)
@@ -538,6 +553,7 @@ function renderStudioHtml(): string {
           title: el('title').value,
           description: el('description').value,
           status: el('status').value,
+          routingHint: el('routingHint').value,
           match: lines(el('match').value),
           permissions: lines(el('permissions').value),
           inputSchema: JSON.parse(el('inputSchema').value || '{}'),
