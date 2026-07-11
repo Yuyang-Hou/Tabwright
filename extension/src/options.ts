@@ -2,6 +2,7 @@ declare const process: { env: { PLAYWRITER_PORT: string } }
 
 import { EventType, Replayer, ReplayerEvents, type eventWithTime } from 'rrweb'
 import 'rrweb/dist/style.css'
+import { createReplayLogger, type ReplayLoggerController } from './replay-logger'
 
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
@@ -129,6 +130,11 @@ const messageFallbacks = {
   sections_aria_label: 'Options sections',
   metrics_aria_label: 'Current view summary',
   replay_timeline_label: 'Replay timeline',
+  replay_warning_missing_nodes_one:
+    'Some visual details could not be reconstructed because 1 DOM update referenced a missing node. The replay may still be usable.',
+  replay_warning_missing_nodes_other:
+    'Some visual details could not be reconstructed because $1 DOM updates referenced missing nodes. The replay may still be usable.',
+  replay_warning_aria_label: 'Replay reconstruction notice',
   status_copied: '$1 copied',
   status_loading_replay: 'Loading replay $1...',
   status_replay_ready: 'Replay ready $1',
@@ -373,6 +379,7 @@ const replayControls = document.querySelector<HTMLDivElement>('#replay-controls'
 const replayPlayToggle = document.querySelector<HTMLButtonElement>('#replay-play-toggle')
 const replayTimeline = document.querySelector<HTMLInputElement>('#replay-timeline')
 const replayTime = document.querySelector<HTMLSpanElement>('#replay-time')
+const replayWarning = document.querySelector<HTMLParagraphElement>('#replay-warning')
 const replayDetails = document.querySelector<HTMLDivElement>('#replay-details')
 
 let activeTab: ActiveTab = 'recordings'
@@ -387,6 +394,9 @@ let activeReplayer: Replayer | null = null
 let replayIsPlaying = false
 let replayTotalTime = 0
 let replayProgressTimer: number | null = null
+let replayMissingNodeWarningCount = 0
+let replayWarningTimer: number | null = null
+let activeReplayLoggerController: ReplayLoggerController | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -680,6 +690,7 @@ function rerenderLocalizedContent(): void {
   updateViewLabels()
   updateMetrics()
   updateReplayControls()
+  updateReplayWarning()
 
   if (selectedReplayId) {
     const selectedRecording = replayRecordings.find((recording) => {
@@ -977,6 +988,43 @@ function updateReplayControls(timeOffset = activeReplayer?.getCurrentTime() ?? 0
   }
 }
 
+function updateReplayWarning(): void {
+  if (!replayWarning) {
+    return
+  }
+  if (replayMissingNodeWarningCount === 0) {
+    replayWarning.hidden = true
+    replayWarning.textContent = ''
+    return
+  }
+  const key: MessageKey =
+    replayMissingNodeWarningCount === 1
+      ? 'replay_warning_missing_nodes_one'
+      : 'replay_warning_missing_nodes_other'
+  replayWarning.textContent = msg(key, String(replayMissingNodeWarningCount))
+  replayWarning.hidden = false
+}
+
+function resetReplayDiagnostics(): void {
+  if (replayWarningTimer !== null) {
+    window.clearTimeout(replayWarningTimer)
+    replayWarningTimer = null
+  }
+  replayMissingNodeWarningCount = 0
+  updateReplayWarning()
+}
+
+function recordMissingReplayNodeWarning(): void {
+  replayMissingNodeWarningCount += 1
+  if (replayWarningTimer !== null) {
+    return
+  }
+  replayWarningTimer = window.setTimeout(() => {
+    replayWarningTimer = null
+    updateReplayWarning()
+  }, 250)
+}
+
 function startReplayProgressLoop(): void {
   stopReplayProgressLoop()
   replayProgressTimer = window.setInterval(() => {
@@ -1007,13 +1055,17 @@ function resetReplayControls(totalTime: number): void {
 
 function destroyActiveReplayer(): void {
   const replayer = activeReplayer
+  const loggerController = activeReplayLoggerController
   activeReplayer = null
+  activeReplayLoggerController = null
   replayFitCleanup?.()
   replayFitCleanup = null
   stopReplayProgressLoop()
+  loggerController?.dispose()
   if (replayer) {
     replayer.destroy()
   }
+  resetReplayDiagnostics()
   updateReplayControls(0)
 }
 
@@ -1021,13 +1073,26 @@ function mountReplay(events: RrwebEvent[]): void {
   if (!replayPlayer) return
   destroyActiveReplayer()
   replayPlayer.textContent = ''
-  const replayer = new Replayer(events, {
-    root: replayPlayer,
-    mouseTail: false,
-    UNSAFE_replayCanvas: true,
-    triggerFocus: false,
+  const loggerController = createReplayLogger({
+    logger: console,
+    onMissingNodeWarning: recordMissingReplayNodeWarning,
   })
+  const replayer = (() => {
+    try {
+      return new Replayer(events, {
+        root: replayPlayer,
+        mouseTail: false,
+        UNSAFE_replayCanvas: true,
+        triggerFocus: false,
+        logger: loggerController.logger,
+      })
+    } catch (error) {
+      loggerController.dispose()
+      throw error
+    }
+  })()
   activeReplayer = replayer
+  activeReplayLoggerController = loggerController
   replayer.on(ReplayerEvents.Start, () => {
     setReplayPlaying(true)
   })

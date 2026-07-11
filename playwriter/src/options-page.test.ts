@@ -146,6 +146,17 @@ describe('extension options page', () => {
         data: { node: { id: 1, type: 0, childNodes: [] } },
       },
       {
+        type: 3,
+        timestamp: replay.startedAt + 200,
+        data: {
+          source: 0,
+          adds: [],
+          removes: [],
+          texts: [{ id: 404, value: 'missing node update' }],
+          attributes: [],
+        },
+      },
+      {
         type: 5,
         timestamp: replay.startedAt + 5000,
         data: { tag: 'end', payload: {} },
@@ -153,6 +164,12 @@ describe('extension options page', () => {
     ]
 
     const page = await testCtx.browserContext.newPage()
+    const missingNodeConsoleWarnings: string[] = []
+    page.on('console', (message) => {
+      if (message.type() === 'warning' && message.text().includes('Node with id')) {
+        missingNodeConsoleWarnings.push(message.text())
+      }
+    })
     await page.setViewportSize({ width: 1280, height: 720 })
     try {
       await page.route(`http://127.0.0.1:${TEST_PORT}/**`, async (route) => {
@@ -240,6 +257,10 @@ describe('extension options page', () => {
       await expect.poll(async () => {
         return await page.locator('#replay-play-toggle').textContent()
       }).toBe('Pause')
+      await expect.poll(async () => {
+        return await page.locator('#replay-warning').textContent()
+      }).toContain('1 DOM update')
+      expect(missingNodeConsoleWarnings).toEqual([])
       await page.locator('#replay-play-toggle').click()
       await expect.poll(async () => {
         return await page.locator('#replay-play-toggle').textContent()

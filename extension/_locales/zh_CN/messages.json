@@ -37,6 +37,14 @@
   "sections_aria_label": { "message": "选项分区" },
   "metrics_aria_label": { "message": "当前视图摘要" },
   "replay_timeline_label": { "message": "回放时间轴" },
+  "replay_warning_missing_nodes_one": {
+    "message": "有 1 个 DOM 更新引用了已缺失的节点，部分视觉细节无法重建；该回放仍可能可用。"
+  },
+  "replay_warning_missing_nodes_other": {
+    "message": "有 $count$ 个 DOM 更新引用了已缺失的节点，部分视觉细节无法重建；该回放仍可能可用。",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "replay_warning_aria_label": { "message": "回放重建提示" },
   "status_copied": {
     "message": "$label$ 已复制",
     "placeholders": { "label": { "content": "$1" } }

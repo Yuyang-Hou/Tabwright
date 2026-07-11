@@ -37,6 +37,14 @@
   "sections_aria_label": { "message": "Options sections" },
   "metrics_aria_label": { "message": "Current view summary" },
   "replay_timeline_label": { "message": "Replay timeline" },
+  "replay_warning_missing_nodes_one": {
+    "message": "Some visual details could not be reconstructed because 1 DOM update referenced a missing node. The replay may still be usable."
+  },
+  "replay_warning_missing_nodes_other": {
+    "message": "Some visual details could not be reconstructed because $count$ DOM updates referenced missing nodes. The replay may still be usable.",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "replay_warning_aria_label": { "message": "Replay reconstruction notice" },
   "status_copied": {
     "message": "$label$ copied",
     "placeholders": { "label": { "content": "$1" } }

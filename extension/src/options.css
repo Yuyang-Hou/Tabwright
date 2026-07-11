@@ -499,6 +499,7 @@ h3 {
 
 .replay-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   min-height: 44px;
@@ -506,6 +507,17 @@ h3 {
   border-bottom: 1px solid var(--line);
   padding: 8px 12px;
   background: var(--surface);
+}
+
+.replay-warning {
+  flex-basis: 100%;
+  border: 1px solid #f2d4a5;
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .replay-controls input[type="range"] {
