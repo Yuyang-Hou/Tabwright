@@ -14,7 +14,7 @@ const execAsync = promisify(exec)
 const extensionBuildQueues: Map<string, Promise<void>> = new Map()
 const EXTENSION_SERVICE_WORKER_TIMEOUT_MS = 15_000
 
-function getLocalChromeExecutable(): string | undefined {
+export function getLocalChromeExecutable(): string | undefined {
   const candidates = [
     process.env.PLAYWRIGHT_CHROME_EXECUTABLE,
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
