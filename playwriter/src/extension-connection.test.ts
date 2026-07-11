@@ -5,7 +5,14 @@ import { createMCPClient } from './mcp-client.js'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { chromium } from '@xmorse/playwright-core'
 import { getCdpUrl } from './utils.js'
-import { setupTestContext, cleanupTestContext, getExtensionServiceWorker, type TestContext, js } from './test-utils.js'
+import {
+  setupTestContext,
+  cleanupTestContext,
+  getExtensionServiceWorker,
+  launchPersistentContextWithExtensions,
+  type TestContext,
+  js,
+} from './test-utils.js'
 import { getExtensionsStatus } from './relay-client.js'
 import './test-declarations.js'
 
@@ -505,22 +512,27 @@ describe('Extension Connection Tests', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 100))
 
-    // 3. Verify MCP cannot execute code anymore (no pages available)
+    // 3. The disconnected page must disappear. Depending on auto-enable and
+    // extension generation, the relay may expose a fresh blank target or no page.
     const afterDisconnect = await client.callTool({
       name: 'execute',
       arguments: {
         code: js`
           const pages = context.pages();
           console.log('Pages after disconnect:', pages.length);
-          return { pagesCount: pages.length };
+          const disconnectedPage = pages.find(p => p.url().includes('disconnect-test'));
+          return { pagesCount: pages.length, foundDisconnectedPage: !!disconnectedPage };
         `,
       },
     })
 
     const afterDisconnectOutput = (afterDisconnect as any).content[0].text
     console.log('After disconnect:', afterDisconnectOutput)
-    expect((afterDisconnect as any).isError).toBe(true)
-    expect(afterDisconnectOutput).toContain('No Playwright pages are available')
+    if ((afterDisconnect as any).isError === true) {
+      expect(afterDisconnectOutput).toContain('No Playwright pages are available')
+    } else {
+      expect(afterDisconnectOutput).toContain('foundDisconnectedPage: false')
+    }
 
     // 4. Re-enable extension on the same page
     console.log('Re-enabling extension...')
@@ -685,11 +697,9 @@ describe('Extension Connection Tests', () => {
 
     const secondUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-conn-second-'))
     const extensionPath = path.resolve(process.cwd(), '../extension', `dist-${TEST_PORT}`)
-    const secondContext = await chromium.launchPersistentContext(secondUserDataDir, {
-      channel: 'chromium',
-      headless: !process.env.HEADFUL,
-      colorScheme: 'dark',
-      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    const secondContext = await launchPersistentContextWithExtensions({
+      userDataDir: secondUserDataDir,
+      extensionPaths: [extensionPath],
     })
 
     try {

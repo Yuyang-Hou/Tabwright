@@ -2,7 +2,7 @@ import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import http from 'node:http'
 import net from 'node:net'
-import { chromium, BrowserContext } from '@xmorse/playwright-core'
+import { chromium, type BrowserContext } from '@xmorse/playwright-core'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -12,6 +12,7 @@ import { killPortProcess } from './kill-port.js'
 
 const execAsync = promisify(exec)
 const extensionBuildQueues: Map<string, Promise<void>> = new Map()
+const EXTENSION_SERVICE_WORKER_TIMEOUT_MS = 15_000
 
 function getLocalChromeExecutable(): string | undefined {
   const candidates = [
@@ -31,6 +32,102 @@ function getLocalChromeExecutable(): string | undefined {
   return candidates.find((candidate) => {
     return fs.existsSync(candidate)
   })
+}
+
+export function getLegacyExtensionLaunchArgs({ extensionPaths }: { extensionPaths: string[] }): string[] {
+  const resolvedExtensionPaths = extensionPaths.map((extensionPath) => {
+    return path.resolve(extensionPath)
+  })
+  const legacyExtensionPaths = resolvedExtensionPaths.join(',')
+
+  return [
+    `--disable-extensions-except=${legacyExtensionPaths}`,
+    `--load-extension=${legacyExtensionPaths}`,
+  ]
+}
+
+export function isExtensionLoadUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    message.includes('Method not found') ||
+    message.includes("'Extensions.loadUnpacked' wasn't found") ||
+    message.includes('-32601')
+  )
+}
+
+async function loadUnpackedExtensionsThroughCdp({
+  browserContext,
+  extensionPaths,
+}: {
+  browserContext: BrowserContext
+  extensionPaths: string[]
+}): Promise<void> {
+  const browser = browserContext.browser()
+  if (!browser) {
+    throw new Error('Persistent browser context has no browser connection')
+  }
+
+  const session = await browser.newBrowserCDPSession()
+  try {
+    await Promise.all(
+      extensionPaths.map(async (extensionPath) => {
+        await session.send('Extensions.loadUnpacked', { path: path.resolve(extensionPath) })
+      }),
+    )
+  } finally {
+    await session.detach().catch((error: unknown) => {
+      console.error('Failed to detach test extension CDP session:', error)
+    })
+  }
+}
+
+async function launchTestBrowser({
+  userDataDir,
+  args,
+}: {
+  userDataDir: string
+  args: string[]
+}): Promise<BrowserContext> {
+  const chromeExecutable = getLocalChromeExecutable()
+  return await chromium.launchPersistentContext(userDataDir, {
+    ...(chromeExecutable ? { executablePath: chromeExecutable } : { channel: 'chromium' }),
+    headless: !process.env.HEADFUL,
+    colorScheme: 'dark',
+    ignoreDefaultArgs: ['--disable-extensions'],
+    args,
+  })
+}
+
+export async function launchPersistentContextWithExtensions({
+  userDataDir,
+  extensionPaths,
+}: {
+  userDataDir: string
+  extensionPaths: string[]
+}): Promise<BrowserContext> {
+  const browserContext = await launchTestBrowser({
+    userDataDir,
+    // Chrome 137+ ignores --load-extension for branded builds. Its supported
+    // Extensions.loadUnpacked replacement requires this opt-in switch.
+    args: ['--enable-unsafe-extension-debugging'],
+  })
+
+  try {
+    await loadUnpackedExtensionsThroughCdp({ browserContext, extensionPaths })
+    return browserContext
+  } catch (error: unknown) {
+    await browserContext.close()
+    if (!isExtensionLoadUnavailableError(error)) {
+      throw new Error(`Failed to load unpacked test extensions: ${extensionPaths.join(', ')}`, { cause: error })
+    }
+
+    // Older Chrome/Chromium does not expose Extensions.loadUnpacked. Relaunch
+    // the same isolated profile with the legacy flags it still supports.
+    return await launchTestBrowser({
+      userDataDir,
+      args: getLegacyExtensionLaunchArgs({ extensionPaths }),
+    })
+  }
 }
 
 async function buildExtension({ port, distDir }: { port: number; distDir: string }): Promise<void> {
@@ -54,11 +151,19 @@ async function buildExtension({ port, distDir }: { port: number; distDir: string
 }
 
 export async function getExtensionServiceWorker(context: BrowserContext) {
-  let serviceWorkers = context.serviceWorkers().filter((sw) => sw.url().startsWith('chrome-extension://'))
+  const serviceWorkers = context.serviceWorkers().filter((sw) => sw.url().startsWith('chrome-extension://'))
   if (serviceWorkers.length === 0) {
-    await context.waitForEvent('serviceworker', {
-      predicate: (sw) => sw.url().startsWith('chrome-extension://'),
-    })
+    await context
+      .waitForEvent('serviceworker', {
+        predicate: (sw) => sw.url().startsWith('chrome-extension://'),
+        timeout: EXTENSION_SERVICE_WORKER_TIMEOUT_MS,
+      })
+      .catch((error: unknown) => {
+        throw new Error(
+          `No extension service worker appeared within ${EXTENSION_SERVICE_WORKER_TIMEOUT_MS}ms`,
+          { cause: error },
+        )
+      })
   }
 
   // Check all chrome-extension service workers for the playwriter one (the one
@@ -82,8 +187,17 @@ export async function getExtensionServiceWorker(context: BrowserContext) {
     await new Promise((r) => setTimeout(r, 100))
   }
 
-  // Fallback to first service worker
-  return context.serviceWorkers().filter((sw) => sw.url().startsWith('chrome-extension://'))[0]
+  const extensionWorkerUrls = context
+    .serviceWorkers()
+    .filter((sw) => {
+      return sw.url().startsWith('chrome-extension://')
+    })
+    .map((sw) => {
+      return sw.url()
+    })
+  throw new Error(
+    `Playwriter extension service worker did not become ready within ${EXTENSION_SERVICE_WORKER_TIMEOUT_MS}ms. Visible extension workers: ${extensionWorkerUrls.join(', ') || 'none'}`,
+  )
 }
 
 export interface TestContext {
@@ -120,26 +234,38 @@ export async function setupTestContext({
 
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), tempDirPrefix))
   const extensionPath = path.resolve('../extension', distDir)
-  const allExtensionPaths = [extensionPath, ...additionalExtensions].join(',')
-
-  const chromeExecutable = getLocalChromeExecutable()
-  const browserContext = await chromium.launchPersistentContext(userDataDir, {
-    ...(chromeExecutable ? { executablePath: chromeExecutable } : { channel: 'chromium' }),
-    headless: !process.env.HEADFUL,
-    colorScheme: 'dark',
-    args: [`--disable-extensions-except=${allExtensionPaths}`, `--load-extension=${allExtensionPaths}`],
-  })
-
-  if (toggleExtension) {
-    const serviceWorker = await getExtensionServiceWorker(browserContext)
-    const page = await browserContext.newPage()
-    await page.goto('about:blank')
-    await serviceWorker.evaluate(async () => {
-      await (globalThis as any).toggleExtensionForActiveTab()
+  try {
+    const browserContext = await launchPersistentContextWithExtensions({
+      userDataDir,
+      extensionPaths: [extensionPath, ...additionalExtensions],
     })
-  }
 
-  return { browserContext, userDataDir, relayServer }
+    try {
+      if (toggleExtension) {
+        const serviceWorker = await getExtensionServiceWorker(browserContext)
+        const page = await browserContext.newPage()
+        await page.goto('about:blank')
+        await serviceWorker.evaluate(async () => {
+          await (globalThis as any).toggleExtensionForActiveTab()
+        })
+      }
+
+      return { browserContext, userDataDir, relayServer }
+    } catch (error) {
+      await browserContext.close().catch((closeError: unknown) => {
+        console.error('Failed to close browser after test setup error:', closeError)
+      })
+      throw error
+    }
+  } catch (error) {
+    relayServer.close()
+    try {
+      fs.rmSync(userDataDir, { recursive: true, force: true })
+    } catch (cleanupError) {
+      console.error('Failed to clean test profile after setup error:', cleanupError)
+    }
+    throw error
+  }
 }
 
 export async function cleanupTestContext(
