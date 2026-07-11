@@ -81,6 +81,10 @@ export interface CapabilitySearchResult {
   reasons: string[]
 }
 
+interface ScoredCapabilitySearchResult extends CapabilitySearchResult {
+  matchedTokenCount: number
+}
+
 export interface CapabilityRouteResult {
   capability: CapabilityRecord
   input: Record<string, unknown>
@@ -554,17 +558,33 @@ export function toCapabilityContract(capability: CapabilityRecord): Record<strin
 
 export function searchCapabilities(options: { query: string; cwd?: string; limit?: number }): CapabilitySearchResult[] {
   const tokens = tokenizeSearchQuery(options.query)
+  if (options.query.trim() && tokens.length === 0) {
+    return []
+  }
   const results = dedupeCapabilitiesById(listCapabilities({ cwd: options.cwd }))
     .map((capability) => {
       return scoreCapabilitySearch({ capability, tokens })
     })
     .filter((result) => {
-      return tokens.length === 0 || result.score > 0
+      if (tokens.length === 0) {
+        return true
+      }
+      if (tokens.length === 1) {
+        return result.score > 0
+      }
+      return result.matchedTokenCount >= 2
     })
     .sort((left, right) => {
       return right.score - left.score || left.capability.manifest.id.localeCompare(right.capability.manifest.id)
     })
-  return typeof options.limit === 'number' ? results.slice(0, options.limit) : results
+  const limitedResults = typeof options.limit === 'number' ? results.slice(0, options.limit) : results
+  return limitedResults.map((result) => {
+    return {
+      capability: result.capability,
+      score: result.score,
+      reasons: result.reasons,
+    }
+  })
 }
 
 export function routeCapabilities(options: { task: string; cwd?: string; limit?: number }): CapabilityRouteResult[] {
@@ -692,6 +712,24 @@ export function toCapabilitySummary(capability: CapabilityRecord): Record<string
   }
 }
 
+const CAPABILITY_SEARCH_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'for',
+  'in',
+  'of',
+  'on',
+  'only',
+  'or',
+  'please',
+  'read',
+  'the',
+  'to',
+  'use',
+  'with',
+])
+
 function tokenizeSearchQuery(query: string): string[] {
   return query
     .toLowerCase()
@@ -700,11 +738,14 @@ function tokenizeSearchQuery(query: string): string[] {
       return token.trim()
     })
     .filter((token) => {
-      return token.length > 0
+      return token.length > 0 && !CAPABILITY_SEARCH_STOP_WORDS.has(token)
     })
 }
 
-function scoreCapabilitySearch(options: { capability: CapabilityRecord; tokens: string[] }): CapabilitySearchResult {
+function scoreCapabilitySearch(options: {
+  capability: CapabilityRecord
+  tokens: string[]
+}): ScoredCapabilitySearchResult {
   const weightedFields: Array<{ label: string; weight: number; values: string[] }> = [
     { label: 'id', weight: 5, values: [options.capability.manifest.id] },
     { label: 'title', weight: 6, values: [options.capability.manifest.title] },
@@ -726,6 +767,7 @@ function scoreCapabilitySearch(options: { capability: CapabilityRecord; tokens: 
       {
         score: matchedTokens.length * field.weight,
         reason: `${field.label}: ${matchedTokens.join(', ')}`,
+        matchedTokens,
       },
     ]
   })
@@ -753,6 +795,11 @@ function scoreCapabilitySearch(options: { capability: CapabilityRecord; tokens: 
     reasons: matches.map((match) => {
       return match.reason
     }),
+    matchedTokenCount: new Set(
+      matches.flatMap((match) => {
+        return match.matchedTokens
+      }),
+    ).size,
   }
 }
 
