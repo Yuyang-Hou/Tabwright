@@ -17,6 +17,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "tsc --project . && vite build --config vite.config.mts && tsx scripts/download-prism.ts",
+    "test:connection": "tsx --test scripts/connection-ownership.test.ts",
     "reload": "bun run build && open -a 'Google Chrome' 'chrome://extensions/?id=pebbngnfojnignonigcnkdilknapkgid'",
     "watch": "vite build --watch --config vite.config.mts",
     "clean": "rm -rf dist"

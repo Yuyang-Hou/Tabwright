@@ -21,6 +21,7 @@ import type {
 } from 'playwriter/src/protocol'
 import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
 import { RelayConnectionProblemError, relayIssueText } from './relay-warning'
+import { ConnectionOwnership } from './connection-ownership'
 // Inlined at build time via vite ?raw. Source: playwriter/src/ghost-cursor-client.ts
 import ghostCursorBundleCode from '../../playwriter/dist/ghost-cursor-client.js?raw'
 // Bippy: React fiber introspection library, used for "Copy React Source Path" context menu.
@@ -483,9 +484,13 @@ function injectToolbar(tabId: number): void {
 }
 
 class ConnectionManager {
-  ws: WebSocket | null = null
+  private readonly connectionOwnership = new ConnectionOwnership<WebSocket>()
   private connectionPromise: Promise<void> | null = null
   preserveTabsOnDetach = false
+
+  get ws(): WebSocket | null {
+    return this.connectionOwnership.current
+  }
 
   async ensureConnection(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -505,23 +510,32 @@ class ConnectionManager {
     // This protects against edge cases where individual timeouts don't fire
     // (e.g., DNS resolution hangs, AbortSignal doesn't work, etc.)
     const GLOBAL_TIMEOUT_MS = 15000
-    this.connectionPromise = Promise.race([
-      this.connect(),
+    const generation = this.connectionOwnership.beginAttempt()
+    let globalTimeoutId: ReturnType<typeof setTimeout> | undefined
+    const connectionPromise = Promise.race([
+      this.connect({ generation }),
       new Promise<never>((_, reject) => {
-        setTimeout(() => {
+        globalTimeoutId = setTimeout(() => {
+          this.connectionOwnership.invalidateAttempt(generation)
           reject(new Error('Connection timeout (global)'))
         }, GLOBAL_TIMEOUT_MS)
       }),
     ])
+    this.connectionPromise = connectionPromise
 
     try {
-      await this.connectionPromise
+      await connectionPromise
     } finally {
-      this.connectionPromise = null
+      if (globalTimeoutId) {
+        clearTimeout(globalTimeoutId)
+      }
+      if (this.connectionPromise === connectionPromise) {
+        this.connectionPromise = null
+      }
     }
   }
 
-  private async connect(): Promise<void> {
+  private async connect(options: { generation: number }): Promise<void> {
     logger.debug(`Waiting for server at http://${RELAY_HOST}:${RELAY_PORT}...`)
 
     // Retry for up to 5 seconds with 1s intervals, then give up (maintain loop will retry later)
@@ -544,6 +558,9 @@ class ConnectionManager {
     await checkRelayCompatibility()
 
     const identity = await getExtensionIdentity()
+    if (!this.connectionOwnership.isCurrentAttempt(options.generation)) {
+      throw new Error('Connection attempt superseded')
+    }
     const relayUrl = new URL(`ws://${RELAY_HOST}:${RELAY_PORT}/extension`)
     if (identity.browser) {
       relayUrl.searchParams.set('browser', identity.browser)
@@ -578,25 +595,45 @@ class ConnectionManager {
       socket.onopen = () => {
         if (settled) return
         settled = true
-        logger.debug('WebSocket connected')
         clearTimeout(timeout)
 
+        const claimed = this.connectionOwnership.claimOpenedConnection({
+          generation: options.generation,
+          connection: socket,
+        })
+        if (!claimed) {
+          try {
+            socket.close(1000, 'Connection attempt superseded')
+          } catch {}
+          reject(new Error('Connection attempt superseded'))
+          return
+        }
+
+        logger.debug('WebSocket connected')
         resolve()
       }
 
       socket.onerror = (error) => {
-        logger.debug('WebSocket error during connection:', error)
         if (settled) return
         settled = true
         clearTimeout(timeout)
+        if (!this.connectionOwnership.isCurrentAttempt(options.generation)) {
+          reject(new Error('Connection attempt superseded'))
+          return
+        }
+        logger.debug('WebSocket error during connection:', error)
         reject(new Error('WebSocket connection failed'))
       }
 
       socket.onclose = (event) => {
-        logger.debug('WebSocket closed during connection:', { code: event.code, reason: event.reason })
         if (settled) return
         settled = true
         clearTimeout(timeout)
+        if (!this.connectionOwnership.isCurrentAttempt(options.generation)) {
+          reject(new Error('Connection attempt superseded'))
+          return
+        }
+        logger.debug('WebSocket closed during connection:', { code: event.code, reason: event.reason })
         // Normalize 4002 rejection to consistent error message for callers to detect
         if (event.code === 4002 || event.reason === 'Extension Already In Use') {
           reject(new Error('Extension Already In Use'))
@@ -606,21 +643,33 @@ class ConnectionManager {
       }
     })
 
-    this.ws = socket
+    const isCurrentSocket = (): boolean => {
+      return this.connectionOwnership.isCurrentConnection(socket)
+    }
+    const sendCurrentSocketMessage = (message: unknown): void => {
+      if (!isCurrentSocket()) {
+        return
+      }
+      sendMessage(message)
+    }
 
-    this.ws.onmessage = async (event: MessageEvent) => {
+    socket.onmessage = async (event: MessageEvent) => {
+      if (!isCurrentSocket()) {
+        return
+      }
+
       let message: any
       try {
         message = JSON.parse(event.data)
       } catch (error: any) {
         logger.debug('Error parsing message:', error)
-        sendMessage({ error: { code: -32700, message: `Error parsing message: ${error.message}` } })
+        sendCurrentSocketMessage({ error: { code: -32700, message: `Error parsing message: ${error.message}` } })
         return
       }
 
       // Handle ping from server - respond with pong to keep service worker alive
       if (message.method === 'ping') {
-        sendMessage({ method: 'pong' })
+        sendCurrentSocketMessage({ method: 'pong' })
         return
       }
 
@@ -648,7 +697,7 @@ class ConnectionManager {
             setTabConnecting(tab.id)
             const { targetInfo, sessionId } = await attachTab(tab.id, { skipAttachedEvent: true })
             logger.debug('Initial tab created and connected:', tab.id, 'sessionId:', sessionId)
-            sendMessage({
+            sendCurrentSocketMessage({
               id: message.id,
               result: {
                 success: true,
@@ -662,13 +711,13 @@ class ConnectionManager {
           }
         } catch (error: any) {
           logger.debug('Failed to create initial tab:', error)
-          sendMessage({ id: message.id, error: error.message })
+          sendCurrentSocketMessage({ id: message.id, error: error.message })
         }
         return
       }
 
       if (message.method === 'startRecording' || message.method === 'stopRecording' || message.method === 'cancelRecording') {
-        sendMessage({
+        sendCurrentSocketMessage({
           id: message.id,
           result: { success: false, error: 'Legacy video recording has been removed. Use rrweb replay recording instead.' },
         })
@@ -676,18 +725,18 @@ class ConnectionManager {
       }
 
       if (message.method === 'isRecording') {
-        sendMessage({ id: message.id, result: { isRecording: false } })
+        sendCurrentSocketMessage({ id: message.id, result: { isRecording: false } })
         return
       }
 
       if (message.method === 'startRrwebRecording') {
         try {
           const result = await handleStartRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error('Failed to start rrweb recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: errorMessage } })
+          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
         }
         return
       }
@@ -695,11 +744,11 @@ class ConnectionManager {
       if (message.method === 'stopRrwebRecording') {
         try {
           const result = await handleStopRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error('Failed to stop rrweb recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: errorMessage } })
+          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
         }
         return
       }
@@ -707,10 +756,10 @@ class ConnectionManager {
       if (message.method === 'isRrwebRecording') {
         try {
           const result = await handleIsRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           logger.error('Failed to check rrweb recording status:', error)
-          sendMessage({ id: message.id, result: { isRecording: false } })
+          sendCurrentSocketMessage({ id: message.id, result: { isRecording: false } })
         }
         return
       }
@@ -718,11 +767,11 @@ class ConnectionManager {
       if (message.method === 'cancelRrwebRecording') {
         try {
           const result = await handleCancelRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error('Failed to cancel rrweb recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: errorMessage } })
+          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
         }
         return
       }
@@ -746,7 +795,7 @@ class ConnectionManager {
             await attachTab(tabId)
           }
         }
-        sendMessage({ id: message.id, result })
+        sendCurrentSocketMessage({ id: message.id, result })
         return
       }
 
@@ -758,14 +807,20 @@ class ConnectionManager {
         response.error = error.message
       }
       // logger.debug('Sending response:', response)
-      sendMessage(response)
+      sendCurrentSocketMessage(response)
     }
 
-    this.ws.onclose = (event: CloseEvent) => {
-      this.handleClose(event.reason, event.code)
+    socket.onclose = (event: CloseEvent) => {
+      if (!isCurrentSocket()) {
+        return
+      }
+      this.handleClose({ socket, reason: event.reason, code: event.code })
     }
 
-    this.ws.onerror = (event: Event) => {
+    socket.onerror = (event: Event) => {
+      if (!isCurrentSocket()) {
+        return
+      }
       logger.debug('WebSocket error:', event)
     }
 
@@ -775,7 +830,12 @@ class ConnectionManager {
     logger.debug('Connection established')
   }
 
-  private handleClose(reason: string, code: number): void {
+  private handleClose(options: { socket: WebSocket; reason: string; code: number }): void {
+    if (!this.connectionOwnership.releaseConnection(options.socket)) {
+      return
+    }
+
+    const { reason, code } = options
     rejectToolbarRecordingRequests(new Error(`Playwriter relay disconnected: ${reason || code}`))
 
     // Log memory at disconnect time to help diagnose memory-related terminations
@@ -807,7 +867,6 @@ class ConnectionManager {
     }
 
     childSessions.clear()
-    this.ws = null
 
     // Only one extension can connect to the relay server at a time.
     // Code 4001: Another extension replaced this one (this extension was idle)
