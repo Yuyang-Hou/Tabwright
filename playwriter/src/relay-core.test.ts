@@ -602,7 +602,7 @@ describe('Relay Core Tests', () => {
       url: 'https://ui.shadcn.com/',
       expectedContent: ['shadcn'],
       waitForCode: js`
-        await state.page.locator('text=shadcn/ui').first().waitFor({ timeout: 10000 });
+        await state.page.getByRole('heading', { name: 'The Foundation for your Design System' }).waitFor({ timeout: 10000 });
       `,
     },
   ]
@@ -633,6 +633,7 @@ describe('Relay Core Tests', () => {
               const snap = await snapshot({ page: state.page, showDiffSinceLastCall: false, interactiveOnly: true });
               return snap;
             `,
+          timeout: 30000,
         },
       })
 
