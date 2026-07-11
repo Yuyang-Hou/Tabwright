@@ -13,13 +13,44 @@ Playwriter capabilities are local tools generated from real browser context. A c
 The target flow is:
 
 ```text
-Browser context
-  -> AI observes page, network, cookies, and user intent
-  -> AI extracts the smallest repeatable operation
-  -> Playwriter saves a capability contract and script
-  -> User trusts the capability
-  -> Agent searches/describes/runs it when the matching intent appears
+User demonstration or successful browser task
+  -> replay evidence and annotations
+  -> deterministic compiler when the workflow type is supported
+  -> AI handoff with compact evidence when it is not supported
+  -> draft contract and script
+  -> validation in the original user-browser context
+  -> explicit confirmation for concrete side effects
+  -> user trust
+  -> route and run from a fresh AI session
 ```
+
+The product is successful only when the final fresh-session route works. Saving a script is an intermediate state, not the completion condition.
+
+## Product Lifecycle
+
+Every generated capability moves through explicit states:
+
+```text
+recorded -> indexed -> drafted -> validated -> trusted
+                         |            |
+                         +-> needs_ai +-> confirmation-required run
+```
+
+- `recorded`: the replay is evidence, not executable truth.
+- `indexed`: actions, fields, annotations, requests, and selector evidence are available in an AI-sized view.
+- `drafted`: contract and script exist, but require review and `--force` for testing.
+- `validated`: input/output schemas, runtime, page match, and observable result have passed a real test.
+- `trusted`: the user has accepted the durable behavior. Trust does not remove per-run confirmation when `requiresConfirmation` is true.
+- `needs_ai`: the compiler or live script cannot safely infer the next action; it returns evidence instead of pretending success.
+
+The lifecycle must preserve these invariants:
+
+- Browser workflows derived from a logged-in replay run with `--browser user` or an explicit browser key, never silently in headless Chrome.
+- `--force` permits draft testing or URL-match bypass only. It never acknowledges a side effect.
+- A confirmation-required run must stop before script execution unless `--confirm` repeats the exact capability id after explicit user approval.
+- Search and route outputs are compact by default; full contracts and scripts are fetched only for the selected candidate.
+- A task owns its session and page. Existing sessions are health evidence, not safe defaults for another agent.
+- Unsupported replay types produce a structured AI handoff and never a fake runnable capability.
 
 ## Runtime Types
 
@@ -112,9 +143,12 @@ Agents should follow this sequence:
 
 ```text
 User request
-  -> capability.search(query)
+  -> capability.route(task)
+  -> exact trusted read match: run returned shellCommand
+  -> otherwise capability.search(query)
   -> capability.describe(id)
   -> check status, sideEffect, requiresConfirmation, schemas, auth
+  -> stop for approval when confirmation is required
   -> capability.run(id, input)
   -> use structured output in the answer
 ```
@@ -132,12 +166,21 @@ Agents must ask for user confirmation before:
 - `refresh_auth`, because it updates local credentials;
 - draft capabilities unless the user explicitly allows `--force`.
 
+After the user approves a concrete confirmation-required run, the CLI acknowledgement is explicit and capability-specific:
+
+```bash
+playwriter capability run update-user --input-json '{"email":"a@example.com"}' --browser user --confirm update-user --json
+```
+
+`--confirm update-user` is an acknowledgement, not an unforgeable identity proof. A future stronger approval boundary should bind a one-time token to the capability id, input hash, and script/manifest digest, or use a native client approval UI.
+
 ## CLI Surface
 
 Human and agent-facing commands:
 
 ```bash
 playwriter capability list
+playwriter capability route "当前 Bilibili 登录账号" --json
 playwriter capability search "当前 Bilibili 登录账号"
 playwriter capability describe bilibili-current-user --json
 playwriter capability show bilibili-current-user --script
@@ -166,6 +209,7 @@ The MCP exposes one stable gateway tool named `capability` instead of registerin
 Supported actions:
 
 - `list`
+- `route`
 - `search`
 - `describe`
 - `show`
@@ -191,3 +235,36 @@ The important product property is that the later CLI call does not depend on an 
 - Run logs should avoid storing raw credentials.
 - Updating scripts or AI contracts should move the capability back to `draft` unless the user explicitly trusts it again.
 - Agents should prefer `search` and `describe` before writing new automation.
+
+## Quality Gates For Generated Capabilities
+
+A generated capability is ready for trust only after all applicable gates pass:
+
+1. Contract: specific `whenToUse` and `whenNotToUse`, input/output schemas, runtime, side effect, confirmation, auth, and match metadata.
+2. Script: no embedded secrets, no undeclared external hosts, and an explicit `needs_ai` result for page drift.
+3. Test: run in a task-owned session against the original user-browser context; verify output schema and the observable page or response result.
+4. Safety: demonstrate that draft, URL, and confirmation gates fail before execution when their acknowledgements are absent.
+5. Fresh-session acceptance: a new AI can route, describe only when needed, execute the correct command, and explain the result without reading the implementation.
+6. Packaging: exported bundles exclude `secrets.json`, `runs.jsonl`, and artifacts; imported capabilities start as draft.
+
+## Product Metrics
+
+Track the loop rather than raw recording counts:
+
+- time from installation to first successful task-owned session;
+- route precision and the number of contracts loaded before execution;
+- context tokens consumed by discovery, evidence, and output;
+- replay classification coverage and `needs_ai` recovery rate;
+- generated-capability validation pass rate;
+- fresh-session route-and-run success rate;
+- node capability wall time versus script duration;
+- confirmation blocks before script execution;
+- drift rate after 7 and 30 days.
+
+## Near-Term Technical Plan
+
+1. Finish the shell loop: local `replay list`, compact indexes, structured unsupported-workflow handoff, validate/test, and safe pack/import.
+2. Make discovery context-bounded: compact search results, minimum relevance, one selected contract, and no duplicate text in JSON output.
+3. Stabilize the browser graph: uniquely active profile selection, relay restart recovery, heartbeat expiry, and explicit protocol features without breaking old extensions.
+4. Turn the Options page into the lifecycle UI: record guidance, compiler support status, validation evidence, approval state, trust, and export.
+5. Add contract conformance: compare observed outputs and network hosts with schemas/permissions, then downgrade drifted capabilities to draft.
