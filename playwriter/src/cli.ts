@@ -30,7 +30,6 @@ import {
 import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } from './chrome-discovery.js'
 import { getCloudClient, loadCloudAuth, saveCloudAuth, CloudClient, buildLiveUrl } from './cloud-client.js'
 import {
-  appendCapabilityRun,
   createCapability,
   listCapabilities,
   readCapabilityScript,
@@ -40,13 +39,18 @@ import {
   toCapabilitySummary,
   updateCapabilityManifest,
   updateCapabilityScript,
-  validateJsonAgainstSchema,
   type CapabilityManifestPatch,
   type CapabilityRecord,
 } from './capability-registry.js'
 import { initCapabilityAgentSkill, installCapabilityAgentSkill, showCapabilityAgentSkill } from './capability-agent-skill.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
-import { buildCapabilityRunRecord, prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
+import {
+  finalizeCapabilityRun,
+  normalizeCapabilityExecutionText,
+  prepareCapabilityRun,
+  readCapabilityExecutionObservation,
+  runNodeCapability,
+} from './capability-runner.js'
 import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
 import { createReplayAiIndexFromRecording, saveReplayAiIndex } from './replay-ai-index.js'
 import { listSavedRrwebRecordings } from './rrweb-recording-relay.js'
@@ -757,64 +761,67 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
       host: options.host,
       token: options.token,
       includeStructuredResult: true,
-    })
-    if (!result.isError) {
-      const outputValidation = validateJsonAgainstSchema({
-        schema: prepared.capability.manifest.outputSchema,
-        value: result.structuredResult,
-        label: 'output',
-      })
-      if (!outputValidation.valid) {
-        throw new Error(`Invalid capability output:\n${outputValidation.errors.join('\n')}`)
-      }
-    }
-
-    appendCapabilityRun({
-      capability: prepared.capability,
-      record: buildCapabilityRunRecord({
+    }).catch((error: unknown) => {
+      finalizeCapabilityRun({
         capability: prepared.capability,
-        status: result.isError ? 'error' : 'success',
-        durationMs: Date.now() - start,
+        cwd: process.cwd(),
         inputHash: prepared.inputHash,
-        error: result.isError ? result.text : undefined,
-      }),
+        startedAt: start,
+        execution: {
+          status: 'error',
+          output: undefined,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+      throw error
     })
+    const observation = readCapabilityExecutionObservation(result.structuredResult)
+    const isExecutionError = result.isError || Boolean(observation.error)
+    const normalizedText = normalizeCapabilityExecutionText({
+      text: result.text,
+      output: observation.output,
+      error: observation.error,
+    })
+    const finalized = finalizeCapabilityRun({
+      capability: prepared.capability,
+      cwd: process.cwd(),
+      inputHash: prepared.inputHash,
+      startedAt: start,
+      execution: {
+        status: isExecutionError ? 'error' : 'success',
+        output: observation.output,
+        error: isExecutionError ? observation.error || normalizedText : undefined,
+        observedNetworkUrls: observation.observedNetworkUrls,
+        url: observation.url,
+      },
+    })
+    if (finalized.contractError) {
+      throw finalized.contractError
+    }
 
     if (options.json) {
       console.log(
         JSON.stringify(
           {
             capability: prepared.capability.manifest.id,
-            output: result.structuredResult,
-            text: result.text,
-            isError: result.isError,
+            output: observation.output,
+            text: normalizedText,
+            isError: isExecutionError,
           },
           null,
           2,
         ),
       )
     } else {
-      console.log(JSON.stringify(result.structuredResult, null, 2))
-      if (result.isError) {
-        console.error(result.text)
+      console.log(JSON.stringify(observation.output, null, 2))
+      if (isExecutionError) {
+        console.error(normalizedText)
       }
     }
 
-    if (result.isError) {
+    if (isExecutionError) {
       process.exit(1)
     }
-  } catch (error) {
-    appendCapabilityRun({
-      capability: prepared.capability,
-      record: buildCapabilityRunRecord({
-        capability: prepared.capability,
-        status: 'error',
-        durationMs: Date.now() - start,
-        inputHash: prepared.inputHash,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    })
-    throw error
   } finally {
     if (sessionInfo.autoCreated && !options.keepSession) {
       await deleteCapabilityRunSession({

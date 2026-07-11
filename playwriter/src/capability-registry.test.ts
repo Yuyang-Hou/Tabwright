@@ -1,15 +1,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import {
   createCapability,
   getProjectCapabilitiesDir,
   listCapabilities,
+  readCapabilityRuns,
   readCapabilityScript,
   routeCapabilities,
   searchCapabilities,
   toCapabilityContract,
-  updateCapabilityManifest,
+  updateCapabilityManifest as updateCapabilityManifestRecord,
   updateCapabilityScript,
   validateJsonAgainstSchema,
   writeCapabilitySecrets,
@@ -24,6 +25,15 @@ function createTempDir(prefix: string): string {
   const tempRoot = path.join(process.cwd(), 'tmp')
   fs.mkdirSync(tempRoot, { recursive: true })
   return fs.mkdtempSync(path.join(tempRoot, prefix))
+}
+
+function updateCapabilityManifest(
+  options: Parameters<typeof updateCapabilityManifestRecord>[0],
+): ReturnType<typeof updateCapabilityManifestRecord> {
+  return updateCapabilityManifestRecord({
+    ...options,
+    allowUnvalidatedTrust: options.patch.status === 'trusted' || options.allowUnvalidatedTrust,
+  })
 }
 
 describe('capability registry', () => {
@@ -61,6 +71,31 @@ describe('capability registry', () => {
 
       expect(capability.manifest.status).toBe('draft')
       expect(readCapabilityScript({ id: 'saved-script', cwd })).toBe('return { ok: true }')
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('changing a trusted contract requires validation before trusting it again', () => {
+    const cwd = createTempDir('capability-contract-downgrade-')
+    try {
+      createCapability({ id: 'saved-contract', location: 'project', cwd })
+      updateCapabilityManifest({ id: 'saved-contract', cwd, patch: { status: 'trusted' } })
+
+      const edited = updateCapabilityManifest({
+        id: 'saved-contract',
+        cwd,
+        patch: { description: 'Updated behavior contract' },
+      })
+
+      expect(edited.manifest.status).toBe('draft')
+      expect(() => {
+        updateCapabilityManifestRecord({
+          id: 'saved-contract',
+          cwd,
+          patch: { description: 'Reviewed behavior contract', status: 'trusted' },
+        })
+      }).toThrow('cannot change its contract and become trusted in the same update')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }
@@ -627,7 +662,284 @@ describe('capability runner', () => {
       })
 
       expect(result.output).toEqual({ token: 'secret-token', input: { ok: true } })
+      expect(result.runRecord.contract).toMatchObject({
+        status: 'passed',
+        output: { status: 'passed' },
+        network: { status: 'not-applicable' },
+        trust: { before: 'trusted', after: 'trusted', downgraded: false },
+      })
+      expect(toCapabilityContract(result.capability)).toMatchObject({
+        lifecycle: {
+          stage: 'trusted',
+          contractHealth: { state: 'healthy' },
+        },
+      })
+      const edited = updateCapabilityScript({
+        id: 'node-api-tool',
+        cwd,
+        source: 'return { token: secrets.token, input, edited: true }',
+      })
+      expect(toCapabilityContract(edited)).toMatchObject({
+        lifecycle: {
+          stage: 'drafted',
+          contractHealth: { state: 'unknown' },
+        },
+      })
     } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('records output drift once and downgrades trusted capabilities', async () => {
+    const cwd = createTempDir('capability-output-drift-')
+    try {
+      createCapability({ id: 'drifted-node-tool', location: 'project', cwd, runtime: 'node' })
+      updateCapabilityScript({
+        id: 'drifted-node-tool',
+        cwd,
+        source: 'return { userId: 42 }',
+      })
+      const capability = updateCapabilityManifest({
+        id: 'drifted-node-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          outputSchema: {
+            type: 'object',
+            properties: { userId: { type: 'string' } },
+            required: ['userId'],
+          },
+        },
+      })
+
+      await expect(runNodeCapability({ id: 'drifted-node-tool', cwd, input: {} })).rejects.toThrow(
+        'execution completed but contract conformance failed',
+      )
+
+      const runs = readCapabilityRuns({ capability })
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        status: 'error',
+        contract: {
+          status: 'failed',
+          failures: [{ kind: 'output-schema', message: 'output.userId must be string' }],
+          trust: { before: 'trusted', after: 'draft', downgraded: true },
+        },
+      })
+      const current = listCapabilities({ cwd }).find((item) => {
+        return item.manifest.id === 'drifted-node-tool'
+      })
+      expect(current?.manifest.status).toBe('draft')
+      expect(current ? toCapabilityContract(current) : {}).toMatchObject({
+        autonomousInvocation: {
+          allowed: false,
+          reasons: expect.arrayContaining(['current contract failed conformance']),
+        },
+        lifecycle: {
+          stage: 'drifted',
+          nextAction: 'repair',
+          contractHealth: { state: 'drifted' },
+        },
+      })
+      expect(() => {
+        updateCapabilityManifestRecord({ id: 'drifted-node-tool', cwd, patch: { status: 'trusted' } })
+      }).toThrow('has no passing conformance evidence')
+
+      updateCapabilityScript({
+        id: 'drifted-node-tool',
+        cwd,
+        source: 'return { userId: "repaired" }',
+      })
+      await runNodeCapability({ id: 'drifted-node-tool', cwd, input: {}, force: true })
+      const repaired = updateCapabilityManifestRecord({
+        id: 'drifted-node-tool',
+        cwd,
+        patch: { status: 'trusted' },
+      })
+      expect(toCapabilityContract(repaired)).toMatchObject({
+        lifecycle: { stage: 'trusted', contractHealth: { state: 'healthy' } },
+      })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('records browser output drift before throwing', async () => {
+    const cwd = createTempDir('capability-browser-drift-')
+    try {
+      const capability = createCapability({
+        id: 'drifted-browser-tool',
+        location: 'project',
+        cwd,
+        runtime: 'browser',
+      })
+      updateCapabilityManifest({
+        id: 'drifted-browser-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          outputSchema: {
+            type: 'object',
+            properties: { ok: { type: 'boolean' } },
+            required: ['ok'],
+          },
+        },
+      })
+
+      await expect(
+        runCapabilityWithExecutor({
+          executor: {
+            execute: async () => {
+              return {
+                text: '',
+                images: [],
+                screenshots: [],
+                isError: false,
+                structuredResult: { ok: 'yes' },
+              }
+            },
+          },
+          id: 'drifted-browser-tool',
+          cwd,
+          input: {},
+        }),
+      ).rejects.toThrow('output.ok must be boolean')
+
+      expect(readCapabilityRuns({ capability })).toHaveLength(1)
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('unwraps browser observations without exposing the internal envelope', async () => {
+    const cwd = createTempDir('capability-browser-observation-')
+    try {
+      createCapability({ id: 'observed-browser-tool', location: 'project', cwd, runtime: 'browser' })
+      updateCapabilityManifest({
+        id: 'observed-browser-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          permissions: ['browser.read', 'network:https://allowed.example/*'],
+          outputSchema: {
+            type: 'object',
+            properties: { ok: { type: 'boolean' } },
+            required: ['ok'],
+          },
+        },
+      })
+
+      const result = await runCapabilityWithExecutor({
+        executor: {
+          execute: async () => {
+            return {
+              text: '[return value] { __playwriterCapabilityEnvelope: 1, output: { ok: true } }',
+              images: [],
+              screenshots: [],
+              isError: false,
+              structuredResult: {
+                __playwriterCapabilityEnvelope: 1,
+                output: { ok: true },
+                observedNetworkUrls: ['https://allowed.example/api/value'],
+                url: 'https://allowed.example/app',
+              },
+            }
+          },
+        },
+        id: 'observed-browser-tool',
+        cwd,
+        input: {},
+      })
+
+      expect(result.output).toEqual({ ok: true })
+      expect(result.executeResult.structuredResult).toEqual({ ok: true })
+      expect(result.executeResult.text).toBe('[return value] { ok: true }')
+      expect(result.executeResult.text).not.toContain('__playwriterCapabilityEnvelope')
+      expect(result.runRecord).toMatchObject({
+        url: 'https://allowed.example/app',
+        contract: {
+          status: 'passed',
+          network: { status: 'passed', observedHosts: ['https://allowed.example'] },
+        },
+      })
+
+      await expect(
+        runCapabilityWithExecutor({
+          executor: {
+            execute: async () => {
+              return {
+                text: '[return value] { __playwriterCapabilityEnvelope: 1 }',
+                images: [],
+                screenshots: [],
+                isError: false,
+                structuredResult: {
+                  __playwriterCapabilityEnvelope: 1,
+                  output: undefined,
+                  observedNetworkUrls: ['https://undeclared.example/api/value'],
+                  url: 'https://allowed.example/app',
+                  error: 'runtime failed after request',
+                },
+              }
+            },
+          },
+          id: 'observed-browser-tool',
+          cwd,
+          input: {},
+        }),
+      ).rejects.toThrow('Network host is not declared')
+      const current = listCapabilities({ cwd }).find((item) => {
+        return item.manifest.id === 'observed-browser-tool'
+      })
+      expect(current?.manifest.status).toBe('draft')
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('observes node fetch hosts and rejects undeclared network access', async () => {
+    const cwd = createTempDir('capability-network-drift-')
+    const requestUrl = 'https://undeclared.example/data'
+    vi.stubGlobal('fetch', async () => {
+      return new Response('{"ok":true}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    try {
+      const capability = createCapability({
+        id: 'scoped-network-tool',
+        location: 'project',
+        cwd,
+        runtime: 'node',
+      })
+      updateCapabilityScript({
+        id: 'scoped-network-tool',
+        cwd,
+        source: `await fetch(${JSON.stringify(requestUrl)}); throw new Error('runtime failed after request');`,
+      })
+      updateCapabilityManifest({
+        id: 'scoped-network-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          permissions: ['network:https://allowed.example/*'],
+        },
+      })
+
+      await expect(runNodeCapability({ id: 'scoped-network-tool', cwd, input: {} })).rejects.toThrow(
+        'Network host is not declared',
+      )
+
+      expect(readCapabilityRuns({ capability })[0]?.contract).toMatchObject({
+        status: 'failed',
+        network: {
+          status: 'failed',
+          observedHosts: [new URL(requestUrl).origin],
+          undeclaredHosts: [new URL(requestUrl).origin],
+        },
+      })
+    } finally {
+      vi.unstubAllGlobals()
       fs.rmSync(cwd, { recursive: true, force: true })
     }
   })

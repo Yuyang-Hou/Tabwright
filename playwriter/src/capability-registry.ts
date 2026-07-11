@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -67,7 +68,49 @@ export interface CapabilityRunRecord {
   durationMs: number
   inputHash: string
   error?: string
+  contract?: CapabilityRunContract
   createdAt: string
+}
+
+export type CapabilityContractCheckStatus = 'passed' | 'failed' | 'not-applicable' | 'unknown'
+
+export interface CapabilityContractFailure {
+  kind: 'output-schema' | 'undeclared-host'
+  message: string
+}
+
+export interface CapabilityRunContract {
+  schemaVersion: 1
+  fingerprint: string
+  status: 'passed' | 'failed' | 'unknown'
+  failures: CapabilityContractFailure[]
+  output: {
+    status: CapabilityContractCheckStatus
+    errors: string[]
+  }
+  network: {
+    status: CapabilityContractCheckStatus
+    observedHosts: string[]
+    undeclaredHosts: string[]
+  }
+  trust: {
+    before: CapabilityStatus
+    after: CapabilityStatus
+    downgraded: boolean
+  }
+}
+
+export interface CapabilityContractHealth {
+  state: 'healthy' | 'drifted' | 'unknown'
+  checkedAt?: string
+  reasons: string[]
+}
+
+export interface CapabilityLifecycle {
+  stage: 'drafted' | 'validated' | 'trusted' | 'drifted' | 'disabled'
+  nextAction: 'validate' | 'trust' | 'run' | 'repair' | 'enable'
+  nextCommand: string
+  contractHealth: CapabilityContractHealth
 }
 
 export interface ValidationResult {
@@ -137,6 +180,33 @@ const CapabilityRunRecordSchema = z.object({
   durationMs: z.number(),
   inputHash: z.string(),
   error: z.string().optional(),
+  contract: z
+    .object({
+      schemaVersion: z.literal(1),
+      fingerprint: z.string(),
+      status: z.enum(['passed', 'failed', 'unknown']),
+      failures: z.array(
+        z.object({
+          kind: z.enum(['output-schema', 'undeclared-host']),
+          message: z.string(),
+        }),
+      ),
+      output: z.object({
+        status: z.enum(['passed', 'failed', 'not-applicable', 'unknown']),
+        errors: z.array(z.string()),
+      }),
+      network: z.object({
+        status: z.enum(['passed', 'failed', 'not-applicable', 'unknown']),
+        observedHosts: z.array(z.string()),
+        undeclaredHosts: z.array(z.string()),
+      }),
+      trust: z.object({
+        before: CapabilityStatusSchema,
+        after: CapabilityStatusSchema,
+        downgraded: z.boolean(),
+      }),
+    })
+    .optional(),
   createdAt: z.string(),
 })
 
@@ -359,13 +429,39 @@ export function updateCapabilityManifest(options: {
   id: string
   cwd?: string
   patch: Partial<Omit<CapabilityManifest, 'schemaVersion' | 'id' | 'createdAt'>>
+  allowUnvalidatedTrust?: boolean
 }): CapabilityRecord {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
+  const changesContract = Object.keys(options.patch).some((key) => {
+    return key !== 'status' && key !== 'updatedAt'
+  })
+  if (options.patch.status === 'trusted' && !options.allowUnvalidatedTrust) {
+    if (changesContract) {
+      throw new Error(
+        `Capability ${capability.manifest.id} cannot change its contract and become trusted in the same update. Save it as draft, validate the current contract, then trust it.`,
+      )
+    }
+    if (getCapabilityContractHealth(capability).state !== 'healthy') {
+      throw new Error(
+        `Capability ${capability.manifest.id} has no passing conformance evidence for its current contract. Run it with --force after repairing it before trusting it.`,
+      )
+    }
+  }
+  const nextStatus: CapabilityStatus = (() => {
+    if (options.patch.status) {
+      return options.patch.status
+    }
+    if (changesContract && capability.manifest.status === 'trusted') {
+      return 'draft'
+    }
+    return capability.manifest.status
+  })()
   const nextManifest: CapabilityManifest = {
     ...capability.manifest,
     ...options.patch,
     id: capability.manifest.id,
     schemaVersion: 1,
+    status: nextStatus,
     createdAt: capability.manifest.createdAt,
     updatedAt: new Date().toISOString(),
   }
@@ -527,9 +623,117 @@ export function readCapabilityRuns(options: { capability: CapabilityRecord; limi
   })
 }
 
+export function getCapabilityContractFingerprint(capability: CapabilityRecord): string {
+  const { status: _status, createdAt: _createdAt, updatedAt: _updatedAt, ...contractManifest } = capability.manifest
+  const script = fs.readFileSync(capability.scriptPath, 'utf-8')
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ manifest: contractManifest, script }))
+    .digest('hex')
+}
+
+export function getCapabilityContractHealth(capability: CapabilityRecord): CapabilityContractHealth {
+  const fingerprint = getCapabilityContractFingerprint(capability)
+  const latestContractRun = readCapabilityRuns({ capability, limit: 100 })
+    .reverse()
+    .find((run) => {
+      return run.contract?.fingerprint === fingerprint && run.contract.status !== 'unknown'
+    })
+
+  if (!latestContractRun?.contract) {
+    return {
+      state: 'unknown',
+      reasons: ['No conformance evidence exists for the current script and contract.'],
+    }
+  }
+
+  if (latestContractRun.contract.status === 'failed') {
+    return {
+      state: 'drifted',
+      checkedAt: latestContractRun.createdAt,
+      reasons: latestContractRun.contract.failures.map((failure) => {
+        return failure.message
+      }),
+    }
+  }
+
+  return {
+    state: 'healthy',
+    checkedAt: latestContractRun.createdAt,
+    reasons: [],
+  }
+}
+
+export function getCapabilityLifecycle(capability: CapabilityRecord): CapabilityLifecycle {
+  const contractHealth = getCapabilityContractHealth(capability)
+  const stage: CapabilityLifecycle['stage'] = (() => {
+    if (capability.manifest.status === 'disabled') {
+      return 'disabled'
+    }
+    if (contractHealth.state === 'drifted') {
+      return 'drifted'
+    }
+    if (capability.manifest.status === 'trusted') {
+      return 'trusted'
+    }
+    if (contractHealth.state === 'healthy') {
+      return 'validated'
+    }
+    return 'drafted'
+  })()
+  const nextAction: CapabilityLifecycle['nextAction'] = (() => {
+    if (stage === 'disabled') {
+      return 'enable'
+    }
+    if (stage === 'drifted') {
+      return 'repair'
+    }
+    if (stage === 'validated') {
+      return 'trust'
+    }
+    if (stage === 'trusted') {
+      return 'run'
+    }
+    return 'validate'
+  })()
+  const nextCommand: string = (() => {
+    if (nextAction === 'enable') {
+      return `playwriter capability draft ${capability.manifest.id}`
+    }
+    if (nextAction === 'repair') {
+      return `playwriter capability show ${capability.manifest.id}`
+    }
+    if (nextAction === 'trust') {
+      return `playwriter capability trust ${capability.manifest.id}`
+    }
+
+    const exampleInput = capability.manifest.examples.find((example) => {
+      return isPlainObject(example.input)
+    })?.input
+    const input = isPlainObject(exampleInput) ? exampleInput : {}
+    const args = [
+      'playwriter',
+      'capability',
+      'run',
+      capability.manifest.id,
+      ...(capability.manifest.runtime === 'browser' ? ['--browser', 'user'] : []),
+      '--input-json',
+      quoteShell(JSON.stringify(input)),
+      ...(nextAction === 'validate' ? ['--force'] : []),
+      ...(capability.manifest.requiresConfirmation ? ['--confirm', capability.manifest.id] : []),
+      '--json',
+    ]
+    return args.join(' ')
+  })()
+
+  return { stage, nextAction, nextCommand, contractHealth }
+}
+
 export function getCapabilityAutonomy(capability: CapabilityRecord): { allowed: boolean; reasons: string[] } {
+  const contractHealth = getCapabilityContractHealth(capability)
   const blockers = [
     capability.manifest.status === 'trusted' ? '' : `status is ${capability.manifest.status}`,
+    contractHealth.state === 'drifted' ? 'current contract failed conformance' : '',
     capability.manifest.sideEffect === 'read' ? '' : `sideEffect is ${capability.manifest.sideEffect}`,
     capability.manifest.requiresConfirmation ? 'requires confirmation' : '',
   ].filter((reason) => {
@@ -553,6 +757,7 @@ export function toCapabilityContract(capability: CapabilityRecord): Record<strin
     examples: capability.manifest.examples,
     autonomousInvocation: getCapabilityAutonomy(capability),
     recentRuns: readCapabilityRuns({ capability, limit: 5 }),
+    lifecycle: getCapabilityLifecycle(capability),
   }
 }
 

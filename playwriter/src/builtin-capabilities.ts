@@ -917,6 +917,7 @@ export function installBuiltinCapabilitySuite(
     const capability = updateCapabilityManifest({
       id: definition.id,
       cwd: options.cwd,
+      allowUnvalidatedTrust: options.trust !== false,
       patch: {
         ...definition.manifest,
         status: options.trust === false ? 'draft' : 'trusted',

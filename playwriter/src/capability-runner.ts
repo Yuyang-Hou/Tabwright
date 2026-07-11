@@ -6,10 +6,15 @@ import vm from 'node:vm'
 import {
   appendCapabilityRun,
   capabilityMatchesUrl,
+  getCapabilityContractFingerprint,
+  getCapabilityContractHealth,
   readCapabilitySecrets,
   requireCapability,
+  updateCapabilityManifest,
   validateJsonAgainstSchema,
+  type CapabilityContractCheckStatus,
   type CapabilityRecord,
+  type CapabilityRunContract,
   type CapabilityRunRecord,
 } from './capability-registry.js'
 import type { ExecuteResult } from './executor.js'
@@ -42,6 +47,45 @@ export interface NodeCapabilityRunResult {
   text: string
   isError: boolean
   runRecord: CapabilityRunRecord
+}
+
+export interface CapabilityExecutionObservation {
+  status: 'success' | 'error'
+  output: unknown
+  error?: string
+  observedNetworkUrls?: string[]
+  url?: string
+}
+
+export interface FinalizedCapabilityRun {
+  capability: CapabilityRecord
+  output: unknown
+  runRecord: CapabilityRunRecord
+  contractError?: Error
+}
+
+interface CapabilityExecutionEnvelope {
+  __playwriterCapabilityEnvelope: 1
+  output: unknown
+  observedNetworkUrls: string[]
+  url?: string
+  error?: string
+}
+
+interface NodeCapabilityExecution {
+  output: unknown
+  observedNetworkUrls: string[]
+}
+
+class ObservedCapabilityExecutionError extends Error {
+  observedNetworkUrls: string[]
+
+  constructor(options: { cause: unknown; observedNetworkUrls: string[] }) {
+    const message = options.cause instanceof Error ? options.cause.message : String(options.cause)
+    super(message, { cause: options.cause })
+    this.name = 'ObservedCapabilityExecutionError'
+    this.observedNetworkUrls = options.observedNetworkUrls
+  }
 }
 
 interface CapabilityArtifacts {
@@ -96,46 +140,46 @@ export async function runNodeCapability(options: {
 
   const start = Date.now()
   const inputHash = hashInput(options.input)
-  try {
-    const output = await executeNodeCapabilityScript({
+  const execution = await executeNodeCapabilityScript({
+    capability,
+    input: options.input,
+    timeout: options.timeout || 10000,
+  }).catch((error: unknown) => {
+    const finalized = finalizeCapabilityRun({
       capability,
-      input: options.input,
-      timeout: options.timeout || 10000,
+      cwd: options.cwd,
+      inputHash,
+      startedAt: start,
+      execution: {
+        status: 'error',
+        output: undefined,
+        error: error instanceof Error ? error.message : String(error),
+        observedNetworkUrls: error instanceof ObservedCapabilityExecutionError ? error.observedNetworkUrls : [],
+      },
     })
-    const outputValidation = validateJsonAgainstSchema({
-      schema: capability.manifest.outputSchema,
-      value: output,
-      label: 'output',
-    })
-    if (!outputValidation.valid) {
-      throw new Error(`Invalid capability output:\n${outputValidation.errors.join('\n')}`)
-    }
-
-    const runRecord = buildCapabilityRunRecord({
-      capability,
+    throw finalized.contractError || error
+  })
+  const finalized = finalizeCapabilityRun({
+    capability,
+    cwd: options.cwd,
+    inputHash,
+    startedAt: start,
+    execution: {
       status: 'success',
-      durationMs: Date.now() - start,
-      inputHash,
-    })
-    appendCapabilityRun({ capability, record: runRecord })
-    return {
-      capability,
-      output,
-      text: formatNodeOutput(output),
-      isError: false,
-      runRecord,
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const runRecord = buildCapabilityRunRecord({
-      capability,
-      status: 'error',
-      durationMs: Date.now() - start,
-      inputHash,
-      error: message,
-    })
-    appendCapabilityRun({ capability, record: runRecord })
-    throw error
+      output: execution.output,
+      observedNetworkUrls: execution.observedNetworkUrls,
+    },
+  })
+  if (finalized.contractError) {
+    throw finalized.contractError
+  }
+
+  return {
+    capability: finalized.capability,
+    output: finalized.output,
+    text: formatNodeOutput(finalized.output),
+    isError: false,
+    runRecord: finalized.runRecord,
   }
 }
 
@@ -150,36 +194,309 @@ export async function runCapabilityWithExecutor(options: {
 }): Promise<CapabilityRunResult> {
   const prepared = prepareCapabilityRun(options)
   const start = Date.now()
-  const executeResult = await options.executor.execute(prepared.code, options.timeout || 10000, {
-    includeStructuredResult: true,
-  })
-  const output = executeResult.structuredResult
-  if (!executeResult.isError) {
-    const outputValidation = validateJsonAgainstSchema({
-      schema: prepared.capability.manifest.outputSchema,
-      value: output,
-      label: 'output',
+  const executeResult = await options.executor
+    .execute(prepared.code, options.timeout || 10000, {
+      includeStructuredResult: true,
     })
-    if (!outputValidation.valid) {
-      throw new Error(`Invalid capability output:\n${outputValidation.errors.join('\n')}`)
+    .catch((error: unknown) => {
+      finalizeCapabilityRun({
+        capability: prepared.capability,
+        cwd: options.cwd,
+        inputHash: prepared.inputHash,
+        startedAt: start,
+        execution: {
+          status: 'error',
+          output: undefined,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+      throw error
+    })
+  const observation = readCapabilityExecutionObservation(executeResult.structuredResult)
+  const isExecutionError = executeResult.isError || Boolean(observation.error)
+  const normalizedExecuteResult: ExecuteResult = {
+    ...executeResult,
+    text: normalizeCapabilityExecutionText({
+      text: executeResult.text,
+      output: observation.output,
+      error: observation.error,
+    }),
+    isError: isExecutionError,
+    structuredResult: observation.output,
+  }
+  const finalized = finalizeCapabilityRun({
+    capability: prepared.capability,
+    cwd: options.cwd,
+    inputHash: prepared.inputHash,
+    startedAt: start,
+    execution: {
+      status: isExecutionError ? 'error' : 'success',
+      output: observation.output,
+      error: isExecutionError ? observation.error || normalizedExecuteResult.text : undefined,
+      observedNetworkUrls: observation.observedNetworkUrls,
+      url: observation.url,
+    },
+  })
+  if (finalized.contractError) {
+    throw finalized.contractError
+  }
+
+  return {
+    capability: finalized.capability,
+    executeResult: normalizedExecuteResult,
+    output: finalized.output,
+    runRecord: finalized.runRecord,
+  }
+}
+
+export function finalizeCapabilityRun(options: {
+  capability: CapabilityRecord
+  cwd?: string
+  inputHash: string
+  startedAt: number
+  execution: CapabilityExecutionObservation
+}): FinalizedCapabilityRun {
+  const fingerprint = getCapabilityContractFingerprint(options.capability)
+  const outputValidation =
+    options.execution.status === 'success'
+      ? validateJsonAgainstSchema({
+          schema: options.capability.manifest.outputSchema,
+          value: options.execution.output,
+          label: 'output',
+        })
+      : { valid: false, errors: [] }
+  const network = validateObservedNetworkUrls({
+    capability: options.capability,
+    executionStatus: options.execution.status,
+    observedNetworkUrls: options.execution.observedNetworkUrls || [],
+  })
+  const failures: CapabilityRunContract['failures'] = [
+    ...(options.execution.status === 'success' && !outputValidation.valid
+      ? outputValidation.errors.map((message) => {
+          return { kind: 'output-schema' as const, message }
+        })
+      : []),
+    ...network.undeclaredHosts.map((host) => {
+      return {
+        kind: 'undeclared-host' as const,
+        message: `Network host is not declared by capability permissions: ${host}`,
+      }
+    }),
+  ]
+  const contractStatus: CapabilityRunContract['status'] = (() => {
+    if (failures.length > 0) {
+      return 'failed'
+    }
+    if (options.execution.status === 'error') {
+      return 'unknown'
+    }
+    return 'passed'
+  })()
+  const trustBefore = options.capability.manifest.status
+  const nextCapability = (() => {
+    if (contractStatus !== 'failed' || trustBefore !== 'trusted') {
+      return options.capability
+    }
+    return updateCapabilityManifest({
+      id: options.capability.manifest.id,
+      cwd: options.cwd,
+      patch: { status: 'draft' },
+    })
+  })()
+  const contract: CapabilityRunContract = {
+    schemaVersion: 1,
+    fingerprint,
+    status: contractStatus,
+    failures,
+    output: {
+      status: options.execution.status === 'error' ? 'unknown' : outputValidation.valid ? 'passed' : 'failed',
+      errors: outputValidation.errors,
+    },
+    network: {
+      status: network.status,
+      observedHosts: network.observedHosts,
+      undeclaredHosts: network.undeclaredHosts,
+    },
+    trust: {
+      before: trustBefore,
+      after: nextCapability.manifest.status,
+      downgraded: trustBefore === 'trusted' && nextCapability.manifest.status === 'draft',
+    },
+  }
+  const contractError = (() => {
+    if (contractStatus !== 'failed') {
+      return undefined
+    }
+    return new Error(
+      [
+        'Capability execution completed but contract conformance failed.',
+        ...failures.map((failure) => {
+          return failure.message
+        }),
+        trustBefore === 'trusted'
+          ? 'The capability was moved to draft. Do not automatically retry a write operation.'
+          : 'The capability remains draft. Do not automatically retry a write operation.',
+      ].join('\n'),
+    )
+  })()
+  const runRecord = buildCapabilityRunRecord({
+    capability: options.capability,
+    status: options.execution.status === 'error' || contractError ? 'error' : 'success',
+    durationMs: Date.now() - options.startedAt,
+    inputHash: options.inputHash,
+    error: options.execution.error || contractError?.message,
+    url: options.execution.url,
+    contract,
+  })
+  appendCapabilityRun({ capability: options.capability, record: runRecord })
+  return {
+    capability: nextCapability,
+    output: options.execution.output,
+    runRecord,
+    contractError,
+  }
+}
+
+export function readCapabilityExecutionObservation(value: unknown): {
+  output: unknown
+  observedNetworkUrls: string[]
+  url?: string
+  error?: string
+} {
+  if (!isCapabilityExecutionEnvelope(value)) {
+    return { output: value, observedNetworkUrls: [] }
+  }
+  return {
+    output: value.output,
+    observedNetworkUrls: value.observedNetworkUrls,
+    url: value.url,
+    error: value.error,
+  }
+}
+
+export function normalizeCapabilityExecutionText(options: { text: string; output: unknown; error?: string }): string {
+  const markerIndex = options.text.lastIndexOf('[return value]')
+  if (markerIndex === -1) {
+    return options.error || options.text
+  }
+  const prefix = options.text.slice(0, markerIndex).trimEnd()
+  const resultText: string = (() => {
+    if (options.error) {
+      return options.error
+    }
+    if (options.output === undefined) {
+      return ''
+    }
+    const formatted =
+      typeof options.output === 'string'
+        ? options.output
+        : util.inspect(options.output, {
+            depth: 4,
+            colors: false,
+            maxArrayLength: 100,
+            maxStringLength: 1000,
+            breakLength: 80,
+          })
+    return formatted.trim() ? `[return value] ${formatted}` : ''
+  })()
+  return (
+    [prefix, resultText]
+      .filter((value) => {
+        return value.length > 0
+      })
+      .join('\n')
+      .trim() || 'Code executed successfully (no output)'
+  )
+}
+
+function isCapabilityExecutionEnvelope(value: unknown): value is CapabilityExecutionEnvelope {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  const candidate = value as Partial<CapabilityExecutionEnvelope>
+  return (
+    candidate.__playwriterCapabilityEnvelope === 1 &&
+    Array.isArray(candidate.observedNetworkUrls) &&
+    candidate.observedNetworkUrls.every((url) => {
+      return typeof url === 'string'
+    }) &&
+    (candidate.url === undefined || typeof candidate.url === 'string') &&
+    (candidate.error === undefined || typeof candidate.error === 'string')
+  )
+}
+
+function validateObservedNetworkUrls(options: {
+  capability: CapabilityRecord
+  executionStatus: 'success' | 'error'
+  observedNetworkUrls: string[]
+}): {
+  status: CapabilityContractCheckStatus
+  observedHosts: string[]
+  undeclaredHosts: string[]
+} {
+  const observations = options.observedNetworkUrls.flatMap((rawUrl) => {
+    try {
+      const url = new URL(rawUrl)
+      return [{ url: url.toString(), host: url.origin }]
+    } catch {
+      return []
+    }
+  })
+  const observedHosts = [...new Set(observations.map((observation) => observation.host))].sort()
+  if (observations.length === 0) {
+    return {
+      status: options.executionStatus === 'error' ? 'unknown' : 'not-applicable',
+      observedHosts,
+      undeclaredHosts: [],
     }
   }
 
-  const runRecord: CapabilityRunRecord = {
-    id: prepared.capability.manifest.id,
-    status: executeResult.isError ? 'error' : 'success',
-    durationMs: Date.now() - start,
-    inputHash: prepared.inputHash,
-    error: executeResult.isError ? executeResult.text : undefined,
-    createdAt: new Date().toISOString(),
+  const networkPermissions = options.capability.manifest.permissions.filter((permission) => {
+    return permission === 'network' || permission.startsWith('network:')
+  })
+  if (networkPermissions.includes('network')) {
+    return {
+      status: options.executionStatus === 'error' ? 'unknown' : 'passed',
+      observedHosts,
+      undeclaredHosts: [],
+    }
   }
-  appendCapabilityRun({ capability: prepared.capability, record: runRecord })
+  const scopedPermissions = networkPermissions.flatMap((permission) => {
+    return permission.startsWith('network:') ? [permission.slice('network:'.length)] : []
+  })
+  if (options.capability.manifest.runtime === 'browser' && scopedPermissions.length === 0) {
+    return {
+      status: options.executionStatus === 'error' ? 'unknown' : 'not-applicable',
+      observedHosts,
+      undeclaredHosts: [],
+    }
+  }
+
+  const undeclaredHosts = [
+    ...new Set(
+      observations.flatMap((observation) => {
+        const declared = scopedPermissions.some((pattern) => {
+          return matchesGlob({ value: observation.url, pattern })
+        })
+        return declared ? [] : [observation.host]
+      }),
+    ),
+  ].sort()
   return {
-    capability: prepared.capability,
-    executeResult,
-    output,
-    runRecord,
+    status: undeclaredHosts.length > 0 ? 'failed' : options.executionStatus === 'error' ? 'unknown' : 'passed',
+    observedHosts,
+    undeclaredHosts,
   }
+}
+
+function matchesGlob(options: { value: string; pattern: string }): boolean {
+  const escaped = options.pattern
+    .split('*')
+    .map((part) => {
+      return part.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+    })
+    .join('.*')
+  return new RegExp(`^${escaped}$`).test(options.value)
 }
 
 export function buildCapabilityRunRecord(options: {
@@ -189,6 +506,7 @@ export function buildCapabilityRunRecord(options: {
   inputHash: string
   error?: string
   url?: string
+  contract?: CapabilityRunContract
 }): CapabilityRunRecord {
   return {
     id: options.capability.manifest.id,
@@ -197,6 +515,7 @@ export function buildCapabilityRunRecord(options: {
     inputHash: options.inputHash,
     error: options.error,
     url: options.url,
+    contract: options.contract,
     createdAt: new Date().toISOString(),
   }
 }
@@ -219,6 +538,11 @@ function validateCapabilityRunnable(options: {
 }): void {
   if (options.capability.manifest.status === 'disabled') {
     throw new Error(`Capability is disabled: ${options.capability.manifest.id}`)
+  }
+  if (getCapabilityContractHealth(options.capability).state === 'drifted' && !options.force) {
+    throw new Error(
+      `Capability ${options.capability.manifest.id} failed conformance for its current contract. Repair it and run with --force before trusting it again.`,
+    )
   }
   if (options.capability.manifest.status !== 'trusted' && !options.force) {
     throw new Error(`Capability is ${options.capability.manifest.status}. Run with --force or trust it first.`)
@@ -245,10 +569,20 @@ async function executeNodeCapabilityScript(options: {
   capability: CapabilityRecord
   input: unknown
   timeout: number
-}): Promise<unknown> {
+}): Promise<NodeCapabilityExecution> {
   const script = fs.readFileSync(options.capability.scriptPath, 'utf-8')
   const secrets = readCapabilitySecrets({ capability: options.capability })
   const artifacts = createCapabilityArtifacts({ capability: options.capability })
+  const observedNetworkUrls: Set<string> = new Set()
+  const observedFetch: typeof fetch = async (input, init) => {
+    const requestUrl = input instanceof Request ? input.url : input.toString()
+    observedNetworkUrls.add(requestUrl)
+    const response = await fetch(input, init)
+    if (response.url) {
+      observedNetworkUrls.add(response.url)
+    }
+    return response
+  }
   const vmContext = vm.createContext({
     input: options.input,
     capability: {
@@ -261,7 +595,7 @@ async function executeNodeCapabilityScript(options: {
     secrets,
     artifacts,
     console,
-    fetch,
+    fetch: observedFetch,
     URL,
     URLSearchParams,
     Headers,
@@ -289,13 +623,19 @@ async function executeNodeCapabilityScript(options: {
 
   const timeout = createCapabilityTimeout({ timeout: options.timeout })
   try {
-    return await Promise.race([
+    const output = await Promise.race([
       vm.runInContext(`(async () => { ${wrappedCode} })()`, vmContext, {
         timeout: options.timeout,
         displayErrors: true,
       }),
       timeout.promise,
     ])
+    return { output, observedNetworkUrls: [...observedNetworkUrls] }
+  } catch (error) {
+    throw new ObservedCapabilityExecutionError({
+      cause: error,
+      observedNetworkUrls: [...observedNetworkUrls],
+    })
   } finally {
     timeout.cancel()
   }
@@ -399,10 +739,34 @@ function buildCapabilityCode(options: { capability: CapabilityRecord; script: st
     '    throw new Error(`Capability ${capability.id} does not match current page URL: ${__currentUrl}`);',
     '  }',
     '}',
-    'const __playwriterCapabilityOutput = await (async () => {',
+    'const __playwriterCapabilityObservedNetworkUrls = new Set();',
+    'const __playwriterCapabilityOnRequest = (request) => {',
+    '  __playwriterCapabilityObservedNetworkUrls.add(request.url());',
+    '};',
+    "page.on('request', __playwriterCapabilityOnRequest);",
+    'try {',
+    '  const __playwriterCapabilityOutput = await (async () => {',
     options.script,
-    '\n})();',
-    'return __playwriterCapabilityOutput === undefined ? undefined : JSON.parse(JSON.stringify(__playwriterCapabilityOutput));',
+    '\n  })();',
+    '  return {',
+    '    __playwriterCapabilityEnvelope: 1,',
+    '    output: __playwriterCapabilityOutput === undefined ? undefined : JSON.parse(JSON.stringify(__playwriterCapabilityOutput)),',
+    '    observedNetworkUrls: [...__playwriterCapabilityObservedNetworkUrls],',
+    '    url: page.url(),',
+    '  };',
+    '} catch (__playwriterCapabilityError) {',
+    '  return {',
+    '    __playwriterCapabilityEnvelope: 1,',
+    '    output: undefined,',
+    '    observedNetworkUrls: [...__playwriterCapabilityObservedNetworkUrls],',
+    '    url: page.url(),',
+    '    error: __playwriterCapabilityError instanceof Error',
+    '      ? (__playwriterCapabilityError.stack || __playwriterCapabilityError.message)',
+    '      : String(__playwriterCapabilityError),',
+    '  };',
+    '} finally {',
+    "  page.off('request', __playwriterCapabilityOnRequest);",
+    '}',
     `//# sourceURL=playwriter-capability://${options.capability.manifest.id}`,
     '',
   ].join('\n')

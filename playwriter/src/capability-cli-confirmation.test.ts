@@ -48,6 +48,7 @@ describe('capability CLI confirmation', () => {
       updateCapabilityManifest({
         id: capability.manifest.id,
         cwd,
+        allowUnvalidatedTrust: true,
         patch: { status: 'trusted', sideEffect: 'write', requiresConfirmation: true },
       })
       const markerPath = path.join(capability.dir, 'artifacts', 'executed.txt')
