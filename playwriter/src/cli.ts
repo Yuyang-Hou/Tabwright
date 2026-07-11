@@ -275,6 +275,10 @@ async function fetchExtensionsStatus({ host, token }: { host?: string; token?: s
         browser: string | null
         profile: { email: string; id: string } | null
         playwriterVersion?: string | null
+        protocolVersion?: number
+        features?: string[]
+        connectionHealth?: 'ready' | 'limited' | 'legacy'
+        missingFeatures?: string[]
       }
       if (!fallbackData?.connected) {
         return []
@@ -287,6 +291,10 @@ async function fetchExtensionsStatus({ host, token }: { host?: string; token?: s
           profile: fallbackData?.profile,
           activeTargets: fallbackData?.activeTargets,
           playwriterVersion: fallbackData?.playwriterVersion || null,
+          protocolVersion: fallbackData?.protocolVersion,
+          features: fallbackData?.features,
+          connectionHealth: fallbackData?.connectionHealth,
+          missingFeatures: fallbackData?.missingFeatures,
         },
       ]
     }

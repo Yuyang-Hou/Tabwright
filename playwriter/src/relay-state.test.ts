@@ -7,6 +7,7 @@ import type { WSContext } from 'hono/ws'
 import type WebSocket from 'ws'
 import type { Protocol } from './cdp-types.js'
 import * as relayState from './relay-state.js'
+import { CURRENT_EXTENSION_FEATURES } from './protocol.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,6 +89,27 @@ describe('buildStableExtensionKey', () => {
   })
 })
 
+describe('getExtensionNegotiationStatus', () => {
+  test('distinguishes legacy, limited, and ready feature handshakes', () => {
+    expect(relayState.getExtensionNegotiationStatus({ browser: 'Chrome' })).toEqual({
+      connectionHealth: 'legacy',
+      missingFeatures: [],
+    })
+    expect(
+      relayState.getExtensionNegotiationStatus({ browser: 'Chrome', features: ['heartbeat-v1'] }),
+    ).toMatchObject({
+      connectionHealth: 'limited',
+      missingFeatures: expect.arrayContaining(['rrweb-recording-v1']),
+    })
+    expect(
+      relayState.getExtensionNegotiationStatus({
+        browser: 'Chrome',
+        features: [...CURRENT_EXTENSION_FEATURES],
+      }),
+    ).toEqual({ connectionHealth: 'ready', missingFeatures: [] })
+  })
+})
+
 // ---------------------------------------------------------------------------
 // addExtension / removeExtension
 // ---------------------------------------------------------------------------
@@ -97,7 +119,7 @@ describe('addExtension', () => {
     const before = emptyState()
     const after = relayState.addExtension(before, {
       id: 'ext-1',
-      info: { browser: 'Chrome' },
+      info: { browser: 'Chrome', protocolVersion: 1, features: ['heartbeat-v1'] },
       stableKey: 'profile:chrome-1',
       ws: fakeWs(),
     })
@@ -111,6 +133,7 @@ describe('addExtension', () => {
     expect(ext.pendingRequests.size).toBe(0)
     expect(ext.pingInterval).toBeNull()
     expect(ext.lastPongAt).toBeNull()
+    expect(ext.info).toMatchObject({ protocolVersion: 1, features: ['heartbeat-v1'] })
     // Original unchanged (immutable)
     expect(before.extensions.size).toBe(0)
   })

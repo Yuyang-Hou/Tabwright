@@ -6,17 +6,24 @@ import { createNodeWebSocket } from '@hono/node-ws'
 import type { WSContext } from 'hono/ws'
 import type { Protocol } from './cdp-types.js'
 import type { CDPCommand, CDPResponseBase, CDPEventBase, CDPEventFor, RelayServerEvents } from './cdp-types.js'
-import type {
-  ExtensionMessage,
-  ExtensionEventMessage,
-  RrwebRecordingDataMessage,
-  RrwebRecordingCancelledMessage,
-  StartRrwebRecordingBody,
-  StopRrwebRecordingParams,
-  CancelRrwebRecordingParams,
-  IsRrwebRecordingParams,
-  ToolbarRecordingRequestMessage,
-  ToolbarRecordingResult,
+import {
+  EXTENSION_FEATURE,
+  RELAY_FEATURES,
+  VERSION as EXTENSION_PROTOCOL_VERSION,
+  allowsExtensionFeature,
+  parseExtensionFeatures,
+  requiredExtensionFeatureForMethod,
+  type ExtensionMessage,
+  type ExtensionEventMessage,
+  type ExtensionFeature,
+  type RrwebRecordingDataMessage,
+  type RrwebRecordingCancelledMessage,
+  type StartRrwebRecordingBody,
+  type StopRrwebRecordingParams,
+  type CancelRrwebRecordingParams,
+  type IsRrwebRecordingParams,
+  type ToolbarRecordingRequestMessage,
+  type ToolbarRecordingResult,
 } from './protocol.js'
 import pc from 'picocolors'
 import util from 'node:util'
@@ -167,6 +174,14 @@ export async function startPlayWriterCDPRelayServer({
     return null
   }
 
+  const extensionAllowsFeature = (options: {
+    extensionId: string
+    feature: ExtensionFeature
+  }): boolean => {
+    const extension = store.getState().extensions.get(options.extensionId)
+    return allowsExtensionFeature({ features: extension?.info.features, feature: options.feature })
+  }
+
   const normalizeSessionId = (value: string | number | null | undefined): string | null => {
     if (value === undefined || value === null) {
       return null
@@ -190,6 +205,9 @@ export async function startPlayWriterCDPRelayServer({
   const startExtensionPing = (extensionId: string): void => {
     const ext = store.getState().extensions.get(extensionId)
     if (!ext) {
+      return
+    }
+    if (!extensionAllowsFeature({ extensionId, feature: EXTENSION_FEATURE.heartbeat })) {
       return
     }
     if (ext.pingInterval) {
@@ -396,6 +414,12 @@ export async function startPlayWriterCDPRelayServer({
       throw new Error('Extension not connected')
     }
     const resolvedExtensionId = conn.id
+    const requiredFeature = requiredExtensionFeatureForMethod(method)
+    if (requiredFeature && !extensionAllowsFeature({ extensionId: resolvedExtensionId, feature: requiredFeature })) {
+      throw new Error(
+        `Extension ${conn.stableKey} does not advertise required feature ${requiredFeature}. Update the extension to use this operation.`,
+      )
+    }
 
     let id = 0
     store.setState((s) => {
@@ -619,6 +643,9 @@ export async function startPlayWriterCDPRelayServer({
     }
     const conn = getExtensionConnection(extensionId)
     if (!conn) {
+      return
+    }
+    if (!extensionAllowsFeature({ extensionId: conn.id, feature: EXTENSION_FEATURE.createInitialTab })) {
       return
     }
     if (conn.connectedTargets.size > 0) {
@@ -1049,11 +1076,16 @@ export async function startPlayWriterCDPRelayServer({
     return c.json({ version: VERSION })
   })
 
+  app.get('/features', (c) => {
+    return c.json({ protocolVersion: EXTENSION_PROTOCOL_VERSION, features: RELAY_FEATURES })
+  })
+
   app.get('/extension/status', (c) => {
     const defaultExtension = getExtensionConnection(null, { allowFallback: true })
     const connected = store.getState().extensions.size > 0
     const activeTargets = defaultExtension?.connectedTargets.size || 0
     const info = defaultExtension?.info
+    const negotiation = relayState.getExtensionNegotiationStatus(info)
 
     return c.json({
       connected,
@@ -1061,11 +1093,15 @@ export async function startPlayWriterCDPRelayServer({
       browser: info?.browser || null,
       profile: info ? { email: info.email || '', id: info.id || '' } : null,
       playwriterVersion: info?.version || null,
+      protocolVersion: info?.protocolVersion,
+      features: info?.features,
+      ...negotiation,
     })
   })
 
   app.get('/extensions/status', (c) => {
     const extensions = Array.from(store.getState().extensions.values()).map((ext) => {
+      const negotiation = relayState.getExtensionNegotiationStatus(ext.info)
       return {
         extensionId: ext.id,
         stableKey: ext.stableKey,
@@ -1073,6 +1109,9 @@ export async function startPlayWriterCDPRelayServer({
         profile: ext.info ? { email: ext.info.email || '', id: ext.info.id || '' } : null,
         activeTargets: ext.connectedTargets.size,
         playwriterVersion: ext.info?.version || null,
+        protocolVersion: ext.info.protocolVersion,
+        features: ext.info.features,
+        ...negotiation,
       }
     })
     return c.json({ extensions })
@@ -1447,12 +1486,20 @@ export async function startPlayWriterCDPRelayServer({
     const id = c.req.query('id')
     const installId = c.req.query('installId')
     const version = c.req.query('v')
+    const protocolVersionValue = c.req.query('protocolVersion')
+    const protocolVersion = protocolVersionValue && /^\d+$/.test(protocolVersionValue)
+      ? Number(protocolVersionValue)
+      : undefined
+    const featureValue = c.req.query('features')
+    const features = parseExtensionFeatures(featureValue)
     return {
       browser: browser || undefined,
       email: email || undefined,
       id: id || undefined,
       installId: installId || undefined,
       version: version || undefined,
+      protocolVersion,
+      features,
     }
   }
 

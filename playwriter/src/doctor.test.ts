@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { buildDoctorReport, formatDoctorReport, type DoctorSession } from './doctor.js'
 import type { ExtensionStatus } from './relay-client.js'
+import { CURRENT_EXTENSION_FEATURES } from './protocol.js'
 
 const extension = (overrides: Partial<ExtensionStatus> = {}): ExtensionStatus => {
   return {
@@ -10,6 +11,10 @@ const extension = (overrides: Partial<ExtensionStatus> = {}): ExtensionStatus =>
     profile: null,
     activeTargets: 1,
     playwriterVersion: '0.4.0',
+    protocolVersion: 1,
+    features: [...CURRENT_EXTENSION_FEATURES],
+    connectionHealth: 'ready',
+    missingFeatures: [],
     ...overrides,
   }
 }
@@ -118,12 +123,41 @@ describe('buildDoctorReport', () => {
     expect(report.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'relay', status: 'fail' }),
-        expect.objectContaining({ id: 'extension', status: 'fail' }),
+        expect.objectContaining({ id: 'extension', status: 'info' }),
       ]),
     )
     expect(formatDoctorReport(report)).toContain('[FAIL] Local relay is not reachable.')
     expect(formatDoctorReport(report)).toContain('Failed to start relay')
     expect(report.next.command).toBe('playwriter logfile')
+  })
+
+  test('keeps core browser control ready for legacy feature handshakes', () => {
+    const report = buildDoctorReport({
+      version: '0.4.0',
+      cwd: '/project',
+      remote: false,
+      relayVersion: '0.4.0',
+      extensions: [
+        extension({
+          protocolVersion: undefined,
+          features: undefined,
+          connectionHealth: 'legacy',
+        }),
+      ],
+      sessions: [session()],
+      capabilityCount: 0,
+    })
+
+    expect(report.ready).toBe(true)
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'extension',
+          status: 'warn',
+          detail: expect.stringContaining('legacy handshake'),
+        }),
+      ]),
+    )
   })
 
   test('keeps remote connection failures diagnostic and non-destructive', () => {

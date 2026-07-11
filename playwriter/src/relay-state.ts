@@ -13,6 +13,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { WSContext } from 'hono/ws'
 import type WebSocket from 'ws'
 import type { Protocol } from './cdp-types.js'
+import { EXTENSION_FEATURE } from './protocol.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,10 @@ export type ExtensionInfo = {
   installId?: string
   /** playwriter package version the extension was built with (sent as ?v= query param) */
   version?: string
+  /** Extension/relay protocol version sent during the additive query-string handshake. */
+  protocolVersion?: number
+  /** Optional features supported by this extension. Missing means a legacy connection. */
+  features?: string[]
 }
 
 export type ExtensionPendingRequest = {
@@ -68,6 +73,11 @@ export type RelayState = {
 
 export const EXTENSION_HEARTBEAT_TIMEOUT_MS = 15_000
 
+export type ExtensionNegotiationStatus = {
+  connectionHealth: 'ready' | 'limited' | 'legacy'
+  missingFeatures: string[]
+}
+
 // ---------------------------------------------------------------------------
 // Store factory
 // ---------------------------------------------------------------------------
@@ -82,6 +92,19 @@ export function createRelayStore(): StoreApi<RelayState> {
 // ---------------------------------------------------------------------------
 // Derivation helpers
 // ---------------------------------------------------------------------------
+
+export function getExtensionNegotiationStatus(info: ExtensionInfo | undefined): ExtensionNegotiationStatus {
+  if (!info?.features) {
+    return { connectionHealth: 'legacy', missingFeatures: [] }
+  }
+  const missingFeatures = Object.values(EXTENSION_FEATURE).filter((feature) => {
+    return !info.features?.includes(feature)
+  })
+  return {
+    connectionHealth: missingFeatures.length === 0 ? 'ready' : 'limited',
+    missingFeatures,
+  }
+}
 
 /**
  * Linear scan over extensions to find one by stableKey. With <10 extensions this is free.

@@ -2,6 +2,73 @@ import { CDPEventFor, ProtocolMapping } from './cdp-types.js'
 
 export const VERSION = 1
 
+export const EXTENSION_FEATURE = {
+  heartbeat: 'heartbeat-v1',
+  createInitialTab: 'create-initial-tab-v1',
+  rrwebRecording: 'rrweb-recording-v1',
+  toolbarRecording: 'toolbar-recording-v1',
+  multiExtension: 'multi-extension-v1',
+} as const
+
+export type ExtensionFeature = (typeof EXTENSION_FEATURE)[keyof typeof EXTENSION_FEATURE]
+
+export const CURRENT_EXTENSION_FEATURES: ExtensionFeature[] = Object.values(EXTENSION_FEATURE)
+
+export const RELAY_FEATURES = [
+  'extension-feature-negotiation-v1',
+  'capability-options-v1',
+  'rrweb-recording-v1',
+  'multi-extension-v1',
+] as const
+
+export function supportsExtensionFeature(options: {
+  features: readonly string[] | undefined
+  feature: ExtensionFeature
+}): boolean {
+  return options.features?.includes(options.feature) || false
+}
+
+export function allowsExtensionFeature(options: {
+  features: readonly string[] | undefined
+  feature: ExtensionFeature
+}): boolean {
+  if (options.features === undefined) {
+    return true
+  }
+  return supportsExtensionFeature(options)
+}
+
+export function parseExtensionFeatures(value: string | undefined): string[] | undefined {
+  if (!value) {
+    return undefined
+  }
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((feature) => feature.trim())
+        .filter((feature) => {
+          return feature.length > 0
+        }),
+    ),
+  ]
+}
+
+export function requiredExtensionFeatureForMethod(method: string): ExtensionFeature | undefined {
+  if (method === 'createInitialTab') {
+    return EXTENSION_FEATURE.createInitialTab
+  }
+  if (
+    method === 'startRrwebRecording' ||
+    method === 'stopRrwebRecording' ||
+    method === 'isRrwebRecording' ||
+    method === 'cancelRrwebRecording'
+  ) {
+    return EXTENSION_FEATURE.rrwebRecording
+  }
+  return undefined
+}
+
 type ForwardCDPCommand = {
   [K in keyof ProtocolMapping.Commands]: {
     id: number

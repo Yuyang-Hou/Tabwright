@@ -22,6 +22,7 @@ vi.mock('./kill-port.js', () => {
 
 import {
   ensureRelayServer,
+  getExtensionsStatus,
   type ExtensionStatus,
   selectImplicitExtension,
   waitForConnectedExtensions,
@@ -96,6 +97,43 @@ describe('selectImplicitExtension', () => {
     })
 
     expect(selectImplicitExtension(extensions)).toBeNull()
+  })
+})
+
+describe('getExtensionsStatus', () => {
+  test('preserves optional feature negotiation fields from the legacy status fallback', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input) => {
+      if (String(input).includes('/extensions/status')) {
+        return Promise.resolve(new Response(null, { status: 404 }))
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            connected: true,
+            activeTargets: 1,
+            browser: 'Chrome',
+            profile: null,
+            playwriterVersion: VERSION,
+            protocolVersion: 1,
+            features: ['heartbeat-v1'],
+            connectionHealth: 'limited',
+            missingFeatures: ['rrweb-recording-v1'],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getExtensionsStatus()).resolves.toEqual([
+      expect.objectContaining({
+        extensionId: 'default',
+        protocolVersion: 1,
+        features: ['heartbeat-v1'],
+        connectionHealth: 'limited',
+        missingFeatures: ['rrweb-recording-v1'],
+      }),
+    ])
   })
 })
 

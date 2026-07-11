@@ -23,6 +23,10 @@ export type ExtensionStatus = {
   profile: { email: string; id: string } | null
   activeTargets: number
   playwriterVersion: string | null
+  protocolVersion?: number
+  features?: string[]
+  connectionHealth?: 'ready' | 'limited' | 'legacy'
+  missingFeatures?: string[]
 }
 
 /**
@@ -169,7 +173,15 @@ export async function waitForRelayVersion({
 
 export async function getExtensionStatus(
   port: number = RELAY_PORT,
-): Promise<{ connected: boolean; activeTargets: number; playwriterVersion: string | null } | null> {
+): Promise<{
+  connected: boolean
+  activeTargets: number
+  playwriterVersion: string | null
+  protocolVersion?: number
+  features?: string[]
+  connectionHealth?: 'ready' | 'limited' | 'legacy'
+  missingFeatures?: string[]
+} | null> {
   const result = await fetchLocalRelayPath({
     path: '/extension/status',
     port,
@@ -181,7 +193,15 @@ export async function getExtensionStatus(
   if (!result) {
     return null
   }
-  return (await result.response.json()) as { connected: boolean; activeTargets: number; playwriterVersion: string | null }
+  return (await result.response.json()) as {
+    connected: boolean
+    activeTargets: number
+    playwriterVersion: string | null
+    protocolVersion?: number
+    features?: string[]
+    connectionHealth?: 'ready' | 'limited' | 'legacy'
+    missingFeatures?: string[]
+  }
 }
 
 export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<ExtensionStatus[]> {
@@ -218,6 +238,10 @@ export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<Ex
     browser: string | null
     profile: { email: string; id: string } | null
     playwriterVersion?: string | null
+    protocolVersion?: number
+    features?: string[]
+    connectionHealth?: 'ready' | 'limited' | 'legacy'
+    missingFeatures?: string[]
   }
 
   if (!fallbackData?.connected) {
@@ -232,6 +256,10 @@ export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<Ex
       profile: fallbackData.profile,
       activeTargets: fallbackData.activeTargets,
       playwriterVersion: fallbackData.playwriterVersion || null,
+      protocolVersion: fallbackData.protocolVersion,
+      features: fallbackData.features,
+      connectionHealth: fallbackData.connectionHealth,
+      missingFeatures: fallbackData.missingFeatures,
     },
   ]
 }

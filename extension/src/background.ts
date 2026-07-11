@@ -12,12 +12,14 @@ import { createStore } from 'zustand/vanilla'
 import type { ExtensionState, ConnectionState, TabState, TabInfo } from './types'
 import { initPlaywriterToolbar, initPlaywriterToolbarBridge } from './toolbar/toolbar'
 import type { CDPEvent, Protocol } from 'playwriter/src/cdp-types'
-import type {
-  ExtensionCommandMessage,
-  ExtensionResponseMessage,
-  ToolbarRecordingAction,
-  ToolbarRecordingResponseMessage,
-  ToolbarRecordingResult,
+import {
+  CURRENT_EXTENSION_FEATURES,
+  VERSION as EXTENSION_PROTOCOL_VERSION,
+  type ExtensionCommandMessage,
+  type ExtensionResponseMessage,
+  type ToolbarRecordingAction,
+  type ToolbarRecordingResponseMessage,
+  type ToolbarRecordingResult,
 } from 'playwriter/src/protocol'
 import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
 import { RelayConnectionProblemError, relayIssueText } from './relay-warning'
@@ -127,28 +129,6 @@ async function fetchRelayHead(options: { pathname: string }): Promise<Response> 
 async function checkRelayCompatibility(): Promise<void> {
   const versionResponse = await fetchRelayHead({ pathname: '/version' })
   if (!versionResponse.ok) {
-    throw new RelayConnectionProblemError({ issue: 'unavailable' })
-  }
-
-  const compatibilityResponses = await Promise.all(
-    ['/capabilities', '/rrweb-recordings?limit=1'].map((pathname) => {
-      return fetchRelayHead({ pathname })
-    }),
-  )
-
-  if (
-    compatibilityResponses.some((response) => {
-      return response.status === 404
-    })
-  ) {
-    throw new RelayConnectionProblemError({ issue: 'outdated' })
-  }
-
-  if (
-    compatibilityResponses.some((response) => {
-      return !response.ok
-    })
-  ) {
     throw new RelayConnectionProblemError({ issue: 'unavailable' })
   }
 }
@@ -577,6 +557,8 @@ class ConnectionManager {
     if (typeof __PLAYWRITER_VERSION__ !== 'undefined') {
       relayUrl.searchParams.set('v', __PLAYWRITER_VERSION__)
     }
+    relayUrl.searchParams.set('protocolVersion', String(EXTENSION_PROTOCOL_VERSION))
+    relayUrl.searchParams.set('features', CURRENT_EXTENSION_FEATURES.join(','))
     logger.debug('Creating WebSocket connection to:', relayUrl)
     const socket = new WebSocket(relayUrl.toString())
 

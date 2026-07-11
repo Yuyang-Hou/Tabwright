@@ -57,7 +57,7 @@ export function buildDoctorReport(options: {
       )
     })
   })
-  const incompatibleExtension = options.extensions.find((extension) => {
+  const newerExtension = options.extensions.find((extension) => {
     return extension.playwriterVersion && compareVersions(extension.playwriterVersion, options.version) > 0
   })
   const relayCheck: DoctorCheck = (() => {
@@ -99,15 +99,6 @@ export function buildDoctorReport(options: {
       }
     }
 
-    if (incompatibleExtension?.playwriterVersion) {
-      return {
-        id: 'extension',
-        status: 'fail',
-        message: `The extension requires Playwriter ${incompatibleExtension.playwriterVersion}, but the CLI is ${options.version}.`,
-        detail: 'Update the Playwriter CLI before using this extension build.',
-      }
-    }
-
     const activeTargets = options.extensions.reduce((total, extension) => {
       return total + extension.activeTargets
     }, 0)
@@ -117,6 +108,45 @@ export function buildDoctorReport(options: {
         status: 'warn',
         message: `${options.extensions.length} extension connection(s) found, but no tab is enabled.`,
         detail: 'Open the target tab and click the Playwriter extension icon until it turns green.',
+      }
+    }
+
+    const legacyCount = options.extensions.filter((extension) => {
+      return extension.connectionHealth === 'legacy' || !extension.features
+    }).length
+    const missingFeatures = [
+      ...new Set(
+        options.extensions.flatMap((extension) => {
+          return extension.missingFeatures || []
+        }),
+      ),
+    ]
+    const compatibilityDetails = [
+      legacyCount > 0
+        ? `${legacyCount} connection(s) use the legacy handshake, so optional feature support is unknown.`
+        : '',
+      missingFeatures.length > 0 ? `Missing optional features: ${missingFeatures.join(', ')}.` : '',
+    ].filter((detail) => {
+      return detail.length > 0
+    })
+    if (compatibilityDetails.length > 0) {
+      const versionDetail = newerExtension?.playwriterVersion
+        ? ` Extension ${newerExtension.playwriterVersion} is newer than CLI ${options.version}.`
+        : ''
+      return {
+        id: 'extension',
+        status: 'warn',
+        message: `${options.extensions.length} extension connection(s), ${activeTargets} enabled tab(s); core browser control is available with limited optional features.`,
+        detail: `${compatibilityDetails.join(' ')}${versionDetail}`,
+      }
+    }
+
+    if (newerExtension?.playwriterVersion) {
+      return {
+        id: 'extension',
+        status: 'info',
+        message: `${options.extensions.length} extension connection(s), ${activeTargets} enabled tab(s); negotiated features are ready.`,
+        detail: `Extension ${newerExtension.playwriterVersion} is newer than CLI ${options.version}, but the advertised feature set is fully supported.`,
       }
     }
 
@@ -169,13 +199,6 @@ export function buildDoctorReport(options: {
           ? 'Check the remote relay host, token, and network path, then run doctor again.'
           : 'Read the relay log, fix the startup error, then run doctor again.',
         ...(options.remote ? {} : { command: 'playwriter logfile' }),
-      }
-    }
-
-    if (incompatibleExtension) {
-      return {
-        title: 'Update the Playwriter CLI before creating a session.',
-        command: 'npm install -g playwriter@latest',
       }
     }
 
