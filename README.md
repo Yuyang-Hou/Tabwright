@@ -23,7 +23,10 @@ Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly 
 
    ```bash
    npm i -g playwriter
-   playwriter -s 1 -e 'await page.goto("https://example.com")'
+   playwriter doctor
+   playwriter session new  # copy the new session ID printed by this command
+   SESSION_ID=2            # replace 2 with that ID
+   playwriter -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
    ```
 
 4. Install the skill so your agent knows how to use Playwriter:
@@ -35,10 +38,13 @@ Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly 
 
 ```bash
 playwriter browser start  # starts Chrome for Testing/Chromium with bundled Playwriter extension
+playwriter doctor  # checks relay, extension, enabled tabs, sessions, and capabilities
 playwriter session new  # creates stateful sandbox, outputs session id (e.g. 1)
-playwriter -s 1 -e 'await page.goto("https://example.com")'
-playwriter -s 1 -e 'console.log(await snapshot({ page }))'
-playwriter -s 1 -e 'await page.locator("aria-ref=e5").click()'
+SESSION_ID=2  # replace 2 with the ID printed above; never reuse another task's session
+playwriter -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+playwriter -s "$SESSION_ID" -e 'console.log(await snapshot({ page: state.page }))'
+# Copy a locator from the snapshot instead of guessing a fixed aria-ref.
+playwriter -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Learn more" }).click()'
 ```
 
 > **Tip:** Always use single quotes for `-e` to prevent bash from interpreting `$`, backticks, and `\` in your JS code. Use double quotes for strings inside the JS.
@@ -293,6 +299,13 @@ const browser = await chromium.connectOverCDP('http://127.0.0.1:19988')
 ```
 
 ## Troubleshooting
+
+Start with the readiness check. It reports relay, extension, enabled-tab, session, and capability status, then prints the single best next step:
+
+```bash
+playwriter doctor
+playwriter doctor --json  # machine-readable output for agents and support tools
+```
 
 View relay server logs to debug issues:
 

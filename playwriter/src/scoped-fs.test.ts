@@ -68,6 +68,9 @@ describe('ExecutorManager.listSessions', () => {
           browser: 'Chrome',
           profile: { email: 'test@example.com', id: 'profile-1' },
           cwd: sessionDir,
+          connected: false,
+          pageUrl: null,
+          pagesCount: 0,
         },
       ])
     } finally {

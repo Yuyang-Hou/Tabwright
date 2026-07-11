@@ -4,6 +4,14 @@ description: Debug connection issues, read relay logs, and fix common problems.
 icon: lucide:bug
 ---
 
+## Start with Doctor
+
+```bash
+playwriter doctor
+```
+
+This checks the relay, extension version, enabled tabs, sessions, and visible capabilities. Follow the single `Next` action it prints before manually restarting processes. For agent or support automation, use `playwriter doctor --json`.
+
 ## Relay server logs
 
 The relay server logs everything: extension connections, CDP events, MCP messages, and errors. Two log files are created each time the server starts:

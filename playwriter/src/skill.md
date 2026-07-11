@@ -29,6 +29,8 @@ Playwriter controls the real user browser through a local relay on `127.0.0.1:19
 
 ### Session management
 
+If setup state is unclear, run `playwriter doctor` first. It checks the relay, Chrome extension, enabled tabs, active sessions, and visible capabilities, then prints one next action. Agents may use `playwriter doctor --json` to consume the same result without parsing terminal formatting. Existing sessions may belong to another task: create a new session unless the user explicitly handed you one.
+
 Each session runs in an **isolated sandbox** with its own `state` object. Use sessions to:
 
 - Keep state separate between different tasks or agents

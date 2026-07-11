@@ -6,6 +6,17 @@ icon: lucide:terminal
 
 The Playwriter CLI sends Playwright code to your browser through a local WebSocket relay. Every command connects to the relay on `localhost:19988`, which the extension also connects to. No servers, no accounts.
 
+## Readiness check
+
+When setup state is unclear, start here:
+
+```bash
+playwriter doctor
+playwriter doctor --json
+```
+
+The check covers the relay, Chrome extension, enabled tabs, active sessions, and capabilities visible from the current directory. It reports startup failures instead of crashing and waits briefly for the extension after starting a relay. It ends with one concrete next action and never tells an agent to reuse a session it may not own.
+
 ## Execute code
 
 ```bash
@@ -139,6 +150,7 @@ The relay starts automatically when you use the CLI locally. Use `serve` explici
 ## Other commands
 
 ```bash
+playwriter doctor                         # check readiness and print the next step
 playwriter logfile                        # print log file path
 playwriter skill                          # print agent instructions
 playwriter completions install            # install shell completions (zsh/bash)

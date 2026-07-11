@@ -21,7 +21,9 @@ import {
   waitForConnectedExtensions,
   getExtensionOutdatedWarning,
   getExtensionStatus,
+  getExtensionsStatus,
   getLocalRelayHttpBaseUrl,
+  getRelayServerVersion,
   type ExtensionStatus,
 } from './relay-client.js'
 import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } from './chrome-discovery.js'
@@ -49,6 +51,7 @@ import { createReplayAiIndexFromRecording, saveReplayAiIndex } from './replay-ai
 import { compileReplayWorkflow } from './replay-workflow-compiler.js'
 import { formatReplayEvalReport, runReplayEval } from './replay-eval.js'
 import type { ExecuteResult } from './executor.js'
+import { buildDoctorReport, formatDoctorReport, type DoctorSession } from './doctor.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -2197,6 +2200,82 @@ function printBrowserTable(options: BrowserOption[]): void {
     )
   }
 }
+
+cli
+  .command('doctor', 'Check Playwriter readiness and print the single best next step')
+  .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
+  .option('--json', 'Print a machine-readable health report')
+  .action(async (options) => {
+    const isRemote = Boolean(options.host || process.env.PLAYWRITER_HOST)
+    const relayStartup = isRemote
+      ? { started: false, error: null }
+      : await ensureRelayServer({ logger: options.json ? undefined : console })
+          .then((started) => {
+            return { started: started === true, error: null }
+          })
+          .catch((error: unknown) => {
+            return {
+              started: false,
+              error: error instanceof Error ? error.message : String(error),
+            }
+          })
+
+    const serverUrl = await getServerUrl(options.host)
+    const headers = buildAuthHeaders({ token: options.token })
+    const [relayVersion, initialExtensions, sessions] = await Promise.all([
+      isRemote
+        ? fetch(`${serverUrl}/version`, { headers, signal: AbortSignal.timeout(2000) })
+            .then(async (response) => {
+              if (!response.ok) {
+                return null
+              }
+              const result = (await response.json()) as { version?: string }
+              return result.version || null
+            })
+            .catch(() => {
+              return null
+            })
+        : getRelayServerVersion(RELAY_PORT),
+      isRemote ? fetchExtensionsStatus({ host: options.host, token: options.token }) : getExtensionsStatus(RELAY_PORT),
+      fetch(`${serverUrl}/cli/sessions`, { headers, signal: AbortSignal.timeout(2000) })
+        .then(async (response) => {
+          if (!response.ok) {
+            return []
+          }
+          const result = (await response.json()) as { sessions?: DoctorSession[] }
+          return result.sessions || []
+        })
+        .catch(() => {
+          return []
+        }),
+    ])
+    const extensions =
+      relayStartup.started && initialExtensions.length === 0
+        ? await waitForConnectedExtensions({
+            timeoutMs: 4000,
+            pollIntervalMs: 200,
+            logger: options.json ? undefined : console,
+          })
+        : initialExtensions
+
+    const report = buildDoctorReport({
+      version: VERSION,
+      cwd: process.cwd(),
+      remote: isRemote,
+      relayVersion,
+      relayError: relayStartup.error,
+      extensions,
+      sessions,
+      capabilityCount: listCapabilities({ cwd: process.cwd() }).length,
+    })
+
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2))
+      return
+    }
+    console.log(formatDoctorReport(report))
+  })
 
 cli
   .command('session list', 'List all active sessions')

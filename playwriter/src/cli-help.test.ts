@@ -27,7 +27,30 @@ describe('playwriter cli help', () => {
     const { stdout, stderr } = await runCli(['--help'])
 
     expect(stdout).toContain('playwriter')
+    expect(stdout).toContain('doctor')
     expect(stdout).toContain('serve')
+    expect(stderr).toBe('')
+  }, 30000)
+
+  test('renders doctor help without starting the relay', async () => {
+    const { stdout, stderr } = await runCli(['doctor', '--help'])
+
+    expect(stdout).toContain('single best next step')
+    expect(stdout).toContain('--json')
+    expect(stderr).toBe('')
+  }, 30000)
+
+  test('reports an unreachable remote relay without crashing', async () => {
+    const { stdout, stderr } = await runCli(['doctor', '--host', 'http://127.0.0.1:1', '--json'])
+    const report = JSON.parse(stdout) as {
+      ready: boolean
+      checks: Array<{ id: string; status: string }>
+    }
+
+    expect(report.ready).toBe(false)
+    expect(report.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'relay', status: 'fail' })]),
+    )
     expect(stderr).toBe('')
   }, 30000)
 

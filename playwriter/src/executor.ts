@@ -294,6 +294,9 @@ export interface SessionInfo {
   browser: string | null
   profile: { email: string; id: string } | null
   cwd: string | null
+  connected: boolean
+  pageUrl: string | null
+  pagesCount: number
 }
 
 export interface CloudSessionInfo {
@@ -1742,6 +1745,7 @@ export class PlaywrightExecutor {
   }
 
   getSessionInfo({ id }: { id: string }): SessionInfo {
+    const status = this.getStatus()
     return {
       id,
       stateKeys: this.getStateKeys(),
@@ -1749,6 +1753,9 @@ export class PlaywrightExecutor {
       browser: this.sessionMetadata.browser,
       profile: this.sessionMetadata.profile,
       cwd: this.sessionCwd,
+      connected: status.connected,
+      pageUrl: status.pageUrl,
+      pagesCount: status.pagesCount,
     }
   }
 }
