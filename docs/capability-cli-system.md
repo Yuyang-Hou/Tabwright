@@ -265,6 +265,6 @@ Track the loop rather than raw recording counts:
 
 1. Finish the shell loop: local `replay list`, compact indexes, structured unsupported-workflow handoff, validate/test, and safe pack/import.
 2. Make discovery context-bounded: compact search results, minimum relevance, one selected contract, and no duplicate text in JSON output.
-3. Stabilize the browser graph: uniquely active profile selection, relay restart recovery, heartbeat expiry, and explicit protocol features without breaking old extensions.
+3. Build on the browser-graph foundation—settled profile selection, compatible relay restart recovery, and heartbeat expiry—with explicit protocol feature negotiation that does not break old extensions.
 4. Turn the Options page into the lifecycle UI: record guidance, compiler support status, validation evidence, approval state, trust, and export.
 5. Add contract conformance: compare observed outputs and network hosts with schemas/permissions, then downgrade drifted capabilities to draft.

@@ -198,7 +198,24 @@ export async function startPlayWriterCDPRelayServer({
 
     const pingInterval = setInterval(() => {
       const latestExt = store.getState().extensions.get(extensionId)
-      latestExt?.ws?.send(JSON.stringify({ method: 'ping' }))
+      if (!latestExt?.ws) {
+        return
+      }
+      if (
+        relayState.hasExtensionHeartbeatExpired({
+          lastPongAt: latestExt.lastPongAt,
+          now: Date.now(),
+        })
+      ) {
+        logger?.log(pc.yellow(`Terminating unresponsive extension heartbeat (${extensionId})`))
+        if (latestExt.ws.raw) {
+          latestExt.ws.raw.terminate()
+          return
+        }
+        latestExt.ws.close(4000, 'Extension heartbeat timeout')
+        return
+      }
+      latestExt.ws.send(JSON.stringify({ method: 'ping' }))
     }, 5000)
 
     store.setState((s) => relayState.updateExtensionIO(s, { extensionId, pingInterval }))
@@ -1556,7 +1573,12 @@ export async function startPlayWriterCDPRelayServer({
               pending.resolve(message.result)
             }
           } else if (message.method === 'pong') {
-            // Keep-alive response, nothing to do
+            store.setState((s) => {
+              return relayState.updateExtensionIO(s, {
+                extensionId: connectionId,
+                lastPongAt: Date.now(),
+              })
+            })
           } else if (message.method === 'log') {
             const { level, args } = message.params
             const logFn = (logger as Record<string, unknown>)?.[level] as ((...args: unknown[]) => void) | undefined

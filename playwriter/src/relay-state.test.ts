@@ -4,6 +4,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import type { WSContext } from 'hono/ws'
+import type WebSocket from 'ws'
 import type { Protocol } from './cdp-types.js'
 import * as relayState from './relay-state.js'
 
@@ -18,8 +19,8 @@ function emptyState(): relayState.RelayState {
   }
 }
 
-function fakeWs(): WSContext {
-  return {} as WSContext
+function fakeWs(): WSContext<WebSocket> {
+  return {} as WSContext<WebSocket>
 }
 
 function makeTargetInfo(overrides: Partial<Protocol.Target.TargetInfo> = {}): Protocol.Target.TargetInfo {
@@ -109,6 +110,7 @@ describe('addExtension', () => {
     expect(ext.messageId).toBe(0)
     expect(ext.pendingRequests.size).toBe(0)
     expect(ext.pingInterval).toBeNull()
+    expect(ext.lastPongAt).toBeNull()
     // Original unchanged (immutable)
     expect(before.extensions.size).toBe(0)
   })
@@ -212,6 +214,38 @@ describe('removePlaywrightClient', () => {
   })
 })
 
+describe('extension heartbeat', () => {
+  test('keeps a responsive extension connected', () => {
+    let state = stateWithExtension('ext-1')
+    state = relayState.updateExtensionIO(state, { extensionId: 'ext-1', lastPongAt: 10_000 })
+
+    expect(
+      relayState.hasExtensionHeartbeatExpired({
+        lastPongAt: state.extensions.get('ext-1')?.lastPongAt ?? null,
+        now: 24_999,
+      }),
+    ).toBe(false)
+  })
+
+  test('expires an extension after a pong becomes stale', () => {
+    expect(
+      relayState.hasExtensionHeartbeatExpired({
+        lastPongAt: 10_000,
+        now: 25_001,
+      }),
+    ).toBe(true)
+  })
+
+  test('keeps legacy extensions that have never sent pong connected', () => {
+    expect(
+      relayState.hasExtensionHeartbeatExpired({
+        lastPongAt: null,
+        now: Number.MAX_SAFE_INTEGER,
+      }),
+    ).toBe(false)
+  })
+})
+
 describe('extension I/O fields', () => {
   test('adds and removes pending extension requests', () => {
     let state = stateWithExtension('ext-1')
@@ -236,14 +270,18 @@ describe('extension I/O fields', () => {
     expect(state.extensions.get('ext-1')?.pendingRequests.has(7)).toBe(false)
   })
 
-  test('updateExtensionIO updates ws and pingInterval', () => {
+  test('updateExtensionIO updates ws, pingInterval, and lastPongAt', () => {
     let state = stateWithExtension('ext-1')
     expect(state.extensions.get('ext-1')?.pingInterval).toBeNull()
+    expect(state.extensions.get('ext-1')?.lastPongAt).toBeNull()
 
     const interval = setInterval(() => {}, 99999)
     try {
       state = relayState.updateExtensionIO(state, { extensionId: 'ext-1', pingInterval: interval })
       expect(state.extensions.get('ext-1')?.pingInterval).toBe(interval)
+
+      state = relayState.updateExtensionIO(state, { extensionId: 'ext-1', lastPongAt: 1234 })
+      expect(state.extensions.get('ext-1')?.lastPongAt).toBe(1234)
 
       state = relayState.updateExtensionIO(state, { extensionId: 'ext-1', pingInterval: null })
       expect(state.extensions.get('ext-1')?.pingInterval).toBeNull()

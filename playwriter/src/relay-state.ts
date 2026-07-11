@@ -11,6 +11,7 @@
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { WSContext } from 'hono/ws'
+import type WebSocket from 'ws'
 import type { Protocol } from './cdp-types.js'
 
 // ---------------------------------------------------------------------------
@@ -47,10 +48,11 @@ export type ExtensionEntry = {
   stableKey: string
   connectedTargets: Map<string, ConnectedTarget>
   // Runtime I/O fields
-  ws: WSContext | null
+  ws: WSContext<WebSocket> | null
   pendingRequests: Map<number, ExtensionPendingRequest>
   messageId: number
   pingInterval: ReturnType<typeof setInterval> | null
+  lastPongAt: number | null
 }
 
 export type PlaywrightClient = {
@@ -63,6 +65,8 @@ export type RelayState = {
   extensions: Map<string, ExtensionEntry>
   playwrightClients: Map<string, PlaywrightClient>
 }
+
+export const EXTENSION_HEARTBEAT_TIMEOUT_MS = 15_000
 
 // ---------------------------------------------------------------------------
 // Store factory
@@ -123,6 +127,21 @@ export function findExtensionIdByCdpSession(state: RelayState, cdpSessionId: str
   return null
 }
 
+export function hasExtensionHeartbeatExpired({
+  lastPongAt,
+  now,
+  timeoutMs = EXTENSION_HEARTBEAT_TIMEOUT_MS,
+}: {
+  lastPongAt: number | null
+  now: number
+  timeoutMs?: number
+}): boolean {
+  if (lastPongAt === null) {
+    return false
+  }
+  return now - lastPongAt > timeoutMs
+}
+
 // ---------------------------------------------------------------------------
 // Pure state transition functions
 //
@@ -149,7 +168,7 @@ export function addExtension(
     id: string
     info: ExtensionInfo
     stableKey: string
-    ws: WSContext | null
+    ws: WSContext<WebSocket> | null
   },
 ): RelayState {
   const newExtensions = new Map(state.extensions)
@@ -163,6 +182,7 @@ export function addExtension(
     pendingRequests: new Map(),
     messageId: 0,
     pingInterval: null,
+    lastPongAt: null,
   })
   return { ...state, extensions: newExtensions }
 }
@@ -235,17 +255,19 @@ export function rebindClientsToExtension(
   return { ...state, playwrightClients: newClients }
 }
 
-/** Update an extension entry's I/O fields (ws, pingInterval). */
+/** Update an extension entry's I/O fields (ws, pingInterval, lastPongAt). */
 export function updateExtensionIO(
   state: RelayState,
   {
     extensionId,
     ws,
     pingInterval,
+    lastPongAt,
   }: {
     extensionId: string
-    ws?: WSContext | null
+    ws?: WSContext<WebSocket> | null
     pingInterval?: ReturnType<typeof setInterval> | null
+    lastPongAt?: number | null
   },
 ): RelayState {
   const ext = state.extensions.get(extensionId)
@@ -257,6 +279,7 @@ export function updateExtensionIO(
     ...ext,
     ...(ws !== undefined ? { ws } : {}),
     ...(pingInterval !== undefined ? { pingInterval } : {}),
+    ...(lastPongAt !== undefined ? { lastPongAt } : {}),
   })
   return { ...state, extensions: newExtensions }
 }
