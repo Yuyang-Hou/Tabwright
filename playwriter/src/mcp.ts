@@ -292,6 +292,7 @@ server.tool(
     For concrete user tasks, use action "route" first. If it returns an exact-match direct-run capability, use action "run" directly with the returned input; do not search, describe, or open a page first.
     Capability ids are not shell commands. If route output includes shellCommand, use that exact Playwriter CLI command; never run the capability id directly as a binary.
     Do not treat every URL as a direct-run signal. If "route" returns no match, use action "search" before creating new browser code and action "describe" before running. Only use action "refresh_auth" after explicit user confirmation because it updates local credentials.
+    If a capability requires confirmation, stop and ask the user. Only after explicit approval may you retry action "run" with confirmation set to the exact capability id. force never bypasses this gate.
   `,
   {
     action: z.enum(['list', 'route', 'search', 'show', 'describe', 'run', 'refresh_auth']).describe('Capability action'),
@@ -300,9 +301,10 @@ server.tool(
     limit: z.number().default(10).describe('Maximum number of search results'),
     input: z.record(z.string(), z.unknown()).optional().describe('JSON input for run'),
     force: z.boolean().optional().describe('Run draft capabilities or bypass URL match checks'),
+    confirmation: z.string().optional().describe('Exact capability id, supplied only after explicit user approval'),
     timeout: z.number().default(10000).describe('Timeout in milliseconds'),
   },
-  async ({ action, id, query, limit, input, force, timeout }) => {
+  async ({ action, id, query, limit, input, force, confirmation, timeout }) => {
     try {
       if (action === 'list') {
         return {
@@ -437,6 +439,7 @@ server.tool(
           cwd: process.cwd(),
           timeout,
           force,
+          confirmation,
         })
         return {
           content: [
@@ -457,6 +460,7 @@ server.tool(
         cwd: process.cwd(),
         timeout,
         force,
+        confirmation,
       })
       return {
         content: executeResultToMcpContent({

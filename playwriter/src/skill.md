@@ -1,5 +1,7 @@
 ## CLI Usage
 
+This file is the extended reference. The installed Playwriter skill contains the required compact browser protocol; agents should not load this entire reference before every task. Query only the relevant topic when needed, for example `playwriter skill | rg -n -C 20 'working with pages|snapshot|iframe'` on macOS/Linux or `playwriter skill | Select-String -Pattern 'working with pages|snapshot|iframe' -Context 20,20` in Windows PowerShell.
+
 If `playwriter` command is not found, install globally or use npx/bunx:
 
 ```bash
@@ -309,10 +311,13 @@ playwriter capability skill install query-user
 
 Run a capability with structured JSON input. `node` runtime capabilities run locally without opening Chrome. `browser` runtime capabilities create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
 
+If the contract has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only then rerun with `--confirm <capability-id>`. The confirmation value must exactly match the capability id; `--force` never bypasses this gate.
+
 ```bash
 playwriter capability run query-user --input-json '{"email":"a@example.com"}' --json
 playwriter capability run query-user -s 1 --input-json '{"email":"a@example.com"}'
 playwriter capability run query-user --browser user --input-json '{"email":"a@example.com"}'
+playwriter capability run update-user --browser user --input-json '{"email":"a@example.com"}' --confirm update-user
 playwriter capability run bilibili-current-user --json
 ```
 
@@ -353,7 +358,7 @@ const filePath = artifacts.writeJson({ filename: "latest.json", value: data })
 return { data, artifacts: { filePath } }
 ```
 
-Agents should use capability search and describe before creating new automation. A capability can be called autonomously only when it is `trusted`, has `sideEffect: "read"`, and has `requiresConfirmation: false`. Draft capabilities require `--force` before they can run. Editing a trusted capability's script automatically downgrades it to draft. Updating the AI contract through `--contract-file` also downgrades trusted capabilities to draft unless the patch explicitly sets a status. Use `playwriter studio` to start the standalone local management page for capabilities.
+Agents should use capability search and describe before creating new automation. A capability can be called autonomously only when it is `trusted`, has `sideEffect: "read"`, and has `requiresConfirmation: false`. Draft capabilities require `--force` before they can run. Confirmation-required capabilities additionally require `--confirm <capability-id>` after explicit user approval; `--force` cannot substitute for approval. Editing a trusted capability's script automatically downgrades it to draft. Updating the AI contract through `--contract-file` also downgrades trusted capabilities to draft unless the patch explicitly sets a status. Use `playwriter studio` to start the standalone local management page for capabilities.
 
 ### Debugging playwriter issues
 
@@ -1113,7 +1118,7 @@ console.log(state.replayResult)
 
 **workflow.saveFromRecording / workflow.saveCapability** - after the user gives a demonstration replay id and a concrete goal, save the derived reusable flow as a project capability. Prefer `workflow.saveFromRecording()` when the flow can be represented as structured steps; use `workflow.saveCapability()` when you need to write a custom script. Saved workflows start as `draft`, have `sideEffect: "write"` and `requiresConfirmation: true` by default, and can later be inspected or run with `playwriter capability ...`. The generated script runs the live frontend flow, observes the expected final request when `finalRequest` is provided, and returns `needs_ai` with a snapshot when the page no longer matches the replay. Omit `finalRequest` for flows that do not have a real submit/request boundary.
 
-**replay make / replay compile** - when the user gives an rrweb replay id and asks to run similar work, first compile the replay into a project capability instead of manually replaying every step. Prefer `playwriter replay make <replayId> <capabilityId> --force --goal "..." --json` because it builds the AI index and compiles in one step, then run the generated capability with `playwriter capability run <capabilityId> --input-json ... --force --json`. Use `replay compile` only when the index has already been inspected or generated separately. The generated script should execute the live frontend path, continue from an already-editing page when possible, and return `needs_ai` with page context when validation, DOM drift, or a missing selector blocks the flow.
+**replay make / replay compile** - when the user gives an rrweb replay id and asks to run similar work, first compile the replay into a project capability instead of manually replaying every step. Prefer `playwriter replay make <replayId> <capabilityId> --force --goal "..." --json` because it builds the AI index and compiles in one step. Generated workflows are draft browser writes: inspect the contract and script, stop for explicit user confirmation, then run with `playwriter capability run <capabilityId> --browser user --input-json ... --force --confirm <capabilityId> --json`. Use `replay compile` only when the index has already been inspected or generated separately. The generated script should execute the live frontend path, continue from an already-editing page when possible, and return `needs_ai` with page context when validation, DOM drift, or a missing selector blocks the flow.
 
 **replay index** - before compiling a replay, use `playwriter replay index <replayId> --json` to inspect the AI-readable post-processed view of the rrweb events. The raw rrweb recording remains the evidence artifact; the index summarizes snapshot-derived actions, fields, user annotations, selector hints, interactive elements, and page text so agents do not need to manually parse raw rrweb node ids. Use `--write` only when you want to persist the generated index under `~/.playwriter/replay-ai-indexes`.
 

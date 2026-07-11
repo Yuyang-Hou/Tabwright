@@ -753,12 +753,17 @@ export function initPlaywriterToolbar(): void {
   }
 
   function replayRunCommand(replayId: string): string {
+    const capabilityId = replayCapabilityId(replayId)
     return [
       'playwriter capability run',
-      shellQuote(replayCapabilityId(replayId)),
+      shellQuote(capabilityId),
+      '--browser user',
       '--force',
+      '--confirm',
+      shellQuote(capabilityId),
       '--input-json',
       shellQuote('{"value":"..."}'),
+      '--json',
     ].join(' ')
   }
 
@@ -777,7 +782,7 @@ export function initPlaywriterToolbar(): void {
       '请先编译成 capability：',
       replayMakeCommand(replayId),
       '',
-      '然后执行：',
+      '这是写操作。先暂停并取得用户明确确认，确认后才可执行：',
       replayRunCommand(replayId),
       '',
       '如果返回 needs_ai，请根据上下文修改脚本后继续跑。',

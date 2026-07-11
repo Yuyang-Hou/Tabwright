@@ -50,7 +50,9 @@ async function createStaticServer(rootDir: string): Promise<StaticServer> {
       ? 'text/javascript'
       : filePath.endsWith('.html')
         ? 'text/html'
-        : 'application/octet-stream'
+        : filePath.endsWith('.css')
+          ? 'text/css'
+          : 'application/octet-stream'
     res.writeHead(200, { 'Content-Type': contentType })
     res.end(fs.readFileSync(filePath))
   })
@@ -151,6 +153,7 @@ describe('extension options page', () => {
     ]
 
     const page = await testCtx.browserContext.newPage()
+    await page.setViewportSize({ width: 1280, height: 720 })
     try {
       await page.route(`http://127.0.0.1:${TEST_PORT}/**`, async (route) => {
         const request = route.request()
@@ -189,6 +192,7 @@ describe('extension options page', () => {
       })
 
       await page.goto(`${staticServer.baseUrl}/src/options.html`)
+      await page.locator('.language-button[data-language="en"]').click()
       const recordingItem = page.locator('.recording-item').filter({ hasText: 'tab 7' })
       await recordingItem.waitFor({ timeout: 10000 })
       await expect.poll(async () => {
@@ -243,6 +247,12 @@ describe('extension options page', () => {
       await expect.poll(async () => {
         return await page.locator('#replay-details').textContent()
       }).toContain('replay-options-smoke')
+      await expect.poll(async () => {
+        return await page.locator('#replay-details').textContent()
+      }).toContain('--browser user')
+      await expect.poll(async () => {
+        return await page.locator('#replay-details').textContent()
+      }).toContain('--confirm')
       await page.locator('#replay-player .replayer-wrapper').waitFor()
       await expect.poll(async () => {
         const playerBox = await page.locator('#replay-player').boundingBox()
@@ -270,12 +280,12 @@ describe('extension options page', () => {
       title: 'Query User',
       description: 'Look up a user by email.',
       status: 'trusted',
-      runtime: 'node',
+      runtime: 'browser',
       match: ['https://admin.example.com/users*'],
       routingHint: 'exact-match-direct-run',
-      permissions: ['network'],
-      sideEffect: 'read',
-      requiresConfirmation: false,
+      permissions: ['browser.read', 'browser.write'],
+      sideEffect: 'write',
+      requiresConfirmation: true,
       whenToUse: ['Use when the user asks to look up an admin user by email.'],
       whenNotToUse: ['Do not use for public profile lookup.'],
       tags: ['admin'],
@@ -295,8 +305,8 @@ describe('extension options page', () => {
       location: 'project',
       dir: '/Users/test/project/.playwriter/capabilities/query-user',
       autonomousInvocation: {
-        allowed: true,
-        reasons: ['trusted read-only capability'],
+        allowed: false,
+        reasons: ['sideEffect is write', 'requires confirmation'],
       },
       recentRuns: [
         {
@@ -320,8 +330,12 @@ describe('extension options page', () => {
     }
 
     const page = await testCtx.browserContext.newPage()
+    await page.setViewportSize({ width: 1280, height: 720 })
     page.setDefaultTimeout(10000)
     try {
+      await testCtx.browserContext.grantPermissions(['clipboard-read', 'clipboard-write'], {
+        origin: staticServer.baseUrl,
+      })
       await page.route(`http://127.0.0.1:${TEST_PORT}/**`, async (route) => {
         const request = route.request()
         const url = new URL(request.url())
@@ -361,7 +375,8 @@ describe('extension options page', () => {
       })
 
       await page.goto(`${staticServer.baseUrl}/src/options.html`, { waitUntil: 'domcontentloaded' })
-      const skillsTab = page.getByRole('button', { name: 'Skills' })
+      await page.locator('.language-button[data-language="en"]').click()
+      const skillsTab = page.locator('.tab-button[data-tab="skills"]')
       await skillsTab.waitFor()
       await skillsTab.click()
       const capabilityItem = page.locator('.skill-item').filter({ hasText: 'Query User' })
@@ -377,7 +392,26 @@ describe('extension options page', () => {
       await expect.poll(async () => {
         return await page.locator('#skill-detail').textContent()
       }).toContain('email: string')
+      await page.getByRole('button', { name: 'Copy approved run' }).click()
+      const runCommand = await page.evaluate(async () => {
+        const clipboardNavigator = navigator as Navigator & {
+          clipboard: { readText: () => Promise<string> }
+        }
+        return await clipboardNavigator.clipboard.readText()
+      })
+      expect(runCommand).toContain('--browser user')
+      expect(runCommand).toContain('--confirm')
+      expect(runCommand).toContain("'query-user'")
+      await page.getByRole('button', { name: 'Copy use prompt' }).click()
+      const usePrompt = await page.evaluate(async () => {
+        const clipboardNavigator = navigator as Navigator & {
+          clipboard: { readText: () => Promise<string> }
+        }
+        return await clipboardNavigator.clipboard.readText()
+      })
+      expect(usePrompt).toContain('Stop and ask for my explicit approval')
     } finally {
+      await testCtx.browserContext.clearPermissions()
       await page.close()
       await staticServer.close()
     }

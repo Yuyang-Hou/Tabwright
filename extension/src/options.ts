@@ -152,6 +152,7 @@ const messageFallbacks = {
   copy_use_prompt: 'Copy use prompt',
   copy_skill_prompt: 'Copy skill prompt',
   copy_run: 'Copy run',
+  copy_run_after_approval: 'Copy approved run',
   label_ai_handoff: 'AI handoff',
   label_compile_command: 'Compile command',
   label_edit_prompt: 'Edit prompt',
@@ -812,12 +813,17 @@ function replayMakeCommand(recording: SavedReplayRecording): string {
 }
 
 function replayRunCommand(recording: SavedReplayRecording): string {
+  const capabilityId = replayCapabilityId(recording)
   return [
     'playwriter capability run',
-    shellQuote(replayCapabilityId(recording)),
+    shellQuote(capabilityId),
+    '--browser user',
     '--force',
+    '--confirm',
+    shellQuote(capabilityId),
     '--input-json',
     shellQuote('{"value":"example"}'),
+    '--json',
   ].join(' ')
 }
 
@@ -832,6 +838,7 @@ function replayAiHandoffText(recording: SavedReplayRecording): string {
       replayMakeCommand(recording),
       '',
       '修改输入后运行：',
+      '先暂停并取得用户明确确认；确认后才可执行：',
       replayRunCommand(recording),
     ]
       .filter((line) => {
@@ -848,7 +855,7 @@ function replayAiHandoffText(recording: SavedReplayRecording): string {
     'Compile:',
     replayMakeCommand(recording),
     '',
-    'Run after editing input:',
+    'Stop and ask for explicit user confirmation. Only after approval, edit the input and run:',
     replayRunCommand(recording),
   ]
     .filter((line) => {
@@ -1251,10 +1258,13 @@ function capabilityRunCommand(capability: CapabilityContract): string {
   return [
     'playwriter capability run',
     shellQuote(capability.id),
+    capability.runtime === 'browser' ? '--browser user' : '',
     '--input-json',
     shellQuote(input),
     '--json',
     capability.status === 'trusted' ? '' : '--force',
+    capability.requiresConfirmation ? '--confirm' : '',
+    capability.requiresConfirmation ? shellQuote(capability.id) : '',
   ]
     .filter((part) => {
       return part.length > 0
@@ -1310,7 +1320,9 @@ function capabilityUsePrompt(capability: CapabilityContract): string {
       'Try routing first:',
       capabilityRouteCommand(),
       '',
-      'If direct execution is appropriate, use:',
+      capability.requiresConfirmation
+        ? 'This capability has side effects. Stop and ask for my explicit approval of the concrete input; only after approval use:'
+        : 'If direct execution is appropriate, use:',
       capabilityRunCommand(capability),
       '',
       'My task: <write the task or paste the URL here>',
@@ -1320,10 +1332,12 @@ function capabilityUsePrompt(capability: CapabilityContract): string {
   return [
     `请使用 Playwriter capability：${capability.id}`,
     '',
-    '先尝试路由：',
-    capabilityRouteCommand(),
-    '',
-    '如果确认要直接运行，用：',
+      '先尝试路由：',
+      capabilityRouteCommand(),
+      '',
+      capability.requiresConfirmation
+        ? '这个能力有副作用。先暂停并让我明确确认具体输入；只有确认后才可使用：'
+        : '如果确认要直接运行，用：',
     capabilityRunCommand(capability),
     '',
     '我的任务：<在这里写任务或粘贴 URL>',
@@ -1414,7 +1428,7 @@ function createCapabilityActions(capability: CapabilityContract): HTMLDivElement
 
   const runCommand = document.createElement('button')
   runCommand.type = 'button'
-  runCommand.textContent = msg('copy_run')
+  runCommand.textContent = capability.requiresConfirmation ? msg('copy_run_after_approval') : msg('copy_run')
   runCommand.addEventListener('click', () => {
     copyWithStatus({ label: msg('label_run_command'), text: capabilityRunCommand(capability) })
   })

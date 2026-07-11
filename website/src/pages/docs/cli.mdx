@@ -147,6 +147,17 @@ playwriter serve --token MY_SECRET --replace  # kill existing server first
 
 The relay starts automatically when you use the CLI locally. Use `serve` explicitly when you need it running persistently for remote clients.
 
+## Capability execution safety
+
+Inspect a capability contract before running it. If `requiresConfirmation` is true, stop and obtain explicit user approval for the concrete input and side effect. Only then repeat the exact capability id with `--confirm`:
+
+```bash
+playwriter capability describe update-user --json
+playwriter capability run update-user --browser user --input-json '{"email":"a@example.com"}' --confirm update-user --json
+```
+
+`--force` only allows draft execution or bypasses a browser URL match. It never bypasses confirmation. Browser capabilities that depend on the user's login must use `--browser user` or an explicit browser key; the default is headless.
+
 ## Other commands
 
 ```bash

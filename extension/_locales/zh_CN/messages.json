@@ -96,6 +96,7 @@
   "copy_use_prompt": { "message": "复制使用提示" },
   "copy_skill_prompt": { "message": "复制 skill 提示" },
   "copy_run": { "message": "复制运行" },
+  "copy_run_after_approval": { "message": "复制批准后运行命令" },
   "label_ai_handoff": { "message": "AI 交接" },
   "label_compile_command": { "message": "编译命令" },
   "label_edit_prompt": { "message": "编辑提示" },

@@ -417,6 +417,7 @@ interface CapabilityRunOptions {
   token?: string
   timeout?: number
   force?: boolean
+  confirm?: string
   browser?: string
   json?: boolean
   keepSession?: boolean
@@ -694,6 +695,7 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
     input,
     cwd: process.cwd(),
     force: options.force,
+    confirmation: options.confirm,
   })
   if (prepared.capability.manifest.runtime === 'node') {
     const result = await runNodeCapability({
@@ -701,6 +703,7 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
       input,
       cwd: process.cwd(),
       force: options.force,
+      confirmation: options.confirm,
       timeout: options.timeout || 10000,
     })
     if (options.json) {
@@ -853,7 +856,7 @@ function buildNestedExampleInput(pathValue: string): Record<string, unknown> {
 
 function buildReplayCapabilityRunCommand(capabilityId: string, valueInputPath: string): string {
   const exampleInput = JSON.stringify(buildNestedExampleInput(valueInputPath))
-  return `playwriter capability run ${shellQuote(capabilityId)} --force --input-json ${shellQuote(exampleInput)}`
+  return `playwriter capability run ${shellQuote(capabilityId)} --browser user --force --confirm ${shellQuote(capabilityId)} --input-json ${shellQuote(exampleInput)} --json`
 }
 
 cli
@@ -930,6 +933,7 @@ cli
                 analysis: compiled.analysis,
                 capability: compiled.saved.capability,
                 next: {
+                  requiresUserConfirmation: true,
                   runCommand,
                 },
               },
@@ -943,7 +947,8 @@ cli
         console.log(`Action: ${compiled.analysis.actionKind}`)
         console.log(`Confidence: ${compiled.analysis.confidence}`)
         console.log(`Observed value: ${compiled.analysis.demonstratedValue || '-'}`)
-        console.log(`Run with: ${runCommand}`)
+        console.log('Requires explicit user confirmation before running.')
+        console.log(`After approval: ${runCommand}`)
       } catch (error) {
         exitWithError(error)
       }
@@ -996,6 +1001,7 @@ cli
                 analysis: compiled.analysis,
                 capability: compiled.saved.capability,
                 next: {
+                  requiresUserConfirmation: true,
                   runCommand,
                 },
               },
@@ -1017,7 +1023,8 @@ cli
         console.log(`Action: ${compiled.analysis.actionKind}`)
         console.log(`Confidence: ${compiled.analysis.confidence}`)
         console.log(`Observed value: ${compiled.analysis.demonstratedValue || '-'}`)
-        console.log(`Run with: ${runCommand}`)
+        console.log('Requires explicit user confirmation before running.')
+        console.log(`After approval: ${runCommand}`)
       } catch (error) {
         exitWithError(error)
       }
@@ -1457,6 +1464,7 @@ cli
   .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .option('--browser <headless|user|key>', 'Runtime when --session is omitted (default: headless)')
   .option('--force', 'Run draft capabilities or bypass URL match checks')
+  .option('--confirm <capability-id>', 'Repeat the capability id after explicit user approval of its side effect')
   .option('--keep-session', 'Keep auto-created session alive after run')
   .option('--json', 'Print JSON envelope')
   .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))

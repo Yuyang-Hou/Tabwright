@@ -29,6 +29,8 @@ In Codex sandboxed environments, `playwriter capability run ...` writes the capa
 
 Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Playwriter skill.
 
+If a described capability has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only after approval may you run it with `--confirm <capability-id>`. The value must exactly match the capability id, and `--force` never bypasses this gate.
+
 ## Creating Saved Capabilities
 
 When an AI is creating or refining a saved capability, put machine-readable behavior in the capability contract and executable behavior in `script.js`. Create a capability-specific agent skill only for high-frequency, exact-match, easy-to-misuse, auth-sensitive, or display-sensitive capabilities.
@@ -43,37 +45,42 @@ playwriter capability skill install <capability-id>
 
 `capability skill install` refuses untouched scaffold templates. Simple capabilities usually need only a good contract, not a separate agent skill.
 
-## REQUIRED: Read Full Documentation First
+## Browser Core Protocol
 
-For saved capability routing (`playwriter capability route`, `list`, or direct trusted node capability `run`), do not read the full documentation first. These commands are already contract-driven and should stay fast.
-
-**Before writing browser automation code, Playwright snippets, selectors, or session control with playwriter, you MUST run this command:**
+This skill contains the required core protocol. Do not load the 17k-token extended reference before every browser task. Query it only when the task needs a specialized API:
 
 ```bash
-playwriter skill # IMPORTANT! do not use | head here. read in full!
+# macOS/Linux
+playwriter skill | rg -n -C 20 'working with pages|snapshot|iframe'
+playwriter skill | rg -n -C 20 'network requests|debugger|live edit'
+# Windows PowerShell
+playwriter skill | Select-String -Pattern 'working with pages|snapshot|iframe' -Context 20,20
 ```
 
-This outputs the complete documentation including:
+Follow this order for browser work:
 
-- Session management and timeout configuration
-- Selector strategies (and which ones to AVOID)
-- Rules to prevent timeouts and failures
-- Best practices for slow pages and SPAs
-- Context variables, utility functions, and more
+1. Run `playwriter doctor --json` when connection state is unclear, and follow its exact `next` action.
+2. Create a new session for this task. Never reuse an existing session unless the user explicitly handed it to you.
+3. Create and retain your own page in `state`. Pages are shared across sessions, but `state` is not.
+4. Navigate, inspect logs, then snapshot. Use snapshot search when full output would be large.
+5. Copy a role/text/test-id locator from current evidence. Never guess a fixed `aria-ref` from examples or an older snapshot.
+6. Perform the smallest action, then verify the resulting URL, visible state, response, or logs.
+7. Never call `browser.close()` or `context.close()`. Close only pages you created, and delete your task session when finished.
 
-**Do NOT skip this step.** The quick examples below will fail without understanding timeouts, selector rules, and common pitfalls from the full docs.
+In sandboxed agent environments, browser/relay commands need immediate elevated or unsandboxed execution because they connect to localhost and may update session state. Metadata-only `capability route/search/describe` commands can remain sandboxed.
 
-**Read the ENTIRE output.** Do NOT pipe through `head`, `tail`, or any truncation command. The skill output must be read in its entirety — critical rules about timeouts, selectors, and common pitfalls are spread throughout the document, not just at the top.
+Use single quotes around `-e` code so the shell does not expand `$`, backticks, or backslashes. Use double quotes for JavaScript strings inside.
 
-## Minimal Example (after reading full docs)
+## Minimal Browser Example
 
 ```bash
 playwriter session new
 SESSION_ID=2 # replace 2 with the new ID printed above
 playwriter -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+playwriter -s "$SESSION_ID" -e 'console.log(await getLatestLogs({ page: state.page }))'
+playwriter -s "$SESSION_ID" -e 'console.log(await snapshot({ page: state.page, search: /learn|more/i }))'
+playwriter -s "$SESSION_ID" -e 'console.log(await state.page.getByRole("link", { name: "Learn more" }).getAttribute("href"))'
 ```
-
-**Always use single quotes** for the `-e` argument. Single quotes prevent bash from interpreting `$`, backticks, and backslashes inside your JS code. Use double quotes or backtick template literals for strings inside the JS.
 
 If `playwriter` is not found, use `npx playwriter@latest` or `bunx playwriter@latest`.
 

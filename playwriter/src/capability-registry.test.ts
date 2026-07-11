@@ -17,7 +17,7 @@ import {
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
 import { initCapabilityAgentSkill, installCapabilityAgentSkill, showCapabilityAgentSkill } from './capability-agent-skill.js'
-import { prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
+import { prepareCapabilityRun, runCapabilityWithExecutor, runNodeCapability } from './capability-runner.js'
 import { saveWorkflowCapability, saveWorkflowFromRecording } from './workflow-capability.js'
 
 function createTempDir(prefix: string): string {
@@ -241,6 +241,19 @@ describe('capability registry', () => {
       expect(
         fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'agents', 'openai.yaml'), 'utf-8'),
       ).toContain('Query User')
+
+      createCapability({ id: 'update-user', location: 'project', cwd, runtime: 'browser' })
+      updateCapabilityManifest({
+        id: 'update-user',
+        cwd,
+        patch: { sideEffect: 'write', requiresConfirmation: true },
+      })
+      const writeSkill = initCapabilityAgentSkill({ id: 'update-user', cwd })
+      const writeSkillContent = fs.readFileSync(path.join(writeSkill.dir, 'SKILL.md'), 'utf-8')
+      expect(writeSkillContent).toContain('--browser user')
+      expect(writeSkillContent).toContain('--force')
+      expect(writeSkillContent).toContain('--confirm update-user')
+      expect(writeSkillContent).toContain('Stop and obtain explicit user approval')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }
@@ -479,6 +492,106 @@ describe('capability runner', () => {
     }
   })
 
+  test('requires an exact capability confirmation even when force is set', () => {
+    const cwd = createTempDir('capability-confirmation-')
+    try {
+      createCapability({ id: 'write-tool', location: 'project', cwd })
+      updateCapabilityManifest({
+        id: 'write-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          sideEffect: 'write',
+          requiresConfirmation: true,
+          inputSchema: {
+            type: 'object',
+            properties: { value: { type: 'string' } },
+            required: ['value'],
+          },
+        },
+      })
+
+      expect(() => {
+        prepareCapabilityRun({ id: 'write-tool', cwd, input: { value: 'x' }, force: true })
+      }).toThrow('requires explicit user confirmation')
+      expect(() => {
+        prepareCapabilityRun({
+          id: 'write-tool',
+          cwd,
+          input: { value: 'x' },
+          force: true,
+          confirmation: 'another-tool',
+        })
+      }).toThrow('rerun with --confirm write-tool')
+      expect(() => {
+        prepareCapabilityRun({
+          id: 'write-tool',
+          cwd,
+          input: { value: 'x' },
+          force: true,
+          confirmation: 'write-tool',
+        })
+      }).not.toThrow()
+      expect(() => {
+        prepareCapabilityRun({ id: 'write-tool', cwd, input: {}, force: true })
+      }).toThrow('Invalid capability input')
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('does not execute node or browser scripts before confirmation', async () => {
+    const cwd = createTempDir('capability-confirmation-execution-')
+    try {
+      const nodeCapability = createCapability({
+        id: 'confirmed-node-write',
+        location: 'project',
+        cwd,
+        runtime: 'node',
+      })
+      updateCapabilityScript({
+        id: 'confirmed-node-write',
+        cwd,
+        source: 'artifacts.writeText({ filename: "executed.txt", text: "yes" }); return { ok: true };',
+      })
+      updateCapabilityManifest({
+        id: 'confirmed-node-write',
+        cwd,
+        patch: { status: 'trusted', sideEffect: 'write', requiresConfirmation: true },
+      })
+
+      await expect(
+        runNodeCapability({ id: 'confirmed-node-write', cwd, input: {}, force: true }),
+      ).rejects.toThrow('requires explicit user confirmation')
+      expect(fs.existsSync(path.join(nodeCapability.dir, 'artifacts', 'executed.txt'))).toBe(false)
+
+      createCapability({ id: 'confirmed-browser-write', location: 'project', cwd, runtime: 'browser' })
+      updateCapabilityManifest({
+        id: 'confirmed-browser-write',
+        cwd,
+        patch: { status: 'trusted', sideEffect: 'write', requiresConfirmation: true },
+      })
+      let browserScriptExecuted = false
+      await expect(
+        runCapabilityWithExecutor({
+          executor: {
+            execute: async () => {
+              browserScriptExecuted = true
+              return { text: '', images: [], screenshots: [], isError: false, structuredResult: {} }
+            },
+          },
+          id: 'confirmed-browser-write',
+          cwd,
+          input: {},
+          force: true,
+        }),
+      ).rejects.toThrow('requires explicit user confirmation')
+      expect(browserScriptExecuted).toBe(false)
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   test('runs node capabilities without a browser executor', async () => {
     const cwd = createTempDir('capability-node-run-')
     try {
@@ -514,6 +627,25 @@ describe('capability runner', () => {
       })
 
       expect(result.output).toEqual({ token: 'secret-token', input: { ok: true } })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('times out a node capability that does not settle', async () => {
+    const cwd = createTempDir('capability-node-timeout-')
+    try {
+      createCapability({ id: 'node-timeout-tool', location: 'project', cwd, runtime: 'node' })
+      updateCapabilityScript({
+        id: 'node-timeout-tool',
+        cwd,
+        source: 'await new Promise(() => {}); return { ok: true };',
+      })
+      updateCapabilityManifest({ id: 'node-timeout-tool', cwd, patch: { status: 'trusted' } })
+
+      await expect(
+        runNodeCapability({ id: 'node-timeout-tool', cwd, input: {}, timeout: 50 }),
+      ).rejects.toThrow('Capability execution timed out after 50ms')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

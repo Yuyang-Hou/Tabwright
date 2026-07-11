@@ -869,6 +869,7 @@ async function runOneEvalCase(options: {
         input: { value: options.testCase.runValue },
         cwd,
         force: true,
+        confirmation: `${options.testCase.id}-capability`,
         timeout: 20000,
       })
       phases.push('run')

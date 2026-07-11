@@ -56,9 +56,15 @@ export function prepareCapabilityRun(options: {
   input: unknown
   cwd?: string
   force?: boolean
+  confirmation?: string
 }): PreparedCapabilityRun {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  validateCapabilityRunnable({ capability, input: options.input, force: options.force })
+  validateCapabilityRunnable({
+    capability,
+    input: options.input,
+    force: options.force,
+    confirmation: options.confirmation,
+  })
 
   const script = fs.readFileSync(capability.scriptPath, 'utf-8')
   return {
@@ -75,12 +81,18 @@ export async function runNodeCapability(options: {
   timeout?: number
   cwd?: string
   force?: boolean
+  confirmation?: string
 }): Promise<NodeCapabilityRunResult> {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
   if (capability.manifest.runtime !== 'node') {
     throw new Error(`Capability ${options.id} is runtime "${capability.manifest.runtime}", not "node"`)
   }
-  validateCapabilityRunnable({ capability, input: options.input, force: options.force })
+  validateCapabilityRunnable({
+    capability,
+    input: options.input,
+    force: options.force,
+    confirmation: options.confirmation,
+  })
 
   const start = Date.now()
   const inputHash = hashInput(options.input)
@@ -134,6 +146,7 @@ export async function runCapabilityWithExecutor(options: {
   timeout?: number
   cwd?: string
   force?: boolean
+  confirmation?: string
 }): Promise<CapabilityRunResult> {
   const prepared = prepareCapabilityRun(options)
   const start = Date.now()
@@ -198,14 +211,18 @@ export function validateCapabilityUrl(options: { capability: CapabilityRecord; u
   throw new Error(`Capability ${options.capability.manifest.id} does not match current page URL: ${options.url}`)
 }
 
-function validateCapabilityRunnable(options: { capability: CapabilityRecord; input: unknown; force?: boolean }): void {
+function validateCapabilityRunnable(options: {
+  capability: CapabilityRecord
+  input: unknown
+  force?: boolean
+  confirmation?: string
+}): void {
   if (options.capability.manifest.status === 'disabled') {
     throw new Error(`Capability is disabled: ${options.capability.manifest.id}`)
   }
   if (options.capability.manifest.status !== 'trusted' && !options.force) {
     throw new Error(`Capability is ${options.capability.manifest.status}. Run with --force or trust it first.`)
   }
-
   const validation = validateJsonAgainstSchema({
     schema: options.capability.manifest.inputSchema,
     value: options.input,
@@ -213,6 +230,14 @@ function validateCapabilityRunnable(options: { capability: CapabilityRecord; inp
   })
   if (!validation.valid) {
     throw new Error(`Invalid capability input:\n${validation.errors.join('\n')}`)
+  }
+  if (
+    options.capability.manifest.requiresConfirmation &&
+    options.confirmation !== options.capability.manifest.id
+  ) {
+    throw new Error(
+      `Capability ${options.capability.manifest.id} requires explicit user confirmation for its ${options.capability.manifest.sideEffect} side effect. After approval, rerun with --confirm ${options.capability.manifest.id}.`,
+    )
   }
 }
 
@@ -262,17 +287,43 @@ async function executeNodeCapabilityScript(options: {
     '',
   ].join('\n')
 
-  return await Promise.race([
-    vm.runInContext(`(async () => { ${wrappedCode} })()`, vmContext, {
-      timeout: options.timeout,
-      displayErrors: true,
-    }),
-    new Promise((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`Capability execution timed out after ${options.timeout}ms`))
-      }, options.timeout)
-    }),
-  ])
+  const timeout = createCapabilityTimeout({ timeout: options.timeout })
+  try {
+    return await Promise.race([
+      vm.runInContext(`(async () => { ${wrappedCode} })()`, vmContext, {
+        timeout: options.timeout,
+        displayErrors: true,
+      }),
+      timeout.promise,
+    ])
+  } finally {
+    timeout.cancel()
+  }
+}
+
+function createCapabilityTimeout(options: { timeout: number }): {
+  promise: Promise<never>
+  cancel: () => void
+} {
+  const controller = new AbortController()
+  const promise = new Promise<never>((_, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Capability execution timed out after ${options.timeout}ms`))
+    }, options.timeout)
+    controller.signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+      },
+      { once: true },
+    )
+  })
+  return {
+    promise,
+    cancel: () => {
+      controller.abort()
+    },
+  }
 }
 
 function createCapabilityArtifacts(options: { capability: CapabilityRecord }): CapabilityArtifacts {

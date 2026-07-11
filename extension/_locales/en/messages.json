@@ -96,6 +96,7 @@
   "copy_use_prompt": { "message": "Copy use prompt" },
   "copy_skill_prompt": { "message": "Copy skill prompt" },
   "copy_run": { "message": "Copy run" },
+  "copy_run_after_approval": { "message": "Copy approved run" },
   "label_ai_handoff": { "message": "AI handoff" },
   "label_compile_command": { "message": "Compile command" },
   "label_edit_prompt": { "message": "Edit prompt" },

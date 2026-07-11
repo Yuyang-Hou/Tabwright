@@ -55,7 +55,8 @@ Turn a saved DOM replay into a runnable draft capability:
 
 ```bash
 playwriter replay make <replay-id> <capability-id> --force --goal "add the requested list item"
-playwriter capability run <capability-id> --force --input-json '{"value":"test3"}'
+# Generated workflows are browser writes. Stop for explicit user approval first.
+playwriter capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '{"value":"test3"}'
 ```
 
 Playwriter can evaluate the recording-to-capability product loop locally:

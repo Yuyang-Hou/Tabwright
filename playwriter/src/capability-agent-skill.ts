@@ -223,7 +223,19 @@ function buildCodexSkillTemplate(capability: CapabilityRecord): string {
     'Mention concrete user phrasing, exact-match signals, and when not to use it.',
   ].join(' ')
   const routeCommand = `playwriter capability route "<user-task-or-url>" --json`
-  const runCommand = `playwriter capability run ${capability.manifest.id} --input-json '<json-input>' --json`
+  const runCommand = [
+    'playwriter capability run',
+    capability.manifest.id,
+    capability.manifest.runtime === 'browser' ? '--browser user' : '',
+    "--input-json '<json-input>'",
+    '--json',
+    capability.manifest.status === 'trusted' ? '' : '--force',
+    capability.manifest.requiresConfirmation ? `--confirm ${capability.manifest.id}` : '',
+  ]
+    .filter((part) => {
+      return part.length > 0
+    })
+    .join(' ')
   return [
     '---',
     `name: ${capability.manifest.id}`,
@@ -245,7 +257,9 @@ function buildCodexSkillTemplate(capability: CapabilityRecord): string {
     routeCommand,
     '```',
     '',
-    '2. Run the returned `shellCommand` exactly, or run the capability with structured input:',
+    capability.manifest.requiresConfirmation
+      ? '2. Stop and obtain explicit user approval for the concrete input and side effect. Only then run with structured input:'
+      : '2. Run the returned `shellCommand` exactly, or run the capability with structured input:',
     '',
     '```bash',
     runCommand,
