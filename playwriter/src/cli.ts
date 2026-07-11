@@ -24,6 +24,7 @@ import {
   getExtensionsStatus,
   getLocalRelayHttpBaseUrl,
   getRelayServerVersion,
+  selectImplicitExtension,
   type ExtensionStatus,
 } from './relay-client.js'
 import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } from './chrome-discovery.js'
@@ -1799,6 +1800,7 @@ cli
       extensions = await waitForConnectedExtensions({
         timeoutMs: 12000,
         pollIntervalMs: 250,
+        settleMs: 750,
         logger: console,
       })
 
@@ -1807,6 +1809,7 @@ cli
         extensions = await waitForConnectedExtensions({
           timeoutMs: 10000,
           pollIntervalMs: 250,
+          settleMs: 750,
           logger: console,
         })
       }
@@ -1878,9 +1881,11 @@ cli
       }
     }
 
-    // Single extension: auto-select (unchanged behavior)
-    if (extensions.length === 1 && !options.browser) {
-      const selectedExtension = extensions[0]
+    // Auto-select only when the extension choice is unambiguous. With multiple
+    // profiles, a single extension with enabled tabs is the user's active choice.
+    const implicitExtension = options.browser ? null : selectImplicitExtension(extensions)
+    if (implicitExtension) {
+      const selectedExtension = implicitExtension
       try {
         const serverUrl = await getServerUrl(options.host)
         const extensionId =

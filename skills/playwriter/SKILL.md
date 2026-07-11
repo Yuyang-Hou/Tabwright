@@ -103,3 +103,5 @@ playwriter -s "$SESSION_ID" -e 'console.log(await state.page.getByRole("link", {
 If `playwriter` is not found, use `npx playwriter@latest` or `bunx playwriter@latest`.
 
 If the relay, extension, enabled tab, or session state is unclear, run `playwriter doctor --json` and follow its returned `next` step instead of guessing recovery commands.
+
+`playwriter session new` automatically selects a single connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one has enabled tabs; otherwise choose one of the reported browser keys with `--browser <key>`. A restarted relay is ready after it reports the current or a newer compatible Playwriter package version.

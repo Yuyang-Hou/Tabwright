@@ -47,6 +47,8 @@ playwriter -s "$SESSION_ID" -e 'console.log(await snapshot({ page: state.page })
 playwriter -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Learn more" }).click()'
 ```
 
+`session new` stays automatic with one connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one profile has enabled tabs; otherwise it prints the available browser keys so you can retry with `--browser <key>`. If the CLI restarts an older relay, it waits for the current or a newer compatible package version before continuing.
+
 > **Tip:** Always use single quotes for `-e` to prevent bash from interpreting `$`, backticks, and `\` in your JS code. Use double quotes for strings inside the JS.
 
 ## Replay to Capability

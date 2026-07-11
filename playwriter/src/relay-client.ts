@@ -25,6 +25,27 @@ export type ExtensionStatus = {
   playwriterVersion: string | null
 }
 
+/**
+ * Select an extension only when the choice is unambiguous.
+ * A single connection remains the backward-compatible default. With multiple
+ * connections, an enabled tab is a useful signal only when exactly one
+ * extension has one.
+ */
+export function selectImplicitExtension(extensions: ExtensionStatus[]): ExtensionStatus | null {
+  if (extensions.length === 1) {
+    return extensions[0]!
+  }
+
+  const activeExtensions = extensions.filter((extension) => {
+    return extension.activeTargets > 0
+  })
+  if (activeExtensions.length === 1) {
+    return activeExtensions[0]!
+  }
+
+  return null
+}
+
 export function getLocalRelayHttpBaseUrls(port: number = RELAY_PORT): string[] {
   return LOCAL_RELAY_HOSTS.map((host) => {
     return `http://${host}:${port}`
@@ -94,6 +115,27 @@ export async function getRelayServerVersion(port: number = RELAY_PORT): Promise<
   return data.version
 }
 
+function acceptsRelayVersion({
+  version,
+  expectedVersion,
+  minimumVersion,
+}: {
+  version: string | null
+  expectedVersion?: string
+  minimumVersion?: string
+}): boolean {
+  if (!version) {
+    return false
+  }
+  if (expectedVersion) {
+    return version === expectedVersion
+  }
+  if (minimumVersion) {
+    return compareVersions(version, minimumVersion) >= 0
+  }
+  return true
+}
+
 /**
  * Poll /version until a relay responds or timeout expires.
  * Used during startup races where a relay may have bound the port
@@ -103,15 +145,21 @@ export async function waitForRelayVersion({
   port = RELAY_PORT,
   timeoutMs = 2000,
   intervalMs = 200,
+  expectedVersion,
+  minimumVersion,
 }: {
   port?: number
   timeoutMs?: number
   intervalMs?: number
+  /** Keep polling until this exact relay version responds. Takes precedence over minimumVersion. */
+  expectedVersion?: string
+  /** Keep polling until this relay version or a newer one responds. */
+  minimumVersion?: string
 } = {}): Promise<string | null> {
   const end = Date.now() + timeoutMs
   while (Date.now() < end) {
     const version = await getRelayServerVersion(port)
-    if (version) {
+    if (acceptsRelayVersion({ version, expectedVersion, minimumVersion })) {
       return version
     }
     await sleep(intervalMs)
@@ -188,6 +236,19 @@ export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<Ex
   ]
 }
 
+function getExtensionSettleSignature(extensions: ExtensionStatus[]): string {
+  return extensions
+    .map((extension) => {
+      return JSON.stringify({
+        extensionId: extension.extensionId,
+        stableKey: extension.stableKey ?? null,
+        activeTargets: extension.activeTargets,
+      })
+    })
+    .sort()
+    .join('\n')
+}
+
 /**
  * Wait for at least one extension to appear in extensions status.
  * Returns connected extension entries, or [] on timeout.
@@ -197,21 +258,44 @@ export async function waitForConnectedExtensions(
     port?: number
     timeoutMs?: number
     pollIntervalMs?: number
+    /** Wait for the connection snapshot to remain unchanged before returning. Default: 0. */
+    settleMs?: number
     logger?: { log: (...args: any[]) => void }
   } = {},
 ): Promise<ExtensionStatus[]> {
-  const { port = RELAY_PORT, timeoutMs = 5000, pollIntervalMs = 200, logger } = options
+  const { port = RELAY_PORT, timeoutMs = 5000, pollIntervalMs = 200, settleMs = 0, logger } = options
   const startTime = Date.now()
+  let latestNonEmpty: ExtensionStatus[] = []
+  let latestSnapshotWasConnected = false
+  let stableSignature: string | null = null
+  let stableSince = 0
 
   logger?.log(pc.dim('Waiting for extension to connect...'))
 
   while (Date.now() - startTime < timeoutMs) {
     const extensions = await getExtensionsStatus(port)
     if (extensions.length > 0) {
-      logger?.log(pc.green('Extension connected'))
-      return extensions
+      latestSnapshotWasConnected = true
+      latestNonEmpty = extensions
+      const signature = getExtensionSettleSignature(extensions)
+      if (signature !== stableSignature) {
+        stableSignature = signature
+        stableSince = Date.now()
+      }
+      if (settleMs === 0 || Date.now() - stableSince >= settleMs) {
+        logger?.log(pc.green('Extension connected'))
+        return latestNonEmpty
+      }
+    } else if (latestNonEmpty.length > 0) {
+      latestSnapshotWasConnected = false
+      stableSignature = null
     }
     await sleep(pollIntervalMs)
+  }
+
+  if (latestSnapshotWasConnected && latestNonEmpty.length > 0) {
+    logger?.log(pc.green('Extension connected'))
+    return latestNonEmpty
   }
 
   logger?.log(pc.yellow('Extension did not connect within timeout'))
@@ -374,14 +458,15 @@ async function ensureRelayServerImpl(options: EnsureRelayServerOptions = {}): Pr
   const startTimeoutMs = 5000
   const startTime = Date.now()
 
-  while (Date.now() - startTime < startTimeoutMs) {
-    await sleep(200)
-    const newVersion = await getRelayServerVersion(RELAY_PORT)
-    if (newVersion) {
-      logger?.log(pc.green('CDP relay server started successfully'))
-      await sleep(1000)
-      return true
-    }
+  const newVersion = await waitForRelayVersion({
+    port: RELAY_PORT,
+    timeoutMs: startTimeoutMs,
+    minimumVersion: VERSION,
+  })
+  if (newVersion && compareVersions(newVersion, VERSION) >= 0) {
+    logger?.log(pc.green('CDP relay server started successfully'))
+    await sleep(1000)
+    return true
   }
 
   const waitedMs = Date.now() - startTime

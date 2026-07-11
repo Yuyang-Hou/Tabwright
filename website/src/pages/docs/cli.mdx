@@ -93,6 +93,8 @@ playwriter session reset <id>       # reconnect if connection is stale
 playwriter session delete <id>      # remove session and clear state
 ```
 
+`session new` automatically selects the only connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one profile has enabled tabs; otherwise it reports the available browser keys and you can retry with `playwriter session new --browser <key>`. When replacing an older relay, the CLI waits until the relay reports the current or a newer compatible package version before continuing.
+
 ### Direct CDP connection
 
 Connect to Chrome's DevTools Protocol without the extension:

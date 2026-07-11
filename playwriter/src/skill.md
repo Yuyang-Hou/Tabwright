@@ -46,6 +46,8 @@ playwriter session new
 # outputs: 1
 ```
 
+`session new` automatically uses the only connected extension. When multiple extension profiles reconnect, it waits briefly for the set to settle and auto-selects only if exactly one profile has enabled tabs. Otherwise, use a key printed in the error or by `playwriter browser list`, then retry with `playwriter session new --browser <key>`. After replacing an older relay, Playwriter waits until the relay reports the current or a newer compatible package version before creating the session.
+
 **Always use your own session** - pass `-s <id>` to all commands. Using the same session preserves your `state` between calls. Using a different session gives you a fresh `state`.
 
 List all active sessions with their state keys:
