@@ -105,12 +105,14 @@
   "copy_skill_prompt": { "message": "复制 skill 提示" },
   "copy_run": { "message": "复制运行" },
   "copy_run_after_approval": { "message": "复制批准后运行命令" },
+  "copy_next_step": { "message": "复制下一步" },
   "label_ai_handoff": { "message": "AI 交接" },
   "label_compile_command": { "message": "编译命令" },
   "label_edit_prompt": { "message": "编辑提示" },
   "label_use_prompt": { "message": "使用提示" },
   "label_skill_prompt": { "message": "Skill 提示" },
   "label_run_command": { "message": "运行命令" },
+  "label_next_command": { "message": "下一步命令" },
   "detail_id": { "message": "ID" },
   "detail_path": { "message": "路径" },
   "detail_saved": { "message": "保存时间" },
@@ -140,6 +142,40 @@
   "field_autonomy": { "message": "自主调用" },
   "field_recent_runs": { "message": "最近运行" },
   "field_agent_skill": { "message": "Agent skill" },
+  "lifecycle_title": { "message": "生命周期" },
+  "lifecycle_step_drafted": { "message": "草稿" },
+  "lifecycle_step_validated": { "message": "已验证" },
+  "lifecycle_step_trusted": { "message": "可信" },
+  "lifecycle_stage_drafted": { "message": "草稿" },
+  "lifecycle_stage_validated": { "message": "已验证" },
+  "lifecycle_stage_trusted": { "message": "可信" },
+  "lifecycle_stage_drifted": { "message": "已漂移" },
+  "lifecycle_stage_disabled": { "message": "已禁用" },
+  "lifecycle_next_step": {
+    "message": "下一步：$action$",
+    "placeholders": { "action": { "content": "$1" } }
+  },
+  "lifecycle_action_validate": { "message": "验证契约" },
+  "lifecycle_action_trust": { "message": "标记为可信" },
+  "lifecycle_action_run": { "message": "运行能力" },
+  "lifecycle_action_repair": { "message": "修复契约漂移" },
+  "lifecycle_action_enable": { "message": "启用为草稿" },
+  "lifecycle_health_checked": {
+    "message": "$health$ · 检查于 $time$",
+    "placeholders": {
+      "health": { "content": "$1" },
+      "time": { "content": "$2" }
+    }
+  },
+  "lifecycle_health_not_checked": {
+    "message": "$health$ · 尚无契约验证记录",
+    "placeholders": { "health": { "content": "$1" } }
+  },
+  "lifecycle_health_healthy": { "message": "契约健康" },
+  "lifecycle_health_drifted": { "message": "检测到契约漂移" },
+  "lifecycle_health_unknown": { "message": "契约尚未验证" },
+  "lifecycle_drift_warning": { "message": "契约重新通过验证前，普通执行与 AI 自主调用都会保持阻止。" },
+  "lifecycle_disabled_warning": { "message": "该能力已禁用；请先启用为草稿，再进行验证或执行。" },
   "autonomy_trusted_readonly": { "message": "可信只读能力" },
   "agent_skill_installed": {
     "message": "已安装：$path$",

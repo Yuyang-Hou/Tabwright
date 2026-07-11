@@ -62,6 +62,17 @@ interface CapabilityAgentSkillStatus {
   installCommand: string
 }
 
+interface CapabilityLifecycle {
+  stage: 'drafted' | 'validated' | 'trusted' | 'drifted' | 'disabled'
+  nextAction: 'validate' | 'trust' | 'run' | 'repair' | 'enable'
+  nextCommand: string
+  contractHealth: {
+    state: 'healthy' | 'drifted' | 'unknown'
+    checkedAt?: string
+    reasons: string[]
+  }
+}
+
 interface CapabilityContract {
   id: string
   title: string
@@ -86,6 +97,7 @@ interface CapabilityContract {
   }
   recentRuns: CapabilityRunRecord[]
   agentSkill: CapabilityAgentSkillStatus
+  lifecycle?: CapabilityLifecycle
 }
 
 interface CapabilitiesResponse {
@@ -159,12 +171,14 @@ const messageFallbacks = {
   copy_skill_prompt: 'Copy skill prompt',
   copy_run: 'Copy run',
   copy_run_after_approval: 'Copy approved run',
+  copy_next_step: 'Copy next step',
   label_ai_handoff: 'AI handoff',
   label_compile_command: 'Compile command',
   label_edit_prompt: 'Edit prompt',
   label_use_prompt: 'Use prompt',
   label_skill_prompt: 'Skill prompt',
   label_run_command: 'Run command',
+  label_next_command: 'Next-step command',
   detail_id: 'ID',
   detail_path: 'Path',
   detail_saved: 'Saved',
@@ -188,6 +202,28 @@ const messageFallbacks = {
   field_autonomy: 'Autonomy',
   field_recent_runs: 'Recent runs',
   field_agent_skill: 'Agent skill',
+  lifecycle_title: 'Lifecycle',
+  lifecycle_step_drafted: 'Draft',
+  lifecycle_step_validated: 'Validated',
+  lifecycle_step_trusted: 'Trusted',
+  lifecycle_stage_drafted: 'Drafted',
+  lifecycle_stage_validated: 'Validated',
+  lifecycle_stage_trusted: 'Trusted',
+  lifecycle_stage_drifted: 'Drifted',
+  lifecycle_stage_disabled: 'Disabled',
+  lifecycle_next_step: 'Next step: $1',
+  lifecycle_action_validate: 'Validate contract',
+  lifecycle_action_trust: 'Mark trusted',
+  lifecycle_action_run: 'Run capability',
+  lifecycle_action_repair: 'Repair contract drift',
+  lifecycle_action_enable: 'Enable as draft',
+  lifecycle_health_checked: '$1 · checked $2',
+  lifecycle_health_not_checked: '$1 · no conformance run recorded',
+  lifecycle_health_healthy: 'Contract healthy',
+  lifecycle_health_drifted: 'Contract drift detected',
+  lifecycle_health_unknown: 'Contract not validated',
+  lifecycle_drift_warning: 'Normal execution and AI autonomy stay blocked until the contract passes validation again.',
+  lifecycle_disabled_warning: 'This capability is disabled. Enable it as a draft before validation or execution.',
   autonomy_trusted_readonly: 'trusted read-only capability',
   agent_skill_installed: 'installed: $1',
   agent_skill_draft: 'draft: $1',
@@ -261,6 +297,19 @@ function localeMessagesUrl(language: LanguageCode): string {
   return `../${path}`
 }
 
+function normalizeLocaleMessage(rawMessage: Record<string, unknown>): string {
+  const message = typeof rawMessage.message === 'string' ? rawMessage.message : ''
+  if (!isRecord(rawMessage.placeholders)) {
+    return message
+  }
+  return Object.entries(rawMessage.placeholders).reduce((result, [name, rawPlaceholder]) => {
+    if (!isRecord(rawPlaceholder) || typeof rawPlaceholder.content !== 'string') {
+      return result
+    }
+    return result.replaceAll(`$${name}$`, rawPlaceholder.content)
+  }, message)
+}
+
 function parseLocaleMessages(value: unknown): LocaleMessages {
   if (!isRecord(value)) {
     return {}
@@ -270,7 +319,7 @@ function parseLocaleMessages(value: unknown): LocaleMessages {
       if (!isMessageKey(key) || !isRecord(rawMessage) || typeof rawMessage.message !== 'string') {
         return []
       }
-      return [[key, rawMessage.message]]
+      return [[key, normalizeLocaleMessage(rawMessage)]]
     }),
   )
 }
@@ -494,6 +543,50 @@ function isAutonomousInvocation(value: unknown): value is CapabilityContract['au
   return isRecord(value) && typeof value.allowed === 'boolean' && isStringArray(value.reasons)
 }
 
+function isLifecycleStage(value: unknown): value is CapabilityLifecycle['stage'] {
+  return value === 'drafted' || value === 'validated' || value === 'trusted' || value === 'drifted' || value === 'disabled'
+}
+
+function isLifecycleAction(value: unknown): value is CapabilityLifecycle['nextAction'] {
+  return value === 'validate' || value === 'trust' || value === 'run' || value === 'repair' || value === 'enable'
+}
+
+function isCapabilityLifecycle(value: unknown): value is CapabilityLifecycle {
+  if (!isRecord(value) || !isRecord(value.contractHealth)) {
+    return false
+  }
+  if (!isLifecycleStage(value.stage) || !isLifecycleAction(value.nextAction)) {
+    return false
+  }
+  const expectedAction: Record<CapabilityLifecycle['stage'], CapabilityLifecycle['nextAction']> = {
+    drafted: 'validate',
+    validated: 'trust',
+    trusted: 'run',
+    drifted: 'repair',
+    disabled: 'enable',
+  }
+  const hasConsistentHealth = (() => {
+    if (value.stage === 'validated') {
+      return value.contractHealth.state === 'healthy'
+    }
+    if (value.stage === 'trusted') {
+      return value.contractHealth.state !== 'drifted'
+    }
+    if (value.stage === 'drifted') {
+      return value.contractHealth.state === 'drifted'
+    }
+    return true
+  })()
+  return (
+    value.nextAction === expectedAction[value.stage] &&
+    typeof value.nextCommand === 'string' &&
+    ['healthy', 'drifted', 'unknown'].includes(String(value.contractHealth.state)) &&
+    isStringOrUndefined(value.contractHealth.checkedAt) &&
+    isStringArray(value.contractHealth.reasons) &&
+    hasConsistentHealth
+  )
+}
+
 function isCapabilityContract(value: unknown): value is CapabilityContract {
   return (
     isRecord(value) &&
@@ -517,7 +610,8 @@ function isCapabilityContract(value: unknown): value is CapabilityContract {
     isAutonomousInvocation(value.autonomousInvocation) &&
     Array.isArray(value.recentRuns) &&
     value.recentRuns.every(isCapabilityRunRecord) &&
-    isCapabilityAgentSkillStatus(value.agentSkill)
+    isCapabilityAgentSkillStatus(value.agentSkill) &&
+    (value.lifecycle === undefined || isCapabilityLifecycle(value.lifecycle))
   )
 }
 
@@ -1337,6 +1431,62 @@ function capabilityRunCommand(capability: CapabilityContract): string {
     .join(' ')
 }
 
+function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityLifecycle {
+  if (capability.lifecycle) {
+    return capability.lifecycle
+  }
+  if (capability.status === 'disabled') {
+    return {
+      stage: 'disabled',
+      nextAction: 'enable',
+      nextCommand: `playwriter capability draft ${shellQuote(capability.id)}`,
+      contractHealth: { state: 'unknown', reasons: [] },
+    }
+  }
+  if (capability.status === 'drifted') {
+    return {
+      stage: 'drifted',
+      nextAction: 'repair',
+      nextCommand: `playwriter capability show ${shellQuote(capability.id)}`,
+      contractHealth: { state: 'drifted', reasons: [] },
+    }
+  }
+  if (capability.status === 'trusted') {
+    return {
+      stage: 'trusted',
+      nextAction: 'run',
+      nextCommand: capabilityRunCommand(capability),
+      contractHealth: { state: 'unknown', reasons: [] },
+    }
+  }
+  return {
+    stage: 'drafted',
+    nextAction: 'validate',
+    nextCommand: capabilityRunCommand(capability),
+    contractHealth: { state: 'unknown', reasons: [] },
+  }
+}
+
+function isCapabilityReadyToRun(lifecycle: CapabilityLifecycle): boolean {
+  return lifecycle.stage === 'trusted' && lifecycle.nextAction === 'run'
+}
+
+function lifecycleStageMessage(stage: CapabilityLifecycle['stage']): string {
+  if (stage === 'validated') return msg('lifecycle_stage_validated')
+  if (stage === 'trusted') return msg('lifecycle_stage_trusted')
+  if (stage === 'drifted') return msg('lifecycle_stage_drifted')
+  if (stage === 'disabled') return msg('lifecycle_stage_disabled')
+  return msg('lifecycle_stage_drafted')
+}
+
+function lifecycleActionMessage(action: CapabilityLifecycle['nextAction']): string {
+  if (action === 'trust') return msg('lifecycle_action_trust')
+  if (action === 'run') return msg('lifecycle_action_run')
+  if (action === 'repair') return msg('lifecycle_action_repair')
+  if (action === 'enable') return msg('lifecycle_action_enable')
+  return msg('lifecycle_action_validate')
+}
+
 function capabilityRouteCommand(): string {
   return ['playwriter capability route', shellQuote('<user task or URL>'), '--json'].join(' ')
 }
@@ -1378,6 +1528,35 @@ function capabilityEditPrompt(capability: CapabilityContract): string {
 }
 
 function capabilityUsePrompt(capability: CapabilityContract): string {
+  const lifecycle = resolveCapabilityLifecycle(capability)
+  if (!isCapabilityReadyToRun(lifecycle)) {
+    if (!isChineseLocale()) {
+      return [
+        `Please prepare this Playwriter capability: ${capability.id}`,
+        '',
+        `Current lifecycle stage: ${lifecycleStageMessage(lifecycle.stage)}`,
+        `Next step: ${lifecycleActionMessage(lifecycle.nextAction)}`,
+        lifecycle.nextCommand,
+        '',
+        'Use only this lifecycle step. Do not run the capability as a normal task until it reaches Trusted.',
+        '',
+        'My task: <write the task or paste the URL here>',
+      ].join('\n')
+    }
+
+    return [
+      `请先准备这个 Playwriter capability：${capability.id}`,
+      '',
+      `当前生命周期：${lifecycleStageMessage(lifecycle.stage)}`,
+      `下一步：${lifecycleActionMessage(lifecycle.nextAction)}`,
+      lifecycle.nextCommand,
+      '',
+      '只执行这一步生命周期操作；在状态达到“可信”前，不要把它当作普通任务直接运行。',
+      '',
+      '我的任务：<在这里写任务或粘贴 URL>',
+    ].join('\n')
+  }
+
   if (!isChineseLocale()) {
     return [
       `Please use this Playwriter capability: ${capability.id}`,
@@ -1388,7 +1567,7 @@ function capabilityUsePrompt(capability: CapabilityContract): string {
       capability.requiresConfirmation
         ? 'This capability has side effects. Stop and ask for my explicit approval of the concrete input; only after approval use:'
         : 'If direct execution is appropriate, use:',
-      capabilityRunCommand(capability),
+      lifecycle.nextCommand,
       '',
       'My task: <write the task or paste the URL here>',
     ].join('\n')
@@ -1403,7 +1582,7 @@ function capabilityUsePrompt(capability: CapabilityContract): string {
       capability.requiresConfirmation
         ? '这个能力有副作用。先暂停并让我明确确认具体输入；只有确认后才可使用：'
         : '如果确认要直接运行，用：',
-    capabilityRunCommand(capability),
+    lifecycle.nextCommand,
     '',
     '我的任务：<在这里写任务或粘贴 URL>',
   ].join('\n')
@@ -1466,9 +1645,136 @@ function createField(options: { title: string; value: string; full?: boolean }):
   return field
 }
 
+function lifecycleStepState(options: {
+  stage: CapabilityLifecycle['stage']
+  stepIndex: number
+}): 'done' | 'current' | 'pending' | 'blocked' {
+  if (options.stage === 'disabled') {
+    return 'blocked'
+  }
+  if (options.stage === 'drifted') {
+    return options.stepIndex === 0 ? 'blocked' : 'pending'
+  }
+  const currentIndex = options.stage === 'trusted' ? 2 : options.stage === 'validated' ? 1 : 0
+  if (options.stepIndex < currentIndex) {
+    return 'done'
+  }
+  if (options.stepIndex === currentIndex) {
+    return 'current'
+  }
+  return 'pending'
+}
+
+function createLifecycleStep(options: {
+  label: string
+  state: 'done' | 'current' | 'pending' | 'blocked'
+}): HTMLLIElement {
+  const step = document.createElement('li')
+  step.className = 'lifecycle-step'
+  step.dataset.state = options.state
+  if (options.state === 'current') {
+    step.setAttribute('aria-current', 'step')
+  }
+
+  const marker = document.createElement('span')
+  marker.className = 'lifecycle-marker'
+  marker.setAttribute('aria-hidden', 'true')
+
+  const label = document.createElement('span')
+  label.textContent = options.label
+  step.replaceChildren(marker, label)
+  return step
+}
+
+function lifecycleHealthMessage(lifecycle: CapabilityLifecycle): string {
+  const healthLabel = (() => {
+    if (lifecycle.contractHealth.state === 'healthy') return msg('lifecycle_health_healthy')
+    if (lifecycle.contractHealth.state === 'drifted') return msg('lifecycle_health_drifted')
+    return msg('lifecycle_health_unknown')
+  })()
+  if (!lifecycle.contractHealth.checkedAt) {
+    return msg('lifecycle_health_not_checked', healthLabel)
+  }
+  const timestamp = Date.parse(lifecycle.contractHealth.checkedAt)
+  const checkedAt = Number.isNaN(timestamp)
+    ? lifecycle.contractHealth.checkedAt
+    : new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
+  return msg('lifecycle_health_checked', [healthLabel, checkedAt])
+}
+
+function createCapabilityLifecycle(capability: CapabilityContract): HTMLElement {
+  const lifecycle = resolveCapabilityLifecycle(capability)
+  const card = document.createElement('section')
+  card.className = 'lifecycle-card'
+  card.dataset.stage = lifecycle.stage
+
+  const heading = document.createElement('div')
+  heading.className = 'lifecycle-heading'
+  const title = document.createElement('h3')
+  title.textContent = msg('lifecycle_title')
+  heading.replaceChildren(title, createBadge(lifecycleStageMessage(lifecycle.stage), lifecycle.stage))
+
+  const steps = document.createElement('ol')
+  steps.className = 'lifecycle-steps'
+  steps.setAttribute('aria-label', msg('lifecycle_title'))
+  steps.replaceChildren(
+    createLifecycleStep({
+      label: msg('lifecycle_step_drafted'),
+      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 0 }),
+    }),
+    createLifecycleStep({
+      label: msg('lifecycle_step_validated'),
+      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 1 }),
+    }),
+    createLifecycleStep({
+      label: msg('lifecycle_step_trusted'),
+      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 2 }),
+    }),
+  )
+
+  const summary = document.createElement('div')
+  summary.className = 'lifecycle-summary'
+  const nextStep = document.createElement('strong')
+  nextStep.textContent = msg('lifecycle_next_step', lifecycleActionMessage(lifecycle.nextAction))
+  const health = document.createElement('span')
+  health.textContent = lifecycleHealthMessage(lifecycle)
+  summary.replaceChildren(nextStep, health)
+
+  const command = document.createElement('div')
+  command.className = 'lifecycle-command'
+  const code = document.createElement('code')
+  code.textContent = lifecycle.nextCommand
+  code.title = lifecycle.nextCommand
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.textContent = msg('copy_next_step')
+  copy.addEventListener('click', () => {
+    copyWithStatus({ label: msg('label_next_command'), text: lifecycle.nextCommand })
+  })
+  command.replaceChildren(code, copy)
+
+  const warningText = (() => {
+    if (lifecycle.stage === 'drifted') {
+      return [msg('lifecycle_drift_warning'), ...lifecycle.contractHealth.reasons].join('\n')
+    }
+    if (lifecycle.stage === 'disabled') {
+      return msg('lifecycle_disabled_warning')
+    }
+    return ''
+  })()
+  const warning = document.createElement('p')
+  warning.className = 'lifecycle-warning'
+  warning.textContent = warningText
+  warning.hidden = warningText.length === 0
+
+  card.replaceChildren(heading, steps, summary, command, warning)
+  return card
+}
+
 function createCapabilityActions(capability: CapabilityContract): HTMLDivElement {
   const actions = document.createElement('div')
   actions.className = 'skill-actions'
+  const lifecycle = resolveCapabilityLifecycle(capability)
 
   const editPrompt = document.createElement('button')
   editPrompt.type = 'button'
@@ -1493,9 +1799,17 @@ function createCapabilityActions(capability: CapabilityContract): HTMLDivElement
 
   const runCommand = document.createElement('button')
   runCommand.type = 'button'
-  runCommand.textContent = capability.requiresConfirmation ? msg('copy_run_after_approval') : msg('copy_run')
+  runCommand.textContent =
+    isCapabilityReadyToRun(lifecycle)
+      ? capability.requiresConfirmation
+        ? msg('copy_run_after_approval')
+        : msg('copy_run')
+      : msg('copy_next_step')
   runCommand.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_run_command'), text: capabilityRunCommand(capability) })
+    copyWithStatus({
+      label: isCapabilityReadyToRun(lifecycle) ? msg('label_run_command') : msg('label_next_command'),
+      text: lifecycle.nextCommand,
+    })
   })
 
   actions.replaceChildren(editPrompt, usePrompt, skillPrompt, runCommand)
@@ -1504,6 +1818,7 @@ function createCapabilityActions(capability: CapabilityContract): HTMLDivElement
 
 function renderCapabilityDetail(capability: CapabilityContract): void {
   if (!skillDetail) return
+  const lifecycle = resolveCapabilityLifecycle(capability)
 
   const header = document.createElement('div')
   header.className = 'skill-header'
@@ -1518,7 +1833,7 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   const badges = document.createElement('div')
   badges.className = 'badge-row'
   badges.replaceChildren(
-    createBadge(capability.status),
+    createBadge(lifecycle.stage),
     createBadge(capability.runtime),
     createBadge(capability.sideEffect),
     createBadge(capability.routingHint),
@@ -1570,7 +1885,7 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
     }),
   )
 
-  skillDetail.replaceChildren(header, fields)
+  skillDetail.replaceChildren(header, createCapabilityLifecycle(capability), fields)
 }
 
 function updateActiveCapability(): void {
@@ -1587,6 +1902,7 @@ function selectCapability(capability: CapabilityContract): void {
 }
 
 function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement {
+  const lifecycle = resolveCapabilityLifecycle(capability)
   const item = document.createElement('button')
   item.type = 'button'
   item.className = 'skill-item'
@@ -1599,12 +1915,12 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
 
   const meta = document.createElement('div')
   meta.className = 'skill-meta'
-  meta.textContent = [capability.status, capability.runtime, capability.location, capability.sideEffect, capability.id].join(' | ')
+  meta.textContent = [lifecycle.stage, capability.runtime, capability.location, capability.sideEffect, capability.id].join(' | ')
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
   badges.replaceChildren(
-    createBadge(capability.status),
+    createBadge(lifecycle.stage),
     createBadge(capability.sideEffect),
     createBadge(capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked', capability.autonomousInvocation.allowed ? 'ready' : 'blocked'),
   )

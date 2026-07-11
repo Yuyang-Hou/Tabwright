@@ -105,12 +105,14 @@
   "copy_skill_prompt": { "message": "Copy skill prompt" },
   "copy_run": { "message": "Copy run" },
   "copy_run_after_approval": { "message": "Copy approved run" },
+  "copy_next_step": { "message": "Copy next step" },
   "label_ai_handoff": { "message": "AI handoff" },
   "label_compile_command": { "message": "Compile command" },
   "label_edit_prompt": { "message": "Edit prompt" },
   "label_use_prompt": { "message": "Use prompt" },
   "label_skill_prompt": { "message": "Skill prompt" },
   "label_run_command": { "message": "Run command" },
+  "label_next_command": { "message": "Next-step command" },
   "detail_id": { "message": "ID" },
   "detail_path": { "message": "Path" },
   "detail_saved": { "message": "Saved" },
@@ -140,6 +142,44 @@
   "field_autonomy": { "message": "Autonomy" },
   "field_recent_runs": { "message": "Recent runs" },
   "field_agent_skill": { "message": "Agent skill" },
+  "lifecycle_title": { "message": "Lifecycle" },
+  "lifecycle_step_drafted": { "message": "Draft" },
+  "lifecycle_step_validated": { "message": "Validated" },
+  "lifecycle_step_trusted": { "message": "Trusted" },
+  "lifecycle_stage_drafted": { "message": "Drafted" },
+  "lifecycle_stage_validated": { "message": "Validated" },
+  "lifecycle_stage_trusted": { "message": "Trusted" },
+  "lifecycle_stage_drifted": { "message": "Drifted" },
+  "lifecycle_stage_disabled": { "message": "Disabled" },
+  "lifecycle_next_step": {
+    "message": "Next step: $action$",
+    "placeholders": { "action": { "content": "$1" } }
+  },
+  "lifecycle_action_validate": { "message": "Validate contract" },
+  "lifecycle_action_trust": { "message": "Mark trusted" },
+  "lifecycle_action_run": { "message": "Run capability" },
+  "lifecycle_action_repair": { "message": "Repair contract drift" },
+  "lifecycle_action_enable": { "message": "Enable as draft" },
+  "lifecycle_health_checked": {
+    "message": "$health$ · checked $time$",
+    "placeholders": {
+      "health": { "content": "$1" },
+      "time": { "content": "$2" }
+    }
+  },
+  "lifecycle_health_not_checked": {
+    "message": "$health$ · no conformance run recorded",
+    "placeholders": { "health": { "content": "$1" } }
+  },
+  "lifecycle_health_healthy": { "message": "Contract healthy" },
+  "lifecycle_health_drifted": { "message": "Contract drift detected" },
+  "lifecycle_health_unknown": { "message": "Contract not validated" },
+  "lifecycle_drift_warning": {
+    "message": "Normal execution and AI autonomy stay blocked until the contract passes validation again."
+  },
+  "lifecycle_disabled_warning": {
+    "message": "This capability is disabled. Enable it as a draft before validation or execution."
+  },
   "autonomy_trusted_readonly": { "message": "trusted read-only capability" },
   "agent_skill_installed": {
     "message": "installed: $path$",

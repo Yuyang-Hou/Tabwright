@@ -296,7 +296,7 @@ describe('extension options page', () => {
 
     const distRoot = getExtensionDistRoot()
     const staticServer = await createStaticServer(distRoot)
-    const capability = {
+    const capabilityBase = {
       id: 'query-user',
       title: 'Query User',
       description: 'Look up a user by email.',
@@ -349,10 +349,90 @@ describe('extension options page', () => {
         installCommand: 'playwriter capability skill install query-user',
       },
     }
+    const trustedNextCommand =
+      'playwriter capability run query-user --browser user --input-json \'{"email":"from-contract@example.com"}\' --confirm query-user --json'
+    const capability = {
+      ...capabilityBase,
+      lifecycle: {
+        stage: 'trusted',
+        nextAction: 'run',
+        nextCommand: trustedNextCommand,
+        contractHealth: {
+          state: 'healthy',
+          checkedAt: '2026-07-07T00:00:00.000Z',
+          reasons: [],
+        },
+      },
+    }
+    const driftedNextCommand = 'playwriter capability show drifted-user --json'
+    const driftedCapability = {
+      ...capabilityBase,
+      id: 'drifted-user',
+      title: 'Drifted User Query',
+      status: 'draft',
+      autonomousInvocation: {
+        allowed: false,
+        reasons: ['current contract failed conformance'],
+      },
+      lifecycle: {
+        stage: 'drifted',
+        nextAction: 'repair',
+        nextCommand: driftedNextCommand,
+        contractHealth: {
+          state: 'drifted',
+          checkedAt: '2026-07-08T00:00:00.000Z',
+          reasons: ['output.userId must be string'],
+        },
+      },
+    }
+    const disabledCapability = {
+      ...capabilityBase,
+      id: 'legacy-disabled',
+      title: 'Legacy Disabled',
+      status: 'disabled',
+      autonomousInvocation: {
+        allowed: false,
+        reasons: ['status is disabled'],
+      },
+    }
+    const legacyTrustedCapability = {
+      ...capabilityBase,
+      id: 'legacy-trusted',
+      title: 'Legacy Trusted',
+      sideEffect: 'read',
+      requiresConfirmation: false,
+      autonomousInvocation: {
+        allowed: true,
+        reasons: [],
+      },
+    }
+    const historicalTrustedNextCommand = 'playwriter capability run historical-trusted --input-json \'{}\' --json'
+    const historicalTrustedCapability = {
+      ...legacyTrustedCapability,
+      id: 'historical-trusted',
+      title: 'Historical Trusted',
+      lifecycle: {
+        stage: 'trusted',
+        nextAction: 'run',
+        nextCommand: historicalTrustedNextCommand,
+        contractHealth: {
+          state: 'unknown',
+          reasons: [],
+        },
+      },
+    }
 
     const page = await testCtx.browserContext.newPage()
     await page.setViewportSize({ width: 1280, height: 720 })
     page.setDefaultTimeout(10000)
+    async function readClipboard(): Promise<string> {
+      return await page.evaluate(async () => {
+        const clipboardNavigator = navigator as Navigator & {
+          clipboard: { readText: () => Promise<string> }
+        }
+        return await clipboardNavigator.clipboard.readText()
+      })
+    }
     try {
       await testCtx.browserContext.grantPermissions(['clipboard-read', 'clipboard-write'], {
         origin: staticServer.baseUrl,
@@ -386,7 +466,13 @@ describe('extension options page', () => {
             headers: { ...corsHeaders, 'content-type': 'application/json' },
             body: JSON.stringify({
               cwd: '/Users/test/project',
-              capabilities: [capability],
+              capabilities: [
+                capability,
+                driftedCapability,
+                disabledCapability,
+                legacyTrustedCapability,
+                historicalTrustedCapability,
+              ],
             }),
           })
           return
@@ -413,24 +499,60 @@ describe('extension options page', () => {
       await expect.poll(async () => {
         return await page.locator('#skill-detail').textContent()
       }).toContain('email: string')
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('Contract healthy')
       await page.getByRole('button', { name: 'Copy approved run' }).click()
-      const runCommand = await page.evaluate(async () => {
-        const clipboardNavigator = navigator as Navigator & {
-          clipboard: { readText: () => Promise<string> }
-        }
-        return await clipboardNavigator.clipboard.readText()
-      })
-      expect(runCommand).toContain('--browser user')
-      expect(runCommand).toContain('--confirm')
-      expect(runCommand).toContain("'query-user'")
+      const runCommand = await readClipboard()
+      expect(runCommand).toBe(trustedNextCommand)
       await page.getByRole('button', { name: 'Copy use prompt' }).click()
-      const usePrompt = await page.evaluate(async () => {
-        const clipboardNavigator = navigator as Navigator & {
-          clipboard: { readText: () => Promise<string> }
-        }
-        return await clipboardNavigator.clipboard.readText()
-      })
+      const usePrompt = await readClipboard()
       expect(usePrompt).toContain('Stop and ask for my explicit approval')
+      expect(usePrompt).toContain(trustedNextCommand)
+
+      await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('Repair contract drift')
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('output.userId must be string')
+      expect(await page.getByRole('button', { name: 'Copy approved run' }).count()).toBe(0)
+      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
+      expect(await readClipboard()).toBe(driftedNextCommand)
+      await page.getByRole('button', { name: 'Copy use prompt' }).click()
+      expect(await readClipboard()).toContain('Do not run the capability as a normal task until it reaches Trusted')
+
+      await page.locator('.skill-item').filter({ hasText: 'Legacy Disabled' }).click()
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('Enable as draft')
+      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
+      expect(await readClipboard()).toBe("playwriter capability draft 'legacy-disabled'")
+
+      await page.locator('.skill-item').filter({ hasText: 'Legacy Trusted' }).click()
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('Contract not validated')
+      await page.getByRole('button', { name: 'Copy run' }).click()
+      expect(await readClipboard()).toContain("playwriter capability run 'legacy-trusted'")
+
+      await page.locator('.skill-item').filter({ hasText: 'Historical Trusted' }).click()
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('Contract not validated')
+      await page.getByRole('button', { name: 'Copy run' }).click()
+      expect(await readClipboard()).toBe(historicalTrustedNextCommand)
+
+      await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
+      await page.locator('.language-button[data-language="zh_CN"]').click()
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('下一步：修复契约漂移')
+      await expect.poll(async () => {
+        return await page.locator('.lifecycle-card').textContent()
+      }).toContain('检测到契约漂移 · 检查于')
+      expect(await page.locator('.lifecycle-card').textContent()).not.toContain('$action$')
     } finally {
       await testCtx.browserContext.clearPermissions()
       await page.close()
