@@ -62,6 +62,17 @@ describe('playwriter cli help', () => {
     expect(stderr).toBe('')
   }, 30000)
 
+  test('renders replay discovery and compact evidence help', async () => {
+    const listHelp = await runCli(['replay', 'list', '--help'])
+    const indexHelp = await runCli(['replay', 'index', '--help'])
+
+    expect(listHelp.stdout).toContain('next commands')
+    expect(listHelp.stdout).toContain('--limit')
+    expect(indexHelp.stdout).toContain('--full')
+    expect(listHelp.stderr).toBe('')
+    expect(indexHelp.stderr).toBe('')
+  }, 30000)
+
   test('unknown command exits with code 1', async () => {
     try {
       await runCli(['run'])

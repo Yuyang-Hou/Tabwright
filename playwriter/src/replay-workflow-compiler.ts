@@ -61,6 +61,16 @@ export interface CompiledReplayWorkflow {
   saved: SavedWorkflowCapability
 }
 
+export class UnsupportedReplayWorkflowError extends Error {
+  readonly analysis: ReplayWorkflowAnalysis
+
+  constructor(options: { analysis: ReplayWorkflowAnalysis }) {
+    super(`Replay compiler could not infer a supported workflow: ${options.analysis.reasons.join(' ')}`)
+    this.name = 'UnsupportedReplayWorkflowError'
+    this.analysis = options.analysis
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -655,7 +665,7 @@ export function compileReplayWorkflow(options: CompileReplayWorkflowOptions): Co
     events: replay.events,
   })
   if (analysis.actionKind !== 'list-append') {
-    throw new Error(`Replay compiler could not infer a supported workflow: ${analysis.reasons.join(' ')}`)
+    throw new UnsupportedReplayWorkflowError({ analysis })
   }
   const script = buildListAppendScript(analysis, options)
   const saved = saveWorkflowCapability({

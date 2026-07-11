@@ -158,6 +158,26 @@ playwriter capability run update-user --browser user --input-json '{"email":"a@e
 
 `--force` only allows draft execution or bypasses a browser URL match. It never bypasses confirmation. Browser capabilities that depend on the user's login must use `--browser user` or an explicit browser key; the default is headless.
 
+## Replay to capability
+
+List saved demonstrations and inspect one before compiling it:
+
+```bash
+playwriter replay list --limit 10 --json
+playwriter replay index <replay-id> --json
+playwriter replay make <replay-id> <capability-id> --force --goal 'repeat this workflow' --json
+```
+
+`replay index --json` returns compact evidence: actions, fields, annotations, warnings, and selector hints remain, while bulky page text and interactive-element arrays become counts. Add `--full` when the complete evidence is required.
+
+`replay make` returns `status: "compiled"` when it writes a draft capability. Unknown workflows return `status: "needs_ai"`, write no placeholder capability, and include exact `next.inspectCommand` and `next.createCommand` values for an AI authoring handoff.
+
+Generated workflows are draft browser writes. Inspect the result, obtain explicit approval, then use the returned run command:
+
+```bash
+playwriter capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '<json-input>' --json
+```
+
 ## Other commands
 
 ```bash

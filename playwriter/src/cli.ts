@@ -48,7 +48,20 @@ import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import { buildCapabilityRunRecord, prepareCapabilityRun, runNodeCapability } from './capability-runner.js'
 import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
 import { createReplayAiIndexFromRecording, saveReplayAiIndex } from './replay-ai-index.js'
-import { compileReplayWorkflow } from './replay-workflow-compiler.js'
+import { listSavedRrwebRecordings } from './rrweb-recording-relay.js'
+import {
+  compileReplayWorkflow,
+  UnsupportedReplayWorkflowError,
+  type ReplayWorkflowAnalysis,
+} from './replay-workflow-compiler.js'
+import {
+  buildReplayCreateCommand,
+  buildReplayIndexCommand,
+  buildReplayMakeCommand,
+  buildReplayRunCommand,
+  replayCapabilityId,
+  toCompactReplayAiIndex,
+} from './replay-handoff.js'
 import { formatReplayEvalReport, runReplayEval } from './replay-eval.js'
 import type { ExecuteResult } from './executor.js'
 import { buildDoctorReport, formatDoctorReport, type DoctorSession } from './doctor.js'
@@ -835,10 +848,6 @@ function exitWithError(error: unknown): never {
   process.exit(1)
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`
-}
-
 function buildNestedExampleInput(pathValue: string): Record<string, unknown> {
   const parts = pathValue.split('.').filter((part) => {
     return part.length > 0
@@ -854,21 +863,122 @@ function buildNestedExampleInput(pathValue: string): Record<string, unknown> {
   }, '...') as Record<string, unknown>
 }
 
-function buildReplayCapabilityRunCommand(capabilityId: string, valueInputPath: string): string {
-  const exampleInput = JSON.stringify(buildNestedExampleInput(valueInputPath))
-  return `playwriter capability run ${shellQuote(capabilityId)} --browser user --force --confirm ${shellQuote(capabilityId)} --input-json ${shellQuote(exampleInput)} --json`
+function toReplayCompilerSummary(analysis: ReplayWorkflowAnalysis): ReplayWorkflowAnalysis & { supported: boolean } {
+  return {
+    supported: analysis.actionKind !== 'unknown',
+    ...analysis,
+  }
 }
+
+function buildReplayNeedsAiHandoff(options: {
+  replayId: string
+  capabilityId: string
+  goal?: string
+  analysis: ReplayWorkflowAnalysis
+}) {
+  const index = createReplayAiIndexFromRecording(options.replayId)
+  return {
+    status: 'needs_ai' as const,
+    replay: {
+      id: options.replayId,
+      url: index.url,
+    },
+    capabilityWritten: false,
+    compiler: toReplayCompilerSummary(options.analysis),
+    evidence: toCompactReplayAiIndex(index),
+    next: {
+      action: 'author_capability' as const,
+      inspectCommand: buildReplayIndexCommand({ replayId: options.replayId, full: true }),
+      createCommand: buildReplayCreateCommand({
+        capabilityId: options.capabilityId,
+        title: `Workflow from replay ${options.replayId}`,
+        description: options.goal,
+      }),
+    },
+  }
+}
+
+function printReplayNeedsAiHandoff(options: {
+  handoff: ReturnType<typeof buildReplayNeedsAiHandoff>
+  json?: boolean
+}): void {
+  if (options.json) {
+    console.log(JSON.stringify(options.handoff, null, 2))
+    return
+  }
+  console.log(`Replay ${options.handoff.replay.id} needs AI authoring.`)
+  console.log('No capability was written.')
+  options.handoff.compiler.reasons.forEach((reason) => {
+    console.log(`- ${reason}`)
+  })
+  console.log(`Inspect full evidence: ${options.handoff.next.inspectCommand}`)
+  console.log(`Create a browser scaffold: ${options.handoff.next.createCommand}`)
+}
+
+cli
+  .command('replay list', 'List saved rrweb replays and the next commands for each recording')
+  .option('--limit <n>', z.number().default(10).describe('Maximum number of recordings'))
+  .option('--json', 'Print JSON')
+  .action((options: { limit?: number; json?: boolean }) => {
+    try {
+      const recordings = listSavedRrwebRecordings({ limit: options.limit || 10 }).map((recording) => {
+        return {
+          id: recording.id,
+          url: recording.url,
+          savedAt: recording.savedAt,
+          durationMs: recording.duration,
+          eventCount: recording.eventCount,
+          commands: {
+            inspect: buildReplayIndexCommand({ replayId: recording.id }),
+            make: buildReplayMakeCommand({
+              replayId: recording.id,
+              capabilityId: replayCapabilityId(recording.id),
+            }),
+          },
+        }
+      })
+      if (options.json) {
+        console.log(
+          JSON.stringify(
+            {
+              recordings,
+              next:
+                recordings.length > 0
+                  ? recordings[0]?.commands
+                  : { action: 'record', command: 'Use replay.start() and replay.stop() in a Playwriter session.' },
+            },
+            null,
+            2,
+          ),
+        )
+        return
+      }
+      if (recordings.length === 0) {
+        console.log('No saved replays. Use replay.start() and replay.stop() in a Playwriter session first.')
+        return
+      }
+      recordings.forEach((recording) => {
+        console.log(`${recording.id}  ${recording.url || '-'}  ${recording.eventCount} events`)
+        console.log(`  Inspect: ${recording.commands.inspect}`)
+        console.log(`  Make: ${recording.commands.make}`)
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
 
 cli
   .command('replay index <replayId>', 'Build an AI-readable index from an rrweb replay')
   .option('--write', 'Save the index under ~/.playwriter/replay-ai-indexes')
+  .option('--full', 'Include page text and the full interactive-element inventory')
   .option('--json', 'Print JSON')
-  .action((replayId: string, options: { write?: boolean; json?: boolean }) => {
+  .action((replayId: string, options: { write?: boolean; full?: boolean; json?: boolean }) => {
     try {
       const index = createReplayAiIndexFromRecording(replayId)
       const saved = options.write ? saveReplayAiIndex(index) : undefined
       if (options.json) {
-        console.log(JSON.stringify(saved ? { index, saved } : { index }, null, 2))
+        const outputIndex = options.full ? index : toCompactReplayAiIndex(index)
+        console.log(JSON.stringify(saved ? { index: outputIndex, saved } : { index: outputIndex }, null, 2))
         return
       }
       console.log(`Replay: ${index.replayId}`)
@@ -925,12 +1035,20 @@ cli
           valueInputPath,
           overwrite: options.force,
         })
-        const runCommand = buildReplayCapabilityRunCommand(capabilityId, valueInputPath)
+        const runCommand = buildReplayRunCommand({
+          capabilityId,
+          input: buildNestedExampleInput(valueInputPath),
+        })
         if (options.json) {
           console.log(
             JSON.stringify(
               {
-                analysis: compiled.analysis,
+                status: 'compiled',
+                replay: {
+                  id: replayId,
+                  url: compiled.analysis.url,
+                },
+                compiler: toReplayCompilerSummary(compiled.analysis),
                 capability: compiled.saved.capability,
                 next: {
                   requiresUserConfirmation: true,
@@ -950,6 +1068,18 @@ cli
         console.log('Requires explicit user confirmation before running.')
         console.log(`After approval: ${runCommand}`)
       } catch (error) {
+        if (error instanceof UnsupportedReplayWorkflowError) {
+          printReplayNeedsAiHandoff({
+            handoff: buildReplayNeedsAiHandoff({
+              replayId,
+              capabilityId,
+              goal: options.description || options.goal,
+              analysis: error.analysis,
+            }),
+            json: options.json,
+          })
+          return
+        }
         exitWithError(error)
       }
     },
@@ -991,14 +1121,22 @@ cli
           valueInputPath,
           overwrite: options.force,
         })
-        const runCommand = buildReplayCapabilityRunCommand(capabilityId, valueInputPath)
+        const runCommand = buildReplayRunCommand({
+          capabilityId,
+          input: buildNestedExampleInput(valueInputPath),
+        })
         if (options.json) {
           console.log(
             JSON.stringify(
               {
-                index,
+                status: 'compiled',
+                replay: {
+                  id: replayId,
+                  url: index.url,
+                },
                 savedIndex,
-                analysis: compiled.analysis,
+                compiler: toReplayCompilerSummary(compiled.analysis),
+                evidence: toCompactReplayAiIndex(index),
                 capability: compiled.saved.capability,
                 next: {
                   requiresUserConfirmation: true,
@@ -1026,6 +1164,18 @@ cli
         console.log('Requires explicit user confirmation before running.')
         console.log(`After approval: ${runCommand}`)
       } catch (error) {
+        if (error instanceof UnsupportedReplayWorkflowError) {
+          printReplayNeedsAiHandoff({
+            handoff: buildReplayNeedsAiHandoff({
+              replayId,
+              capabilityId,
+              goal: options.description || options.goal,
+              analysis: error.analysis,
+            }),
+            json: options.json,
+          })
+          return
+        }
         exitWithError(error)
       }
     },

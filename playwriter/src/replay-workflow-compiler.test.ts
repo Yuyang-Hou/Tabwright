@@ -2,7 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { readCapabilityScript } from './capability-registry.js'
-import { analyzeReplayWorkflow, compileReplayWorkflow } from './replay-workflow-compiler.js'
+import {
+  analyzeReplayWorkflow,
+  compileReplayWorkflow,
+  UnsupportedReplayWorkflowError,
+} from './replay-workflow-compiler.js'
 import type { RrwebEvent } from './protocol.js'
 
 let previousHome: string | undefined
@@ -177,6 +181,68 @@ describe('replay workflow compiler', () => {
       expect(script).toContain('button:has-text(\\"Add entry\\")')
       expect(script).toContain('const expectedPageKey = "config_demo_simple_COPY123"')
       expect(script).toContain('needs_ai')
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('throws a structured error before saving an unsupported workflow', () => {
+    const home = useTempHome()
+    const cwd = createTempDir('replay-workflow-compiler-unsupported-cwd-')
+    const replayPath = path.join(home, '.playwriter', 'rrweb-recordings', 'replay-unsupported.json')
+    const events: RrwebEvent[] = [
+      {
+        type: 2,
+        timestamp: 1000,
+        data: {
+          node: {
+            id: 1,
+            type: 0,
+            childNodes: [],
+          },
+        },
+      },
+    ]
+    writeJson(replayPath, events)
+    writeJson(path.join(home, '.playwriter', 'rrweb-recordings', 'index.json'), [
+      {
+        id: 'replay-unsupported',
+        path: replayPath,
+        startedAt: 1000,
+        savedAt: 2000,
+        duration: 1000,
+        size: 100,
+        eventCount: events.length,
+        tabId: 1,
+        url: 'https://example.com/',
+      },
+    ])
+
+    try {
+      let thrown: unknown
+      try {
+        compileReplayWorkflow({
+          replayId: 'replay-unsupported',
+          id: 'unsupported-workflow',
+          cwd,
+          overwrite: true,
+        })
+      } catch (error) {
+        thrown = error
+      }
+
+      expect(thrown).toBeInstanceOf(UnsupportedReplayWorkflowError)
+      if (!(thrown instanceof UnsupportedReplayWorkflowError)) {
+        throw new Error('Expected UnsupportedReplayWorkflowError')
+      }
+      expect(thrown.analysis.actionKind).toBe('unknown')
+      expect(thrown.analysis.reasons).toEqual(
+        expect.arrayContaining(['Could not classify the replay into a known workflow template.']),
+      )
+      expect(thrown.message).toBe(
+        `Replay compiler could not infer a supported workflow: ${thrown.analysis.reasons.join(' ')}`,
+      )
+      expect(fs.existsSync(path.join(cwd, '.playwriter', 'capabilities', 'unsupported-workflow'))).toBe(false)
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

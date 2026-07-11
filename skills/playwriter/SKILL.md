@@ -45,6 +45,24 @@ playwriter capability skill install <capability-id>
 
 `capability skill install` refuses untouched scaffold templates. Simple capabilities usually need only a good contract, not a separate agent skill.
 
+## Replay-to-Capability Handoff
+
+Turn a saved user demonstration into a capability through the CLI contract:
+
+```bash
+playwriter replay list --limit 10 --json
+playwriter replay index <replay-id> --json
+playwriter replay make <replay-id> <capability-id> --force --goal '<goal>' --json
+```
+
+`replay index --json` is compact by default; add `--full` only when complete page text and interactive-element evidence is needed. `replay make` returns `status: "compiled"` after writing a draft. An unsupported workflow returns `status: "needs_ai"`, writes no fake capability, and supplies exact `next.inspectCommand` and `next.createCommand` commands. Follow that handoff instead of inventing a workflow.
+
+Generated workflows are draft browser writes. Inspect them and obtain explicit user approval before running the exact returned command, which must include `--browser user --force --confirm <capability-id> --json`:
+
+```bash
+playwriter capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '<json-input>' --json
+```
+
 ## Browser Core Protocol
 
 This skill contains the required core protocol. Do not load the 17k-token extended reference before every browser task. Query it only when the task needs a specialized API:

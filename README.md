@@ -49,15 +49,21 @@ playwriter -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Lear
 
 > **Tip:** Always use single quotes for `-e` to prevent bash from interpreting `$`, backticks, and `\` in your JS code. Use double quotes for strings inside the JS.
 
-## Replay Workflow Self-Test
+## Replay to Capability
 
-Turn a saved DOM replay into a runnable draft capability:
+List saved demonstrations, inspect compact evidence, then turn one into a runnable draft capability:
 
 ```bash
-playwriter replay make <replay-id> <capability-id> --force --goal "add the requested list item"
+playwriter replay list --limit 10 --json
+playwriter replay index <replay-id> --json
+playwriter replay make <replay-id> <capability-id> --force --goal "add the requested list item" --json
 # Generated workflows are browser writes. Stop for explicit user approval first.
-playwriter capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '{"value":"test3"}'
+playwriter capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '{"value":"test3"}' --json
 ```
+
+`replay index --json` omits bulky page text and interactive-element arrays while preserving actions, fields, annotations, warnings, and selector hints. Add `--full` when an AI needs the complete evidence. `replay make` returns `status: "compiled"` when it writes a draft. If the deterministic compiler does not recognize the workflow, it returns `status: "needs_ai"`, writes no placeholder capability, and provides exact `next.inspectCommand` and `next.createCommand` handoff commands.
+
+### Replay Workflow Self-Test
 
 Playwriter can evaluate the recording-to-capability product loop locally:
 
