@@ -43,4 +43,47 @@ describe('capability options view', () => {
       fs.rmSync(cwd, { recursive: true, force: true })
     }
   })
+
+  test('keeps the capability list available when run logs or entry scripts are damaged', () => {
+    const cwd = createTempDir('capability-options-damaged-')
+    try {
+      const damagedRuns = createCapability({
+        id: 'damaged-runs',
+        title: 'Damaged Runs',
+        location: 'project',
+        cwd,
+      })
+      fs.writeFileSync(path.join(damagedRuns.dir, 'runs.jsonl'), '{"id":\n')
+
+      const missingScript = createCapability({
+        id: 'missing-script',
+        title: 'Missing Script',
+        location: 'project',
+        cwd,
+      })
+      fs.rmSync(missingScript.scriptPath)
+
+      const response = listCapabilityOptions({ cwd })
+      const damagedRunsItem = response.capabilities.find((capability) => capability.id === 'damaged-runs')
+      const missingScriptItem = response.capabilities.find((capability) => capability.id === 'missing-script')
+
+      expect(damagedRunsItem).toEqual(expect.objectContaining({ recentRuns: [] }))
+      expect(missingScriptItem).toEqual(
+        expect.objectContaining({
+          lifecycle: expect.objectContaining({
+            stage: 'drifted',
+            contractHealth: expect.objectContaining({
+              state: 'drifted',
+              reasons: expect.arrayContaining([expect.stringContaining('Cannot validate the capability entry script')]),
+            }),
+          }),
+          autonomousInvocation: expect.objectContaining({
+            allowed: false,
+          }),
+        }),
+      )
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
 })

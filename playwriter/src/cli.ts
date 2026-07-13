@@ -23,6 +23,7 @@ import {
   getExtensionStatus,
   getExtensionsStatus,
   getLocalRelayHttpBaseUrl,
+  getRelayServerFeatures,
   getRelayServerVersion,
   selectImplicitExtension,
   type ExtensionStatus,
@@ -2401,7 +2402,7 @@ cli
 
     const serverUrl = await getServerUrl(options.host)
     const headers = buildAuthHeaders({ token: options.token })
-    const [relayVersion, initialExtensions, sessions] = await Promise.all([
+    const [relayVersion, relayFeatures, initialExtensions, sessions] = await Promise.all([
       isRemote
         ? fetch(`${serverUrl}/version`, { headers, signal: AbortSignal.timeout(2000) })
             .then(async (response) => {
@@ -2415,6 +2416,25 @@ cli
               return null
             })
         : getRelayServerVersion(RELAY_PORT),
+      isRemote
+        ? fetch(`${serverUrl}/features`, { headers, signal: AbortSignal.timeout(2000) })
+            .then(async (response) => {
+              if (!response.ok) {
+                return null
+              }
+              const result: unknown = await response.json()
+              if (!result || typeof result !== 'object') {
+                return null
+              }
+              const features = (result as { features?: unknown }).features
+              return Array.isArray(features) && features.every((feature) => typeof feature === 'string')
+                ? features
+                : null
+            })
+            .catch(() => {
+              return null
+            })
+        : getRelayServerFeatures(RELAY_PORT),
       isRemote ? fetchExtensionsStatus({ host: options.host, token: options.token }) : getExtensionsStatus(RELAY_PORT),
       fetch(`${serverUrl}/cli/sessions`, { headers, signal: AbortSignal.timeout(2000) })
         .then(async (response) => {
@@ -2442,6 +2462,7 @@ cli
       cwd: process.cwd(),
       remote: isRemote,
       relayVersion,
+      relayFeatures,
       relayError: relayStartup.error,
       extensions,
       sessions,

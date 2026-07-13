@@ -8,6 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pc from 'picocolors'
 import { getListeningPidsForPort, killPortProcess } from './kill-port.js'
+import { RELAY_FEATURES } from './protocol.js'
 import { VERSION, sleep, LOG_FILE_PATH } from './utils.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -119,6 +120,43 @@ export async function getRelayServerVersion(port: number = RELAY_PORT): Promise<
   return data.version
 }
 
+export async function getRelayServerFeatures(port: number = RELAY_PORT): Promise<string[] | null> {
+  const result = await fetchLocalRelayPath({
+    path: '/features',
+    port,
+    timeoutMs: 2000,
+    accept: (response) => {
+      return response.ok
+    },
+  })
+  if (!result) {
+    return null
+  }
+  const data: unknown = await result.response.json()
+  if (!data || typeof data !== 'object') {
+    return null
+  }
+  const features = (data as { features?: unknown }).features
+  if (!Array.isArray(features) || !features.every((feature) => typeof feature === 'string')) {
+    return null
+  }
+  return features
+}
+
+export function supportsRelayFeatures(options: {
+  features: readonly string[] | null
+  requiredFeatures?: readonly string[]
+}): boolean {
+  const requiredFeatures = options.requiredFeatures || RELAY_FEATURES
+  const features = options.features
+  if (!features) {
+    return false
+  }
+  return requiredFeatures.every((feature) => {
+    return features.includes(feature)
+  })
+}
+
 function acceptsRelayVersion({
   version,
   expectedVersion,
@@ -171,9 +209,30 @@ export async function waitForRelayVersion({
   return null
 }
 
-export async function getExtensionStatus(
-  port: number = RELAY_PORT,
-): Promise<{
+async function waitForCurrentRelayReadiness(options: {
+  port: number
+  timeoutMs: number
+  intervalMs?: number
+}): Promise<string | null> {
+  const end = Date.now() + options.timeoutMs
+  const intervalMs = options.intervalMs || 200
+  while (Date.now() < end) {
+    const version = await getRelayServerVersion(options.port)
+    if (version && compareVersions(version, VERSION) > 0) {
+      return version
+    }
+    if (version === VERSION) {
+      const features = await getRelayServerFeatures(options.port)
+      if (supportsRelayFeatures({ features })) {
+        return version
+      }
+    }
+    await sleep(intervalMs)
+  }
+  return null
+}
+
+export async function getExtensionStatus(port: number = RELAY_PORT): Promise<{
   connected: boolean
   activeTargets: number
   playwriterVersion: string | null
@@ -416,8 +475,9 @@ export async function ensureRelayServer(options: EnsureRelayServerOptions = {}):
 async function ensureRelayServerImpl(options: EnsureRelayServerOptions = {}): Promise<true | undefined> {
   const { logger, restartOnVersionMismatch = true, env: additionalEnv } = options
   const serverVersion = await getRelayServerVersion(RELAY_PORT)
+  const sameVersionFeatures = serverVersion === VERSION ? await getRelayServerFeatures(RELAY_PORT) : null
 
-  if (serverVersion === VERSION) {
+  if (serverVersion === VERSION && supportsRelayFeatures({ features: sameVersionFeatures })) {
     return
   }
 
@@ -429,9 +489,11 @@ async function ensureRelayServerImpl(options: EnsureRelayServerOptions = {}): Pr
 
   if (serverVersion !== null) {
     if (restartOnVersionMismatch) {
-      logger?.log(
-        pc.yellow(`CDP relay server version mismatch (server: ${serverVersion}, client: ${VERSION}), restarting...`),
-      )
+      const reason =
+        serverVersion === VERSION
+          ? `CDP relay server is missing current features (${RELAY_FEATURES.join(', ')}), restarting...`
+          : `CDP relay server version mismatch (server: ${serverVersion}, client: ${VERSION}), restarting...`
+      logger?.log(pc.yellow(reason))
       await killRelayServer({ port: RELAY_PORT })
     } else {
       // Server is running but different version, just use it
@@ -445,16 +507,25 @@ async function ensureRelayServerImpl(options: EnsureRelayServerOptions = {}): Pr
       // Poll /version briefly before deciding to kill it (issue #75).
       const foundVersion = await waitForRelayVersion({ port: RELAY_PORT })
       if (foundVersion) {
-        // A relay came up while we waited; use it
-        if (foundVersion === VERSION || compareVersions(foundVersion, VERSION) > 0) {
+        // A relay came up while we waited; only reuse the current version when
+        // it also exposes the feature contract expected by this build.
+        if (compareVersions(foundVersion, VERSION) > 0) {
           return
+        }
+        if (foundVersion === VERSION) {
+          const features = await getRelayServerFeatures(RELAY_PORT)
+          if (supportsRelayFeatures({ features })) {
+            return
+          }
         }
         if (!restartOnVersionMismatch) {
           return
         }
-        logger?.log(
-          pc.yellow(`CDP relay server version mismatch (server: ${foundVersion}, client: ${VERSION}), restarting...`),
-        )
+        const reason =
+          foundVersion === VERSION
+            ? `CDP relay server is missing current features (${RELAY_FEATURES.join(', ')}), restarting...`
+            : `CDP relay server version mismatch (server: ${foundVersion}, client: ${VERSION}), restarting...`
+        logger?.log(pc.yellow(reason))
       } else {
         logger?.log(
           pc.yellow(
@@ -486,10 +557,9 @@ async function ensureRelayServerImpl(options: EnsureRelayServerOptions = {}): Pr
   const startTimeoutMs = 5000
   const startTime = Date.now()
 
-  const newVersion = await waitForRelayVersion({
+  const newVersion = await waitForCurrentRelayReadiness({
     port: RELAY_PORT,
     timeoutMs: startTimeoutMs,
-    minimumVersion: VERSION,
   })
   if (newVersion && compareVersions(newVersion, VERSION) >= 0) {
     logger?.log(pc.green('CDP relay server started successfully'))

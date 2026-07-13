@@ -28,6 +28,7 @@ import {
   waitForConnectedExtensions,
   waitForRelayVersion,
 } from './relay-client.js'
+import { RELAY_FEATURES } from './protocol.js'
 import { VERSION } from './utils.js'
 
 afterEach(() => {
@@ -47,6 +48,13 @@ function extension({ extensionId, activeTargets }: { extensionId: string; active
 
 function relayVersionResponse(version: string): Response {
   return new Response(JSON.stringify({ version }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+function relayFeaturesResponse(features: readonly string[] = RELAY_FEATURES): Response {
+  return new Response(JSON.stringify({ protocolVersion: 1, features }), {
     status: 200,
     headers: { 'content-type': 'application/json' },
   })
@@ -258,6 +266,7 @@ describe('ensureRelayServer', () => {
       .mockRejectedValueOnce(new Error('not listening on IPv6'))
       .mockResolvedValueOnce(relayVersionResponse('0.3.9'))
       .mockResolvedValueOnce(relayVersionResponse(VERSION))
+      .mockResolvedValueOnce(relayFeaturesResponse())
     vi.stubGlobal('fetch', fetchMock)
 
     let settled = false
@@ -273,8 +282,75 @@ describe('ensureRelayServer', () => {
     await vi.advanceTimersByTimeAsync(1_200)
 
     await expect(result).resolves.toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(6)
     expect(unrefMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('restarts a same-version relay that is missing current features', async () => {
+    let spawnedCurrentRelay = false
+    spawnMock.mockImplementation(() => {
+      spawnedCurrentRelay = true
+      return { unref: unrefMock }
+    })
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input) => {
+      if (String(input).includes('/features')) {
+        return Promise.resolve(spawnedCurrentRelay ? relayFeaturesResponse() : new Response(null, { status: 404 }))
+      }
+      return Promise.resolve(relayVersionResponse(VERSION))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = ensureRelayServer()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(spawnMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await expect(result).resolves.toBe(true)
+    expect(killPortProcessMock).toHaveBeenCalledTimes(1)
+    expect(unrefMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('rechecks features when a same-version relay wins the startup race', async () => {
+    getListeningPidsForPortMock.mockResolvedValueOnce([123]).mockResolvedValue([])
+    let spawnedCurrentRelay = false
+    let initialVersionAttempts = 0
+    spawnMock.mockImplementation(() => {
+      spawnedCurrentRelay = true
+      return { unref: unrefMock }
+    })
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input) => {
+      if (String(input).includes('/features')) {
+        return Promise.resolve(spawnedCurrentRelay ? relayFeaturesResponse() : new Response(null, { status: 404 }))
+      }
+      if (!spawnedCurrentRelay && initialVersionAttempts < 3) {
+        initialVersionAttempts += 1
+        return Promise.reject(new Error('relay is still starting'))
+      }
+      return Promise.resolve(relayVersionResponse(VERSION))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = ensureRelayServer()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(spawnMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await expect(result).resolves.toBe(true)
+    expect(killPortProcessMock).toHaveBeenCalledTimes(1)
+    expect(unrefMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('keeps a same-version relay that advertises current features', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input) => {
+      return Promise.resolve(
+        String(input).includes('/features') ? relayFeaturesResponse() : relayVersionResponse(VERSION),
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(ensureRelayServer()).resolves.toBeUndefined()
+    expect(killPortProcessMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   test('accepts a newer relay that wins the startup race', async () => {

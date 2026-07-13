@@ -160,6 +160,30 @@ describe('buildDoctorReport', () => {
     )
   })
 
+  test('reports a same-version relay that is missing saved-data features', () => {
+    const report = buildDoctorReport({
+      version: '0.4.0',
+      cwd: '/project',
+      remote: false,
+      relayVersion: '0.4.0',
+      relayFeatures: null,
+      extensions: [extension()],
+      sessions: [session()],
+      capabilityCount: 2,
+    })
+
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'relay',
+          status: 'warn',
+          message: expect.stringContaining('saved-data features are missing'),
+        }),
+      ]),
+    )
+    expect(report.next.command).toBe('playwriter session list')
+  })
+
   test('keeps remote connection failures diagnostic and non-destructive', () => {
     const report = buildDoctorReport({
       version: '0.4.0',

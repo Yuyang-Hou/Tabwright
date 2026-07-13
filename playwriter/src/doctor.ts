@@ -1,4 +1,5 @@
-import { compareVersions, type ExtensionStatus } from './relay-client.js'
+import { compareVersions, supportsRelayFeatures, type ExtensionStatus } from './relay-client.js'
+import { RELAY_REVIEW_FEATURES } from './protocol.js'
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail' | 'info'
 
@@ -38,6 +39,7 @@ export function buildDoctorReport(options: {
   cwd: string
   remote: boolean
   relayVersion: string | null
+  relayFeatures?: string[] | null
   relayError?: string | null
   extensions: ExtensionStatus[]
   sessions: DoctorSession[]
@@ -60,6 +62,9 @@ export function buildDoctorReport(options: {
   const newerExtension = options.extensions.find((extension) => {
     return extension.playwriterVersion && compareVersions(extension.playwriterVersion, options.version) > 0
   })
+  const relayFeatureMismatch =
+    options.relayFeatures !== undefined &&
+    !supportsRelayFeatures({ features: options.relayFeatures, requiredFeatures: RELAY_REVIEW_FEATURES })
   const relayCheck: DoctorCheck = (() => {
     if (!options.relayVersion) {
       return {
@@ -79,6 +84,14 @@ export function buildDoctorReport(options: {
         status: 'warn',
         message: `Relay ${options.relayVersion} is older than CLI ${options.version}.`,
         detail: 'Restart Playwriter so the CLI can replace the older relay.',
+      }
+    }
+    if (relayFeatureMismatch) {
+      return {
+        id: 'relay',
+        status: 'warn',
+        message: `Relay ${options.relayVersion} is reachable, but current saved-data features are missing.`,
+        detail: 'Core browser control may still work. Restart Playwriter before using recordings or capabilities.',
       }
     }
     return {
@@ -199,6 +212,13 @@ export function buildDoctorReport(options: {
           ? 'Check the remote relay host, token, and network path, then run doctor again.'
           : 'Read the relay log, fix the startup error, then run doctor again.',
         ...(options.remote ? {} : { command: 'playwriter logfile' }),
+      }
+    }
+
+    if (relayFeatureMismatch) {
+      return {
+        title: 'Restart the local service so recordings and capabilities become available.',
+        command: 'playwriter session list',
       }
     }
 

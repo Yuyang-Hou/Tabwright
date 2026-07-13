@@ -245,7 +245,9 @@ export function getProjectCapabilitiesDir(options: { cwd?: string } = {}): strin
   return path.join(options.cwd || process.cwd(), '.playwriter', 'capabilities')
 }
 
-export function getCapabilityRoots(options: { cwd?: string } = {}): Array<{ dir: string; location: CapabilityLocation }> {
+export function getCapabilityRoots(
+  options: { cwd?: string } = {},
+): Array<{ dir: string; location: CapabilityLocation }> {
   return [
     { dir: getProjectCapabilitiesDir({ cwd: options.cwd }), location: 'project' },
     { dir: getUserCapabilitiesDir(), location: 'user' },
@@ -615,7 +617,14 @@ export function readCapabilityRuns(options: { capability: CapabilityRecord; limi
     })
   const selectedLines = typeof options.limit === 'number' ? lines.slice(-options.limit) : lines
   return selectedLines.flatMap((line) => {
-    const parsed = CapabilityRunRecordSchema.safeParse(JSON.parse(line))
+    const value: unknown = (() => {
+      try {
+        return JSON.parse(line)
+      } catch {
+        return null
+      }
+    })()
+    const parsed = CapabilityRunRecordSchema.safeParse(value)
     if (!parsed.success) {
       return []
     }
@@ -633,7 +642,21 @@ export function getCapabilityContractFingerprint(capability: CapabilityRecord): 
 }
 
 export function getCapabilityContractHealth(capability: CapabilityRecord): CapabilityContractHealth {
-  const fingerprint = getCapabilityContractFingerprint(capability)
+  const fingerprintResult: { success: true; fingerprint: string } | { success: false; reason: string } = (() => {
+    try {
+      return { success: true, fingerprint: getCapabilityContractFingerprint(capability) }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { success: false, reason: `Cannot validate the capability entry script: ${message}` }
+    }
+  })()
+  if (!fingerprintResult.success) {
+    return {
+      state: 'drifted',
+      reasons: [fingerprintResult.reason],
+    }
+  }
+  const fingerprint = fingerprintResult.fingerprint
   const latestContractRun = readCapabilityRuns({ capability, limit: 100 })
     .reverse()
     .find((run) => {
@@ -807,7 +830,10 @@ export function routeCapabilities(options: { task: string; cwd?: string; limit?:
     })
     .flatMap((capability) => {
       const matchedText = candidates.find((candidate) => {
-        return capability.manifest.match.length > 0 && capabilityMatchesText({ capability: capability.manifest, text: candidate })
+        return (
+          capability.manifest.match.length > 0 &&
+          capabilityMatchesText({ capability: capability.manifest, text: candidate })
+        )
       })
       if (!matchedText) {
         return []
@@ -1010,22 +1036,8 @@ function scoreCapabilitySearch(options: {
 
 function getDefaultCapabilityScript(options: { runtime: CapabilityRuntime }): string {
   if (options.runtime === 'node') {
-    return [
-      'return {',
-      '  input,',
-      '  hasSecrets: Object.keys(secrets).length > 0,',
-      '}',
-      '',
-    ].join('\n')
+    return ['return {', '  input,', '  hasSecrets: Object.keys(secrets).length > 0,', '}', ''].join('\n')
   }
 
-  return [
-    'const currentUrl = page.url()',
-    '',
-    'return {',
-    '  currentUrl,',
-    '  input,',
-    '}',
-    '',
-  ].join('\n')
+  return ['const currentUrl = page.url()', '', 'return {', '  currentUrl,', '  input,', '}', ''].join('\n')
 }

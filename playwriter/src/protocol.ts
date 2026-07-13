@@ -14,12 +14,17 @@ export type ExtensionFeature = (typeof EXTENSION_FEATURE)[keyof typeof EXTENSION
 
 export const CURRENT_EXTENSION_FEATURES: ExtensionFeature[] = Object.values(EXTENSION_FEATURE)
 
-export const RELAY_FEATURES = [
-  'extension-feature-negotiation-v1',
-  'capability-options-v1',
-  'rrweb-recording-v1',
-  'multi-extension-v1',
-] as const
+export const RELAY_FEATURE = {
+  extensionFeatureNegotiation: 'extension-feature-negotiation-v1',
+  capabilityOptions: 'capability-options-v1',
+  rrwebRecording: 'rrweb-recording-v1',
+  multiExtension: 'multi-extension-v1',
+} as const
+
+export type RelayFeature = (typeof RELAY_FEATURE)[keyof typeof RELAY_FEATURE]
+
+export const RELAY_FEATURES: RelayFeature[] = Object.values(RELAY_FEATURE)
+export const RELAY_REVIEW_FEATURES: RelayFeature[] = [RELAY_FEATURE.capabilityOptions, RELAY_FEATURE.rrwebRecording]
 
 export function supportsExtensionFeature(options: {
   features: readonly string[] | undefined
