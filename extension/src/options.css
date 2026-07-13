@@ -1,6 +1,12 @@
 :root {
   color-scheme: light;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   color: #171717;
   background: #f5f6f8;
   --surface: #ffffff;
@@ -162,6 +168,34 @@ h3 {
   border-radius: 8px;
   padding: 10px;
   background: var(--surface-muted);
+}
+
+.relay-review-warning {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #f1c27d;
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.relay-review-warning[hidden] {
+  display: none;
+}
+
+.relay-review-warning code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.empty-state-warning {
+  color: var(--amber);
+  white-space: pre-line;
 }
 
 .status-label,
@@ -469,8 +503,7 @@ h3 {
   overflow: hidden;
   background:
     linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
-    #202124;
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%), #202124;
   background-size: 18px 18px;
 }
 
@@ -520,7 +553,7 @@ h3 {
   line-height: 1.4;
 }
 
-.replay-controls input[type="range"] {
+.replay-controls input[type='range'] {
   flex: 1;
   min-width: 0;
 }
@@ -528,14 +561,22 @@ h3 {
 .replay-time {
   min-width: 84px;
   color: var(--ink-muted);
-  font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    12px/1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   text-align: right;
 }
 
 .recording-details,
 .skill-detail {
   color: #313844;
-  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -558,7 +599,13 @@ h3 {
   min-height: 0;
   overflow: auto;
   padding: 14px;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   white-space: normal;
 }
 
@@ -578,8 +625,8 @@ h3 {
   background: var(--surface-muted);
 }
 
-.lifecycle-card[data-stage="drifted"],
-.lifecycle-card[data-stage="disabled"] {
+.lifecycle-card[data-stage='drifted'],
+.lifecycle-card[data-stage='disabled'] {
   border-color: #ffc5bd;
   background: var(--red-soft);
 }
@@ -624,7 +671,7 @@ h3 {
   width: calc(100% - 20px);
   height: 2px;
   background: var(--line-strong);
-  content: "";
+  content: '';
 }
 
 .lifecycle-marker {
@@ -636,26 +683,26 @@ h3 {
   background: var(--surface);
 }
 
-.lifecycle-step[data-state="done"],
-.lifecycle-step[data-state="current"] {
+.lifecycle-step[data-state='done'],
+.lifecycle-step[data-state='current'] {
   color: var(--accent);
 }
 
-.lifecycle-step[data-state="done"] .lifecycle-marker,
-.lifecycle-step[data-state="current"] .lifecycle-marker {
+.lifecycle-step[data-state='done'] .lifecycle-marker,
+.lifecycle-step[data-state='current'] .lifecycle-marker {
   border-color: var(--accent);
   background: var(--accent);
 }
 
-.lifecycle-step[data-state="done"]::after {
+.lifecycle-step[data-state='done']::after {
   background: var(--accent);
 }
 
-.lifecycle-step[data-state="blocked"] {
+.lifecycle-step[data-state='blocked'] {
   color: var(--red);
 }
 
-.lifecycle-step[data-state="blocked"] .lifecycle-marker {
+.lifecycle-step[data-state='blocked'] .lifecycle-marker {
   border-color: var(--red);
   background: var(--red);
 }
@@ -680,7 +727,11 @@ h3 {
   padding: 7px 8px;
   background: var(--surface);
   color: #48515f;
-  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

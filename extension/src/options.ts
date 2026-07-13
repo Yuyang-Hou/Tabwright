@@ -3,6 +3,7 @@ declare const process: { env: { PLAYWRITER_PORT: string } }
 import { EventType, Replayer, ReplayerEvents, type eventWithTime } from 'rrweb'
 import 'rrweb/dist/style.css'
 import { createReplayLogger, type ReplayLoggerController } from './replay-logger'
+import type { RelayReviewIssue } from './relay-warning'
 
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
@@ -105,6 +106,12 @@ interface CapabilitiesResponse {
   capabilities: CapabilityContract[]
 }
 
+type LoadError = { type: 'relay'; issue: RelayReviewIssue } | { type: 'message'; message: string }
+type CapabilityContractPayload = Omit<CapabilityContract, 'recentRuns' | 'lifecycle'> & {
+  recentRuns: unknown[]
+  lifecycle?: unknown
+}
+
 const messageFallbacks = {
   app_title: 'Playwriter',
   app_subtitle: 'Local browser automation cockpit',
@@ -161,6 +168,13 @@ const messageFallbacks = {
   error_invalid_recordings: 'Invalid recordings response',
   error_load_capabilities: 'Failed to load capabilities: $1',
   error_invalid_capabilities: 'Invalid capabilities response',
+  relay_review_warning_title: 'Saved data is temporarily unavailable',
+  relay_review_outdated:
+    'Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Playwriter, then refresh.',
+  relay_review_unavailable:
+    'Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Playwriter, then refresh.',
+  lifecycle_unsupported:
+    'This extension cannot interpret the capability lifecycle. Update Playwriter before running it.',
   empty_no_replays: 'No DOM replays yet.',
   empty_no_capabilities: 'No capabilities yet.',
   empty_no_matches: 'No matches for this search.',
@@ -402,6 +416,8 @@ function localizeDocument(): void {
 }
 
 const statusText = document.querySelector<HTMLParagraphElement>('#status-text')
+const relayReviewWarning = document.querySelector<HTMLElement>('#relay-review-warning')
+const relayReviewWarningText = document.querySelector<HTMLParagraphElement>('#relay-review-warning-text')
 const refreshButton = document.querySelector<HTMLButtonElement>('#refresh-button')
 const searchInput = document.querySelector<HTMLInputElement>('#search-input')
 const viewEyebrow = document.querySelector<HTMLParagraphElement>('#view-eyebrow')
@@ -437,6 +453,8 @@ let selectedCapabilityId: string | null = null
 let replayRecordings: SavedReplayRecording[] = []
 let capabilities: CapabilityContract[] = []
 let capabilityCwd = ''
+let replayLoadError: LoadError | null = null
+let capabilityLoadError: LoadError | null = null
 let searchQuery = ''
 let replayFitCleanup: (() => void) | null = null
 let activeReplayer: Replayer | null = null
@@ -452,9 +470,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => {
-    return typeof item === 'string'
-  })
+  return (
+    Array.isArray(value) &&
+    value.every((item) => {
+      return typeof item === 'string'
+    })
+  )
 }
 
 function isStringOrUndefined(value: unknown): value is string | undefined {
@@ -544,7 +565,9 @@ function isAutonomousInvocation(value: unknown): value is CapabilityContract['au
 }
 
 function isLifecycleStage(value: unknown): value is CapabilityLifecycle['stage'] {
-  return value === 'drafted' || value === 'validated' || value === 'trusted' || value === 'drifted' || value === 'disabled'
+  return (
+    value === 'drafted' || value === 'validated' || value === 'trusted' || value === 'drifted' || value === 'disabled'
+  )
 }
 
 function isLifecycleAction(value: unknown): value is CapabilityLifecycle['nextAction'] {
@@ -587,7 +610,7 @@ function isCapabilityLifecycle(value: unknown): value is CapabilityLifecycle {
   )
 }
 
-function isCapabilityContract(value: unknown): value is CapabilityContract {
+function isCapabilityContractPayload(value: unknown): value is CapabilityContractPayload {
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&
@@ -609,19 +632,81 @@ function isCapabilityContract(value: unknown): value is CapabilityContract {
     typeof value.dir === 'string' &&
     isAutonomousInvocation(value.autonomousInvocation) &&
     Array.isArray(value.recentRuns) &&
-    value.recentRuns.every(isCapabilityRunRecord) &&
-    isCapabilityAgentSkillStatus(value.agentSkill) &&
-    (value.lifecycle === undefined || isCapabilityLifecycle(value.lifecycle))
+    isCapabilityAgentSkillStatus(value.agentSkill)
   )
 }
 
-function isCapabilitiesResponse(value: unknown): value is CapabilitiesResponse {
-  return isRecord(value) && typeof value.cwd === 'string' && Array.isArray(value.capabilities) && value.capabilities.every(isCapabilityContract)
+function normalizeCapabilityContract(value: unknown): CapabilityContract | null {
+  if (!isCapabilityContractPayload(value)) {
+    return null
+  }
+  const hasUnsupportedLifecycle = value.lifecycle !== undefined && !isCapabilityLifecycle(value.lifecycle)
+  const unsupportedReason = msg('lifecycle_unsupported')
+  return {
+    ...value,
+    autonomousInvocation: hasUnsupportedLifecycle
+      ? { allowed: false, reasons: [unsupportedReason] }
+      : value.autonomousInvocation,
+    recentRuns: value.recentRuns.filter(isCapabilityRunRecord),
+    lifecycle: hasUnsupportedLifecycle
+      ? {
+          stage: 'drifted',
+          nextAction: 'repair',
+          nextCommand: `playwriter capability describe ${shellQuote(value.id)} --json`,
+          contractHealth: { state: 'drifted', reasons: [unsupportedReason] },
+        }
+      : isCapabilityLifecycle(value.lifecycle)
+        ? value.lifecycle
+        : undefined,
+  }
+}
+
+function parseCapabilitiesResponse(value: unknown): CapabilitiesResponse | null {
+  if (!isRecord(value) || typeof value.cwd !== 'string' || !Array.isArray(value.capabilities)) {
+    return null
+  }
+  return {
+    cwd: value.cwd,
+    capabilities: value.capabilities.flatMap((capability) => {
+      const normalized = normalizeCapabilityContract(capability)
+      return normalized ? [normalized] : []
+    }),
+  }
 }
 
 function setStatus(text: string): void {
   if (!statusText) return
   statusText.textContent = text
+}
+
+function relayReviewMessage(issue: RelayReviewIssue): string {
+  return issue === 'outdated' ? msg('relay_review_outdated') : msg('relay_review_unavailable')
+}
+
+function loadErrorText(error: LoadError | null): string {
+  if (!error) {
+    return ''
+  }
+  return error.type === 'relay' ? relayReviewMessage(error.issue) : error.message
+}
+
+function currentRelayReviewIssue(): RelayReviewIssue | null {
+  const issues = [replayLoadError, capabilityLoadError].flatMap((error) => {
+    return error?.type === 'relay' ? [error.issue] : []
+  })
+  if (issues.includes('outdated')) {
+    return 'outdated'
+  }
+  return issues.includes('unavailable') ? 'unavailable' : null
+}
+
+function updateRelayReviewWarning(): void {
+  if (!relayReviewWarning || !relayReviewWarningText) {
+    return
+  }
+  const issue = currentRelayReviewIssue()
+  relayReviewWarning.hidden = !issue
+  relayReviewWarningText.textContent = issue ? relayReviewMessage(issue) : ''
 }
 
 function formatDate(timestamp: number): string {
@@ -710,8 +795,8 @@ function getFilteredCapabilities(): CapabilityContract[] {
 }
 
 function updateTabCounts(): void {
-  setText(recordingsCount, String(replayRecordings.length))
-  setText(skillsCount, String(capabilities.length))
+  setText(recordingsCount, replayLoadError ? '–' : String(replayRecordings.length))
+  setText(skillsCount, capabilityLoadError ? '–' : String(capabilities.length))
 }
 
 function updateViewLabels(): void {
@@ -741,6 +826,13 @@ function updateViewLabels(): void {
 
 function updateMetrics(): void {
   updateTabCounts()
+  const activeLoadError = activeTab === 'recordings' ? replayLoadError : capabilityLoadError
+  if (activeLoadError) {
+    setText(metricPrimaryValue, '–')
+    setText(metricSecondaryValue, '–')
+    setText(metricTertiaryValue, '–')
+    return
+  }
   if (activeTab === 'recordings') {
     const totalDuration = replayRecordings.reduce((total, recording) => {
       return total + recording.duration
@@ -785,6 +877,7 @@ function rerenderLocalizedContent(): void {
   updateMetrics()
   updateReplayControls()
   updateReplayWarning()
+  updateRelayReviewWarning()
 
   if (selectedReplayId) {
     const selectedRecording = replayRecordings.find((recording) => {
@@ -797,12 +890,12 @@ function rerenderLocalizedContent(): void {
 
   if (activeTab === 'recordings') {
     renderReplays()
-    setStatus(replayCountText(replayRecordings.length))
+    setStatus(loadErrorText(replayLoadError) || replayCountText(replayRecordings.length))
     return
   }
 
   renderCapabilities()
-  setStatus(capabilityCountText(capabilities.length, capabilityCwd))
+  setStatus(loadErrorText(capabilityLoadError) || capabilityCountText(capabilities.length, capabilityCwd))
 }
 
 async function applyLanguage(language: LanguageCode): Promise<void> {
@@ -886,9 +979,17 @@ function setActiveTab(tab: ActiveTab): void {
   updateMetrics()
   if (tab === 'recordings') {
     renderReplays()
+    const errorText = loadErrorText(replayLoadError)
+    if (errorText) {
+      setStatus(errorText)
+    }
   }
   if (tab === 'skills') {
     renderCapabilities()
+    const errorText = loadErrorText(capabilityLoadError)
+    if (errorText) {
+      setStatus(errorText)
+    }
   }
   if (tab === 'skills' && capabilities.length === 0) {
     loadCapabilities().catch((error: unknown) => {
@@ -899,11 +1000,13 @@ function setActiveTab(tab: ActiveTab): void {
 }
 
 function replayCapabilityId(recording: SavedReplayRecording): string {
-  return `replay-${recording.id
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(-28) || 'workflow'}`
+  return `replay-${
+    recording.id
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(-28) || 'workflow'
+  }`
 }
 
 function replayMakeCommand(recording: SavedReplayRecording): string {
@@ -1092,9 +1195,7 @@ function updateReplayWarning(): void {
     return
   }
   const key: MessageKey =
-    replayMissingNodeWarningCount === 1
-      ? 'replay_warning_missing_nodes_one'
-      : 'replay_warning_missing_nodes_other'
+    replayMissingNodeWarningCount === 1 ? 'replay_warning_missing_nodes_one' : 'replay_warning_missing_nodes_other'
   replayWarning.textContent = msg(key, String(replayMissingNodeWarningCount))
   replayWarning.hidden = false
 }
@@ -1251,7 +1352,13 @@ async function playReplay(recording: SavedReplayRecording): Promise<void> {
   if (!response.ok) {
     throw new Error(msg('error_load_replay', String(response.status)))
   }
-  const data: unknown = await response.json()
+  const data: unknown = await (async () => {
+    try {
+      return await response.json()
+    } catch (cause: unknown) {
+      throw new Error(msg('error_invalid_replay_events'), { cause })
+    }
+  })()
   if (!isReplayEventsResponse(data)) {
     throw new Error(msg('error_invalid_replay_events'))
   }
@@ -1323,6 +1430,15 @@ function renderReplays(): void {
   if (!replaysList) return
   updateMetrics()
 
+  const errorText = loadErrorText(replayLoadError)
+  if (errorText && replayRecordings.length === 0) {
+    const error = document.createElement('div')
+    error.className = 'empty-state empty-state-warning'
+    error.textContent = errorText
+    replaysList.replaceChildren(error)
+    return
+  }
+
   if (replayRecordings.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'empty-state'
@@ -1350,16 +1466,42 @@ function renderReplays(): void {
 
 async function loadReplays(): Promise<void> {
   setStatus(msg('status_loading_recordings'))
-  const response = await fetch(`${RELAY_BASE_URL}/rrweb-recordings`)
+  replayLoadError = null
+  updateRelayReviewWarning()
+  const response: Response = await (async () => {
+    try {
+      return await fetch(`${RELAY_BASE_URL}/rrweb-recordings`)
+    } catch (cause: unknown) {
+      replayLoadError = { type: 'relay', issue: 'unavailable' }
+      renderReplays()
+      updateRelayReviewWarning()
+      throw new Error(loadErrorText(replayLoadError), { cause })
+    }
+  })()
   if (!response.ok) {
-    throw new Error(msg('error_load_recordings', String(response.status)))
+    replayLoadError = { type: 'relay', issue: response.status === 404 ? 'outdated' : 'unavailable' }
+    renderReplays()
+    updateRelayReviewWarning()
+    throw new Error(loadErrorText(replayLoadError))
   }
-  const data: unknown = await response.json()
+  const data: unknown = await (async () => {
+    try {
+      return await response.json()
+    } catch (cause: unknown) {
+      replayLoadError = { type: 'message', message: msg('error_invalid_recordings') }
+      renderReplays()
+      throw new Error(loadErrorText(replayLoadError), { cause })
+    }
+  })()
   if (!isReplaysResponse(data)) {
-    throw new Error(msg('error_invalid_recordings'))
+    replayLoadError = { type: 'message', message: msg('error_invalid_recordings') }
+    renderReplays()
+    throw new Error(loadErrorText(replayLoadError))
   }
   replayRecordings = data.recordings
+  replayLoadError = null
   renderReplays()
+  updateRelayReviewWarning()
   setStatus(replayCountText(data.recordings.length))
 }
 
@@ -1576,12 +1718,12 @@ function capabilityUsePrompt(capability: CapabilityContract): string {
   return [
     `请使用 Playwriter capability：${capability.id}`,
     '',
-      '先尝试路由：',
-      capabilityRouteCommand(),
-      '',
-      capability.requiresConfirmation
-        ? '这个能力有副作用。先暂停并让我明确确认具体输入；只有确认后才可使用：'
-        : '如果确认要直接运行，用：',
+    '先尝试路由：',
+    capabilityRouteCommand(),
+    '',
+    capability.requiresConfirmation
+      ? '这个能力有副作用。先暂停并让我明确确认具体输入；只有确认后才可使用：'
+      : '如果确认要直接运行，用：',
     lifecycle.nextCommand,
     '',
     '我的任务：<在这里写任务或粘贴 URL>',
@@ -1596,7 +1738,9 @@ function capabilitySkillPrompt(capability: CapabilityContract): string {
       'Inspect the current capability first:',
       `playwriter capability describe ${capability.id} --json`,
       '',
-      capability.agentSkill.draftExists ? `Existing draft: ${capability.agentSkill.draftPath}` : capability.agentSkill.initCommand,
+      capability.agentSkill.draftExists
+        ? `Existing draft: ${capability.agentSkill.draftPath}`
+        : capability.agentSkill.initCommand,
       capability.agentSkill.draftExists ? capability.agentSkill.showCommand : '',
       '',
       'The skill should define when to use it, when not to use it, the first command, auth/sandbox notes, and the default output shape.',
@@ -1616,7 +1760,9 @@ function capabilitySkillPrompt(capability: CapabilityContract): string {
     '先查看当前能力：',
     `playwriter capability describe ${capability.id} --json`,
     '',
-    capability.agentSkill.draftExists ? `已有草稿：${capability.agentSkill.draftPath}` : capability.agentSkill.initCommand,
+    capability.agentSkill.draftExists
+      ? `已有草稿：${capability.agentSkill.draftPath}`
+      : capability.agentSkill.initCommand,
     capability.agentSkill.draftExists ? capability.agentSkill.showCommand : '',
     '',
     'skill 里需要写清：什么时候用、什么时候不用、第一条命令、auth/sandbox 注意事项、默认输出格式。',
@@ -1799,12 +1945,11 @@ function createCapabilityActions(capability: CapabilityContract): HTMLDivElement
 
   const runCommand = document.createElement('button')
   runCommand.type = 'button'
-  runCommand.textContent =
-    isCapabilityReadyToRun(lifecycle)
-      ? capability.requiresConfirmation
-        ? msg('copy_run_after_approval')
-        : msg('copy_run')
-      : msg('copy_next_step')
+  runCommand.textContent = isCapabilityReadyToRun(lifecycle)
+    ? capability.requiresConfirmation
+      ? msg('copy_run_after_approval')
+      : msg('copy_run')
+    : msg('copy_next_step')
   runCommand.addEventListener('click', () => {
     copyWithStatus({
       label: isCapabilityReadyToRun(lifecycle) ? msg('label_run_command') : msg('label_next_command'),
@@ -1837,8 +1982,17 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
     createBadge(capability.runtime),
     createBadge(capability.sideEffect),
     createBadge(capability.routingHint),
-    createBadge(capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked', capability.autonomousInvocation.allowed ? 'ready' : 'blocked'),
-    createBadge(capability.agentSkill.installedExists ? 'skill-installed' : capability.agentSkill.draftExists ? 'skill-draft' : 'skill-missing'),
+    createBadge(
+      capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked',
+      capability.autonomousInvocation.allowed ? 'ready' : 'blocked',
+    ),
+    createBadge(
+      capability.agentSkill.installedExists
+        ? 'skill-installed'
+        : capability.agentSkill.draftExists
+          ? 'skill-draft'
+          : 'skill-missing',
+    ),
   )
 
   header.replaceChildren(title, meta, badges, createCapabilityActions(capability))
@@ -1915,14 +2069,23 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
 
   const meta = document.createElement('div')
   meta.className = 'skill-meta'
-  meta.textContent = [lifecycle.stage, capability.runtime, capability.location, capability.sideEffect, capability.id].join(' | ')
+  meta.textContent = [
+    lifecycle.stage,
+    capability.runtime,
+    capability.location,
+    capability.sideEffect,
+    capability.id,
+  ].join(' | ')
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
   badges.replaceChildren(
     createBadge(lifecycle.stage),
     createBadge(capability.sideEffect),
-    createBadge(capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked', capability.autonomousInvocation.allowed ? 'ready' : 'blocked'),
+    createBadge(
+      capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked',
+      capability.autonomousInvocation.allowed ? 'ready' : 'blocked',
+    ),
   )
 
   item.replaceChildren(title, meta, badges)
@@ -1935,6 +2098,18 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
 function renderCapabilities(): void {
   if (!skillsList) return
   updateMetrics()
+
+  const errorText = loadErrorText(capabilityLoadError)
+  if (errorText && capabilities.length === 0) {
+    const error = document.createElement('div')
+    error.className = 'empty-state empty-state-warning'
+    error.textContent = errorText
+    skillsList.replaceChildren(error)
+    if (skillDetail) {
+      skillDetail.replaceChildren(error.cloneNode(true))
+    }
+    return
+  }
 
   if (capabilities.length === 0) {
     const empty = document.createElement('div')
@@ -1982,18 +2157,45 @@ function renderCapabilities(): void {
 
 async function loadCapabilities(): Promise<void> {
   setStatus(msg('status_loading_capabilities'))
-  const response = await fetch(`${RELAY_BASE_URL}/capabilities`)
+  capabilityLoadError = null
+  updateRelayReviewWarning()
+  const response: Response = await (async () => {
+    try {
+      return await fetch(`${RELAY_BASE_URL}/capabilities`)
+    } catch (cause: unknown) {
+      capabilityLoadError = { type: 'relay', issue: 'unavailable' }
+      renderCapabilities()
+      updateRelayReviewWarning()
+      throw new Error(loadErrorText(capabilityLoadError), { cause })
+    }
+  })()
   if (!response.ok) {
-    throw new Error(msg('error_load_capabilities', String(response.status)))
+    capabilityLoadError = { type: 'relay', issue: response.status === 404 ? 'outdated' : 'unavailable' }
+    renderCapabilities()
+    updateRelayReviewWarning()
+    throw new Error(loadErrorText(capabilityLoadError))
   }
-  const data: unknown = await response.json()
-  if (!isCapabilitiesResponse(data)) {
-    throw new Error(msg('error_invalid_capabilities'))
+  const data: unknown = await (async () => {
+    try {
+      return await response.json()
+    } catch (cause: unknown) {
+      capabilityLoadError = { type: 'message', message: msg('error_invalid_capabilities') }
+      renderCapabilities()
+      throw new Error(loadErrorText(capabilityLoadError), { cause })
+    }
+  })()
+  const parsed = parseCapabilitiesResponse(data)
+  if (!parsed) {
+    capabilityLoadError = { type: 'message', message: msg('error_invalid_capabilities') }
+    renderCapabilities()
+    throw new Error(loadErrorText(capabilityLoadError))
   }
-  capabilityCwd = data.cwd
-  capabilities = data.capabilities
+  capabilityCwd = parsed.cwd
+  capabilities = parsed.capabilities
+  capabilityLoadError = null
   renderCapabilities()
-  setStatus(capabilityCountText(data.capabilities.length, capabilityCwd))
+  updateRelayReviewWarning()
+  setStatus(capabilityCountText(parsed.capabilities.length, capabilityCwd))
 }
 
 refreshButton?.addEventListener('click', () => {

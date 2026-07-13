@@ -212,77 +212,107 @@ describe('extension options page', () => {
       await page.locator('.language-button[data-language="en"]').click()
       const recordingItem = page.locator('.recording-item').filter({ hasText: 'tab 7' })
       await recordingItem.waitFor({ timeout: 10000 })
-      await expect.poll(async () => {
-        return await recordingItem.textContent()
-      }).toContain('2 events')
-      const replaysList = page.locator('#replays-list')
-      await expect.poll(async () => {
-        return await replaysList.evaluate((element) => {
-          const list = element as unknown as { scrollHeight: number; clientHeight: number }
-          return list.scrollHeight > list.clientHeight
+      await expect
+        .poll(async () => {
+          return await recordingItem.textContent()
         })
-      }).toBe(true)
+        .toContain('2 events')
+      const replaysList = page.locator('#replays-list')
+      await expect
+        .poll(async () => {
+          return await replaysList.evaluate((element) => {
+            const list = element as unknown as { scrollHeight: number; clientHeight: number }
+            return list.scrollHeight > list.clientHeight
+          })
+        })
+        .toBe(true)
       await replaysList.evaluate((element) => {
         const list = element as unknown as { scrollHeight: number; scrollTop: number }
         list.scrollTop = list.scrollHeight
       })
-      await expect.poll(async () => {
-        return await replaysList.evaluate((element) => {
-          const list = element as unknown as { scrollTop: number }
-          return list.scrollTop > 0
+      await expect
+        .poll(async () => {
+          return await replaysList.evaluate((element) => {
+            const list = element as unknown as { scrollTop: number }
+            return list.scrollTop > 0
+          })
         })
-      }).toBe(true)
+        .toBe(true)
       await replaysList.evaluate((element) => {
         const list = element as unknown as { scrollTop: number }
         list.scrollTop = 0
       })
       await recordingItem.click()
 
-      await expect.poll(() => {
-        return replayEventsRequested
-      }).toBe(true)
-      await expect.poll(async () => {
-        return await page.locator('#status-text').textContent()
-      }).toContain('Replay ready')
-      await expect.poll(async () => {
-        return await page.locator('#replay-controls').isVisible()
-      }).toBe(true)
-      await expect.poll(async () => {
-        return await page.locator('#replay-play-toggle').textContent()
-      }).toBe('Play')
-      await expect.poll(async () => {
-        return Number(await page.locator('#replay-timeline').inputValue())
-      }).toBe(0)
+      await expect
+        .poll(() => {
+          return replayEventsRequested
+        })
+        .toBe(true)
+      await expect
+        .poll(async () => {
+          return await page.locator('#status-text').textContent()
+        })
+        .toContain('Replay ready')
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-controls').isVisible()
+        })
+        .toBe(true)
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-play-toggle').textContent()
+        })
+        .toBe('Play')
+      await expect
+        .poll(async () => {
+          return Number(await page.locator('#replay-timeline').inputValue())
+        })
+        .toBe(0)
       await page.locator('#replay-play-toggle').click()
-      await expect.poll(async () => {
-        return await page.locator('#replay-play-toggle').textContent()
-      }).toBe('Pause')
-      await expect.poll(async () => {
-        return await page.locator('#replay-warning').textContent()
-      }).toContain('1 DOM update')
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-play-toggle').textContent()
+        })
+        .toBe('Pause')
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-warning').textContent()
+        })
+        .toContain('1 DOM update')
       expect(missingNodeConsoleWarnings).toEqual([])
       await page.locator('#replay-play-toggle').click()
-      await expect.poll(async () => {
-        return await page.locator('#replay-play-toggle').textContent()
-      }).toBe('Play')
-      await expect.poll(async () => {
-        return await page.locator('#replay-details').textContent()
-      }).toContain('replay-options-smoke')
-      await expect.poll(async () => {
-        return await page.locator('#replay-details').textContent()
-      }).toContain('--browser user')
-      await expect.poll(async () => {
-        return await page.locator('#replay-details').textContent()
-      }).toContain('--confirm')
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-play-toggle').textContent()
+        })
+        .toBe('Play')
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-details').textContent()
+        })
+        .toContain('replay-options-smoke')
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-details').textContent()
+        })
+        .toContain('--browser user')
+      await expect
+        .poll(async () => {
+          return await page.locator('#replay-details').textContent()
+        })
+        .toContain('--confirm')
       await page.locator('#replay-player .replayer-wrapper').waitFor()
-      await expect.poll(async () => {
-        const playerBox = await page.locator('#replay-player').boundingBox()
-        const wrapperBox = await page.locator('#replay-player .replayer-wrapper').boundingBox()
-        if (!playerBox || !wrapperBox) {
-          return false
-        }
-        return wrapperBox.width <= playerBox.width + 1 && wrapperBox.height <= playerBox.height + 1
-      }).toBe(true)
+      await expect
+        .poll(async () => {
+          const playerBox = await page.locator('#replay-player').boundingBox()
+          const wrapperBox = await page.locator('#replay-player .replayer-wrapper').boundingBox()
+          if (!playerBox || !wrapperBox) {
+            return false
+          }
+          return wrapperBox.width <= playerBox.width + 1 && wrapperBox.height <= playerBox.height + 1
+        })
+        .toBe(true)
     } finally {
       await page.close()
       await staticServer.close()
@@ -406,7 +436,7 @@ describe('extension options page', () => {
         reasons: [],
       },
     }
-    const historicalTrustedNextCommand = 'playwriter capability run historical-trusted --input-json \'{}\' --json'
+    const historicalTrustedNextCommand = "playwriter capability run historical-trusted --input-json '{}' --json"
     const historicalTrustedCapability = {
       ...legacyTrustedCapability,
       id: 'historical-trusted',
@@ -417,6 +447,21 @@ describe('extension options page', () => {
         nextCommand: historicalTrustedNextCommand,
         contractHealth: {
           state: 'unknown',
+          reasons: [],
+        },
+      },
+    }
+    const futureLifecycleCapability = {
+      ...legacyTrustedCapability,
+      id: 'future-lifecycle',
+      title: 'Future Lifecycle',
+      recentRuns: [{ status: 'future-run-format' }],
+      lifecycle: {
+        stage: 'reviewed',
+        nextAction: 'approve',
+        nextCommand: 'playwriter capability trust future-lifecycle',
+        contractHealth: {
+          state: 'future-health',
           reasons: [],
         },
       },
@@ -472,6 +517,7 @@ describe('extension options page', () => {
                 disabledCapability,
                 legacyTrustedCapability,
                 historicalTrustedCapability,
+                futureLifecycleCapability,
               ],
             }),
           })
@@ -490,18 +536,26 @@ describe('extension options page', () => {
       await capabilityItem.waitFor({ timeout: 10000 })
       await capabilityItem.click()
 
-      await expect.poll(async () => {
-        return await page.locator('#skill-detail').textContent()
-      }).toContain('query-user')
-      await expect.poll(async () => {
-        return await page.locator('#skill-detail').textContent()
-      }).toContain('Copy edit prompt')
-      await expect.poll(async () => {
-        return await page.locator('#skill-detail').textContent()
-      }).toContain('email: string')
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('Contract healthy')
+      await expect
+        .poll(async () => {
+          return await page.locator('#skill-detail').textContent()
+        })
+        .toContain('query-user')
+      await expect
+        .poll(async () => {
+          return await page.locator('#skill-detail').textContent()
+        })
+        .toContain('Copy edit prompt')
+      await expect
+        .poll(async () => {
+          return await page.locator('#skill-detail').textContent()
+        })
+        .toContain('email: string')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('Contract healthy')
       await page.getByRole('button', { name: 'Copy approved run' }).click()
       const runCommand = await readClipboard()
       expect(runCommand).toBe(trustedNextCommand)
@@ -511,12 +565,16 @@ describe('extension options page', () => {
       expect(usePrompt).toContain(trustedNextCommand)
 
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('Repair contract drift')
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('output.userId must be string')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('Repair contract drift')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('output.userId must be string')
       expect(await page.getByRole('button', { name: 'Copy approved run' }).count()).toBe(0)
       await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
       expect(await readClipboard()).toBe(driftedNextCommand)
@@ -524,37 +582,174 @@ describe('extension options page', () => {
       expect(await readClipboard()).toContain('Do not run the capability as a normal task until it reaches Trusted')
 
       await page.locator('.skill-item').filter({ hasText: 'Legacy Disabled' }).click()
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('Enable as draft')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('Enable as draft')
       await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
       expect(await readClipboard()).toBe("playwriter capability draft 'legacy-disabled'")
 
       await page.locator('.skill-item').filter({ hasText: 'Legacy Trusted' }).click()
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('Contract not validated')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('Contract not validated')
       await page.getByRole('button', { name: 'Copy run' }).click()
       expect(await readClipboard()).toContain("playwriter capability run 'legacy-trusted'")
 
       await page.locator('.skill-item').filter({ hasText: 'Historical Trusted' }).click()
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('Contract not validated')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('Contract not validated')
       await page.getByRole('button', { name: 'Copy run' }).click()
       expect(await readClipboard()).toBe(historicalTrustedNextCommand)
 
+      await page.locator('.skill-item').filter({ hasText: 'Future Lifecycle' }).click()
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('This extension cannot interpret the capability lifecycle')
+      await expect
+        .poll(async () => {
+          return await page.locator('#skill-detail').textContent()
+        })
+        .not.toContain('future-run-format')
+      expect(await page.getByRole('button', { name: 'Copy run' }).count()).toBe(0)
+      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
+      expect(await readClipboard()).toBe("playwriter capability describe 'future-lifecycle' --json")
+
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await page.locator('.language-button[data-language="zh_CN"]').click()
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('下一步：修复契约漂移')
-      await expect.poll(async () => {
-        return await page.locator('.lifecycle-card').textContent()
-      }).toContain('检测到契约漂移 · 检查于')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('下一步：修复契约漂移')
+      await expect
+        .poll(async () => {
+          return await page.locator('.lifecycle-card').textContent()
+        })
+        .toContain('检测到契约漂移 · 检查于')
       expect(await page.locator('.lifecycle-card').textContent()).not.toContain('$action$')
     } finally {
       await testCtx.browserContext.clearPermissions()
+      await page.close()
+      await staticServer.close()
+    }
+  }, 30000)
+
+  test('shows a persistent degraded warning for stale relay review endpoints and clears it after recovery', async () => {
+    if (!testCtx) {
+      throw new Error('Test context is not initialized')
+    }
+
+    const distRoot = getExtensionDistRoot()
+    const staticServer = await createStaticServer(distRoot)
+    let reviewEndpointsAvailable = false
+    const page = await testCtx.browserContext.newPage()
+    page.setDefaultTimeout(10000)
+    try {
+      await page.route(`http://127.0.0.1:${TEST_PORT}/**`, async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        const corsHeaders = {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'GET,POST,OPTIONS',
+          'access-control-allow-headers': 'content-type',
+        }
+
+        if (request.method() === 'OPTIONS') {
+          await route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+          return
+        }
+
+        if (!reviewEndpointsAvailable) {
+          await route.fulfill({ status: 404, headers: corsHeaders, body: 'not found' })
+          return
+        }
+
+        if (url.pathname === '/rrweb-recordings') {
+          await route.fulfill({
+            status: 200,
+            headers: { ...corsHeaders, 'content-type': 'application/json' },
+            body: JSON.stringify({ recordings: [] }),
+          })
+          return
+        }
+
+        if (url.pathname === '/capabilities') {
+          await route.fulfill({
+            status: 200,
+            headers: { ...corsHeaders, 'content-type': 'application/json' },
+            body: JSON.stringify({ cwd: '/Users/test/project', capabilities: [] }),
+          })
+          return
+        }
+
+        await route.fulfill({ status: 404, headers: corsHeaders, body: 'not found' })
+      })
+
+      await page.goto(`${staticServer.baseUrl}/src/options.html`, { waitUntil: 'domcontentloaded' })
+      await page.locator('.language-button[data-language="en"]').click()
+      await expect
+        .poll(async () => {
+          return await page.locator('#relay-review-warning').isVisible()
+        })
+        .toBe(true)
+      await expect
+        .poll(async () => {
+          return await page.locator('#relay-review-warning').textContent()
+        })
+        .toContain('Your files were not deleted')
+      await expect
+        .poll(async () => {
+          return await page.locator('#recordings-count').textContent()
+        })
+        .toBe('–')
+
+      await page.locator('.tab-button[data-tab="skills"]').click()
+      await expect
+        .poll(async () => {
+          return await page.locator('#skills-count').textContent()
+        })
+        .toBe('–')
+      await expect
+        .poll(async () => {
+          return await page.locator('#relay-review-warning').isVisible()
+        })
+        .toBe(true)
+
+      reviewEndpointsAvailable = true
+      await page.locator('#refresh-button').click()
+      await expect
+        .poll(async () => {
+          return await page.locator('#skills-count').textContent()
+        })
+        .toBe('0')
+      await expect
+        .poll(async () => {
+          return await page.locator('#relay-review-warning').isVisible()
+        })
+        .toBe(true)
+
+      await page.locator('.tab-button[data-tab="recordings"]').click()
+      await page.locator('#refresh-button').click()
+      await expect
+        .poll(async () => {
+          return await page.locator('#recordings-count').textContent()
+        })
+        .toBe('0')
+      await expect
+        .poll(async () => {
+          return await page.locator('#relay-review-warning').isVisible()
+        })
+        .toBe(false)
+    } finally {
       await page.close()
       await staticServer.close()
     }

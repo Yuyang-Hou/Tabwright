@@ -1,7 +1,9 @@
 {
   "app_title": { "message": "Playwriter" },
   "app_subtitle": { "message": "本地浏览器自动化工作台" },
-  "extension_description": { "message": "用 Cursor、Claude、VS Code 自动化你的浏览器。比 Playwright MCP 更强，也更省上下文。" },
+  "extension_description": {
+    "message": "用 Cursor、Claude、VS Code 自动化你的浏览器。比 Playwright MCP 更强，也更省上下文。"
+  },
   "action_default_title": { "message": "点击以附加调试器" },
   "status_label": { "message": "状态" },
   "status_loading_recordings": { "message": "正在加载录制..." },
@@ -95,6 +97,16 @@
     "placeholders": { "status": { "content": "$1" } }
   },
   "error_invalid_capabilities": { "message": "能力响应无效" },
+  "relay_review_warning_title": { "message": "保存的数据暂时不可用" },
+  "relay_review_outdated": {
+    "message": "浏览器控制仍已连接，但当前本地服务无法列出保存的录制和能力。文件没有被删除；请重启或更新 Playwriter 后刷新。"
+  },
+  "relay_review_unavailable": {
+    "message": "浏览器控制仍已连接，但保存的录制和能力暂时不可读取。文件没有被删除；请重启 Playwriter 后刷新。"
+  },
+  "lifecycle_unsupported": {
+    "message": "当前扩展无法识别这个能力的生命周期。更新 Playwriter 后再运行。"
+  },
   "empty_no_replays": { "message": "还没有 DOM 回放。" },
   "empty_no_capabilities": { "message": "还没有能力。" },
   "empty_no_matches": { "message": "没有匹配的结果。" },

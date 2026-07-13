@@ -1,7 +1,9 @@
 {
   "app_title": { "message": "Playwriter" },
   "app_subtitle": { "message": "Local browser automation cockpit" },
-  "extension_description": { "message": "Automate your browser using Cursor, Claude, VS Code. More capable and context efficient than Playwright MCP." },
+  "extension_description": {
+    "message": "Automate your browser using Cursor, Claude, VS Code. More capable and context efficient than Playwright MCP."
+  },
   "action_default_title": { "message": "Click to attach debugger" },
   "status_label": { "message": "Status" },
   "status_loading_recordings": { "message": "Loading recordings..." },
@@ -17,7 +19,9 @@
   "recordings_description": { "message": "Review saved page recordings and turn repeatable flows into capabilities." },
   "capabilities_eyebrow": { "message": "Automation library" },
   "capabilities_heading": { "message": "Capabilities" },
-  "capabilities_description": { "message": "Inspect runnable capabilities, trust status, schemas, and agent skill coverage." },
+  "capabilities_description": {
+    "message": "Inspect runnable capabilities, trust status, schemas, and agent skill coverage."
+  },
   "search_label": { "message": "Search" },
   "search_recordings_placeholder": { "message": "Filter recordings" },
   "search_capabilities_placeholder": { "message": "Filter capabilities" },
@@ -95,6 +99,16 @@
     "placeholders": { "status": { "content": "$1" } }
   },
   "error_invalid_capabilities": { "message": "Invalid capabilities response" },
+  "relay_review_warning_title": { "message": "Saved data is temporarily unavailable" },
+  "relay_review_outdated": {
+    "message": "Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Playwriter, then refresh."
+  },
+  "relay_review_unavailable": {
+    "message": "Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Playwriter, then refresh."
+  },
+  "lifecycle_unsupported": {
+    "message": "This extension cannot interpret the capability lifecycle. Update Playwriter before running it."
+  },
   "empty_no_replays": { "message": "No DOM replays yet." },
   "empty_no_capabilities": { "message": "No capabilities yet." },
   "empty_no_matches": { "message": "No matches for this search." },

@@ -25,6 +25,12 @@
           <p id="status-text" data-i18n="status_loading_recordings">Loading recordings...</p>
         </section>
 
+        <section id="relay-review-warning" class="relay-review-warning" role="status" aria-live="polite" hidden>
+          <strong data-i18n="relay_review_warning_title">Saved data is temporarily unavailable</strong>
+          <p id="relay-review-warning-text"></p>
+          <code>npm install -g playwriter@latest<br />playwriter session list</code>
+        </section>
+
         <nav class="tabs" role="tablist" aria-label="Options sections" data-i18n-aria-label="sections_aria_label">
           <button class="tab-button active" data-tab="recordings" type="button" role="tab" aria-selected="true">
             <span class="tab-label" data-i18n="recordings_tab">Recordings</span>
@@ -43,9 +49,30 @@
             <span data-i18n="language_label">Language</span>
             <strong id="locale-text">English</strong>
           </div>
-          <div class="language-switch" role="group" aria-label="Language switch" data-i18n-aria-label="language_switch_aria_label">
-            <button class="language-button active" data-language="en" type="button" aria-pressed="true" data-i18n="language_en">English</button>
-            <button class="language-button" data-language="zh_CN" type="button" aria-pressed="false" data-i18n="language_zh_cn">中文</button>
+          <div
+            class="language-switch"
+            role="group"
+            aria-label="Language switch"
+            data-i18n-aria-label="language_switch_aria_label"
+          >
+            <button
+              class="language-button active"
+              data-language="en"
+              type="button"
+              aria-pressed="true"
+              data-i18n="language_en"
+            >
+              English
+            </button>
+            <button
+              class="language-button"
+              data-language="zh_CN"
+              type="button"
+              aria-pressed="false"
+              data-i18n="language_zh_cn"
+            >
+              中文
+            </button>
           </div>
         </div>
       </aside>
@@ -55,11 +82,19 @@
           <div>
             <p class="eyebrow" id="view-eyebrow" data-i18n="recordings_eyebrow">Replay library</p>
             <h2 id="view-title" data-i18n="recordings_heading">DOM replays</h2>
-            <p id="view-description" data-i18n="recordings_description">Review saved page recordings and turn repeatable flows into capabilities.</p>
+            <p id="view-description" data-i18n="recordings_description">
+              Review saved page recordings and turn repeatable flows into capabilities.
+            </p>
           </div>
           <label class="search-field">
             <span data-i18n="search_label">Search</span>
-            <input id="search-input" type="search" autocomplete="off" data-i18n-placeholder="search_recordings_placeholder" placeholder="Filter recordings" />
+            <input
+              id="search-input"
+              type="search"
+              autocomplete="off"
+              data-i18n-placeholder="search_recordings_placeholder"
+              placeholder="Filter recordings"
+            />
           </label>
         </header>
 
@@ -99,9 +134,26 @@
           </div>
           <div id="replay-controls" class="replay-controls" hidden>
             <button id="replay-play-toggle" type="button" data-i18n="play_button">Play</button>
-            <input id="replay-timeline" type="range" min="0" max="0" value="0" step="100" aria-label="Replay timeline" data-i18n-aria-label="replay_timeline_label" />
+            <input
+              id="replay-timeline"
+              type="range"
+              min="0"
+              max="0"
+              value="0"
+              step="100"
+              aria-label="Replay timeline"
+              data-i18n-aria-label="replay_timeline_label"
+            />
             <span id="replay-time" class="replay-time">0:00 / 0:00</span>
-            <p id="replay-warning" class="replay-warning" role="status" aria-live="polite" aria-label="Replay reconstruction notice" data-i18n-aria-label="replay_warning_aria_label" hidden></p>
+            <p
+              id="replay-warning"
+              class="replay-warning"
+              role="status"
+              aria-live="polite"
+              aria-label="Replay reconstruction notice"
+              data-i18n-aria-label="replay_warning_aria_label"
+              hidden
+            ></p>
           </div>
           <div id="replay-details" class="recording-details" data-i18n="select_replay">Select a DOM replay.</div>
         </div>

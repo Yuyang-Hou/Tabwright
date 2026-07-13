@@ -9,7 +9,7 @@ declare const __PLAYWRITER_OPEN_WELCOME_PAGE__: boolean
 import dedent from 'string-dedent'
 const js = dedent
 import { createStore } from 'zustand/vanilla'
-import type { ExtensionState, ConnectionState, TabState, TabInfo } from './types'
+import type { ExtensionState, ConnectionState, RelayReviewState, TabState, TabInfo } from './types'
 import { initPlaywriterToolbar, initPlaywriterToolbarBridge } from './toolbar/toolbar'
 import type { CDPEvent, Protocol } from 'playwriter/src/cdp-types'
 import {
@@ -22,7 +22,7 @@ import {
   type ToolbarRecordingResult,
 } from 'playwriter/src/protocol'
 import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
-import { RelayConnectionProblemError, relayIssueText } from './relay-warning'
+import { getRelayReviewIssue, RelayConnectionProblemError, relayIssueText, relayReviewIssueText } from './relay-warning'
 import { ConnectionOwnership } from './connection-ownership'
 // Inlined at build time via vite ?raw. Source: playwriter/src/ghost-cursor-client.ts
 import ghostCursorBundleCode from '../../playwriter/dist/ghost-cursor-client.js?raw'
@@ -133,6 +133,30 @@ async function checkRelayCompatibility(): Promise<void> {
   }
 }
 
+async function probeRelayReviewState(): Promise<RelayReviewState> {
+  try {
+    const responses = await Promise.all(
+      ['/capabilities', '/rrweb-recordings?limit=1'].map((pathname) => {
+        return fetchRelayHead({ pathname })
+      }),
+    )
+    const issue = getRelayReviewIssue({
+      statuses: responses.map((response) => {
+        return response.status
+      }),
+    })
+    if (!issue) {
+      return { status: 'ready' }
+    }
+    return { status: 'degraded', issue, errorText: relayReviewIssueText({ issue }) }
+  } catch (cause: unknown) {
+    const issue = 'unavailable'
+    const errorText = relayReviewIssueText({ issue })
+    logger.debug('Relay review endpoints are unavailable:', cause)
+    return { status: 'degraded', issue, errorText }
+  }
+}
+
 function createInstallId(): string {
   const values = new Uint32Array(2)
   crypto.getRandomValues(values)
@@ -165,11 +189,11 @@ async function detectBrowserName(): Promise<string> {
 
   const navigatorWithUaData = navigator as NavigatorWithUaData
   const brands = navigatorWithUaData.userAgentData?.brands
-  const highEntropyValues = await navigatorWithUaData.userAgentData?.getHighEntropyValues?.([
-    'fullVersionList',
-  ]).catch(() => {
-    return null
-  })
+  const highEntropyValues = await navigatorWithUaData.userAgentData
+    ?.getHighEntropyValues?.(['fullVersionList'])
+    .catch(() => {
+      return null
+    })
   const fullVersionList = highEntropyValues?.fullVersionList || []
 
   const highEntropyName = browserNameFromBrands(fullVersionList)
@@ -296,7 +320,9 @@ let nextToolbarRecordingRequestId = 1
 function isToolbarRecordingMessage(message: unknown): message is ToolbarRecordingMessage {
   if (!message || typeof message !== 'object') return false
   const candidate = message as { action?: unknown }
-  return candidate.action === 'playwriterToolbarRecordingStatus' || candidate.action === 'playwriterToolbarToggleRecording'
+  return (
+    candidate.action === 'playwriterToolbarRecordingStatus' || candidate.action === 'playwriterToolbarToggleRecording'
+  )
 }
 
 function isToolbarRecordingPortMessage(message: unknown): message is ToolbarRecordingPortMessage {
@@ -366,7 +392,10 @@ async function toggleToolbarRecording(sender: chrome.runtime.MessageSender): Pro
   return requestToolbarRecording({ sender, action: 'toggle' })
 }
 
-function postToolbarRecordingPortResponse(options: { port: chrome.runtime.Port; response: ToolbarRecordingPortResponse }): void {
+function postToolbarRecordingPortResponse(options: {
+  port: chrome.runtime.Port
+  response: ToolbarRecordingPortResponse
+}): void {
   try {
     options.port.postMessage(options.response)
   } catch (error: unknown) {
@@ -466,10 +495,20 @@ function injectToolbar(tabId: number): void {
 class ConnectionManager {
   private readonly connectionOwnership = new ConnectionOwnership<WebSocket>()
   private connectionPromise: Promise<void> | null = null
+  private lastRelayReviewProbeAt = 0
   preserveTabsOnDetach = false
 
   get ws(): WebSocket | null {
     return this.connectionOwnership.current
+  }
+
+  private async refreshRelayReviewState(options: { socket: WebSocket }): Promise<void> {
+    this.lastRelayReviewProbeAt = Date.now()
+    const relayReviewState = await probeRelayReviewState()
+    if (!this.connectionOwnership.isCurrentConnection(options.socket)) {
+      return
+    }
+    store.setState({ relayReviewState })
   }
 
   async ensureConnection(): Promise<void> {
@@ -698,10 +737,17 @@ class ConnectionManager {
         return
       }
 
-      if (message.method === 'startRecording' || message.method === 'stopRecording' || message.method === 'cancelRecording') {
+      if (
+        message.method === 'startRecording' ||
+        message.method === 'stopRecording' ||
+        message.method === 'cancelRecording'
+      ) {
         sendCurrentSocketMessage({
           id: message.id,
-          result: { success: false, error: 'Legacy video recording has been removed. Use rrweb replay recording instead.' },
+          result: {
+            success: false,
+            error: 'Legacy video recording has been removed. Use rrweb replay recording instead.',
+          },
         })
         return
       }
@@ -809,6 +855,7 @@ class ConnectionManager {
     chrome.debugger.onEvent.addListener(onDebuggerEvent)
     chrome.debugger.onDetach.addListener(onDebuggerDetach)
 
+    void this.refreshRelayReviewState({ socket })
     logger.debug('Connection established')
   }
 
@@ -885,7 +932,11 @@ class ConnectionManager {
 
   async maintainLoop(): Promise<void> {
     while (true) {
-      if (this.ws?.readyState === WebSocket.OPEN) {
+      const openSocket = this.ws
+      if (openSocket?.readyState === WebSocket.OPEN) {
+        if (Date.now() - this.lastRelayReviewProbeAt >= 30_000) {
+          void this.refreshRelayReviewState({ socket: openSocket })
+        }
         await sleep(1000)
         continue
       }
@@ -999,6 +1050,7 @@ export const connectionManager = new ConnectionManager()
 export const store = createStore<ExtensionState>(() => ({
   tabs: new Map(),
   connectionState: 'idle',
+  relayReviewState: { status: 'unknown' },
   currentTabId: undefined,
   preferredWindowId: undefined,
   errorText: undefined,
@@ -1837,9 +1889,7 @@ async function connectTab(tabId: number): Promise<void> {
       errorMessage === 'Extension Already In Use' ||
       errorMessage === 'Another Playwriter extension is already connected'
 
-    const isWsError =
-      errorMessage === 'Connection timeout' ||
-      errorMessage.startsWith('WebSocket')
+    const isWsError = errorMessage === 'Connection timeout' || errorMessage.startsWith('WebSocket')
 
     if (isExtensionInUse) {
       logger.debug(`Another extension is in use, entering polling mode`)
@@ -1860,7 +1910,8 @@ async function connectTab(tabId: number): Promise<void> {
         return {
           tabs: newTabs,
           connectionState: 'relay-warning',
-          errorText: error instanceof RelayConnectionProblemError ? error.message : relayIssueText({ issue: 'offline' }),
+          errorText:
+            error instanceof RelayConnectionProblemError ? error.message : relayIssueText({ issue: 'offline' }),
         }
       })
     } else {
@@ -2056,6 +2107,17 @@ const icons = {
     badgeText: '!',
     badgeColor: [245, 158, 11, 255] as [number, number, number, number],
   },
+  relayReviewDegraded: {
+    path: {
+      '16': '/icons/icon-green-16.png',
+      '32': '/icons/icon-green-32.png',
+      '48': '/icons/icon-green-48.png',
+      '128': '/icons/icon-green-128.png',
+    },
+    title: relayReviewIssueText({ issue: 'unavailable' }),
+    badgeText: '!',
+    badgeColor: [245, 158, 11, 255] as [number, number, number, number],
+  },
   tabError: {
     path: {
       '16': '/icons/icon-gray-16.png',
@@ -2071,7 +2133,7 @@ const icons = {
 
 async function updateIcons(): Promise<void> {
   const state = store.getState()
-  const { connectionState, tabs, errorText } = state
+  const { connectionState, relayReviewState, tabs, errorText } = state
 
   const connectedCount = Array.from(tabs.values()).filter((t) => t.state === 'connected').length
 
@@ -2086,6 +2148,9 @@ async function updateIcons(): Promise<void> {
     const iconConfig = (() => {
       if (connectionState === 'extension-replaced') return icons.extensionReplaced
       if (connectionState === 'relay-warning') return icons.relayWarning
+      if (connectionState === 'connected' && relayReviewState.status === 'degraded') {
+        return icons.relayReviewDegraded
+      }
       if (tabId !== undefined && isRestrictedUrl(tabUrl)) return icons.restricted
       if (tabInfo?.state === 'error') return icons.tabError
       if (tabInfo?.state === 'connecting') return icons.connecting
@@ -2096,6 +2161,9 @@ async function updateIcons(): Promise<void> {
     const title = (() => {
       if (connectionState === 'extension-replaced' && errorText) return errorText
       if (connectionState === 'relay-warning' && errorText) return errorText
+      if (connectionState === 'connected' && relayReviewState.status === 'degraded') {
+        return relayReviewState.errorText
+      }
       if (tabInfo?.errorText) return tabInfo.errorText
       return iconConfig.title
     })()

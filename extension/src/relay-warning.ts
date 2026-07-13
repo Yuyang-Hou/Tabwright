@@ -1,6 +1,24 @@
 export const RELAY_RECOVERY_COMMAND = 'npm install -g playwriter@latest\nplaywriter session list'
 
 export type RelayConnectionIssue = 'offline' | 'outdated' | 'unavailable'
+export type RelayReviewIssue = 'outdated' | 'unavailable'
+
+export function getRelayReviewIssue(options: { statuses: number[] }): RelayReviewIssue | undefined {
+  if (options.statuses.some((status) => status === 404)) {
+    return 'outdated'
+  }
+  if (options.statuses.some((status) => status < 200 || status >= 400)) {
+    return 'unavailable'
+  }
+  return undefined
+}
+
+export function relayReviewIssueText(options: { issue: RelayReviewIssue }): string {
+  if (options.issue === 'outdated') {
+    return `Browser control is connected, but this Playwriter local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update the Playwriter CLI.\n\nRun:\n${RELAY_RECOVERY_COMMAND}`
+  }
+  return `Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart the Playwriter CLI.\n\nRun:\n${RELAY_RECOVERY_COMMAND}`
+}
 
 export function relayIssueText(options: { issue: RelayConnectionIssue }): string {
   if (options.issue === 'outdated') {
