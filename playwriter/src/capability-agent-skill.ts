@@ -85,9 +85,10 @@ export function installCapabilityAgentSkill(options: {
   target?: AgentSkillTarget
   overwrite?: boolean
   codexHome?: string
+  capability?: CapabilityRecord
 }): CapabilityAgentSkillResult {
   const target = options.target || 'codex'
-  const capability = requireCapability({ id: options.id, cwd: options.cwd })
+  const capability = options.capability || requireCapability({ id: options.id, cwd: options.cwd })
   const dir = getCapabilityAgentSkillDir({ capability, target })
   const skillPath = path.join(dir, 'SKILL.md')
   if (!fs.existsSync(skillPath)) {
@@ -218,6 +219,13 @@ function assertSkillReadyToInstall(options: {
 }
 
 function buildCodexSkillTemplate(capability: CapabilityRecord): string {
+  const operationIds = Object.keys(capability.manifest.operations)
+  const hasOperations = operationIds.length > 0
+  const requiresConfirmation = hasOperations
+    ? Object.values(capability.manifest.operations).some((operation) => {
+        return operation.requiresConfirmation
+      })
+    : capability.manifest.requiresConfirmation
   const description = [
     `TODO: Explain when agents should use the ${capability.manifest.id} Playwriter capability.`,
     'Mention concrete user phrasing, exact-match signals, and when not to use it.',
@@ -230,7 +238,11 @@ function buildCodexSkillTemplate(capability: CapabilityRecord): string {
     "--input-json '<json-input>'",
     '--json',
     capability.manifest.status === 'trusted' ? '' : '--force',
-    capability.manifest.requiresConfirmation ? `--confirm ${capability.manifest.id}` : '',
+    requiresConfirmation
+      ? hasOperations
+        ? '--confirm <confirmation-token>'
+        : `--confirm ${capability.manifest.id}`
+      : '',
   ]
     .filter((part) => {
       return part.length > 0
@@ -257,8 +269,10 @@ function buildCodexSkillTemplate(capability: CapabilityRecord): string {
     routeCommand,
     '```',
     '',
-    capability.manifest.requiresConfirmation
-      ? '2. Stop and obtain explicit user approval for the concrete input and side effect. Only then run with structured input:'
+    requiresConfirmation
+      ? hasOperations
+        ? `2. Select one operation (${operationIds.join(', ')}). Read operations may run directly; for a confirmation-required operation, stop for approval and use its exact confirmationToken:`
+        : '2. Stop and obtain explicit user approval for the concrete input and side effect. Only then run with structured input:'
       : '2. Run the returned `shellCommand` exactly, or run the capability with structured input:',
     '',
     '```bash',

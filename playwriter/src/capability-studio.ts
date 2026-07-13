@@ -7,6 +7,7 @@ import {
   updateCapabilityManifest,
   updateCapabilityScript,
   type CapabilityManifestPatch,
+  type CapabilityOperation,
   type CapabilityRoutingHint,
   type CapabilityStatus,
 } from './capability-registry.js'
@@ -184,8 +185,7 @@ function buildManifestPatch(body: Record<string, unknown>): CapabilityManifestPa
         body.auth.type === 'cookie' || body.auth.type === 'token' || body.auth.type === 'custom'
           ? body.auth.type
           : 'none',
-      refresh:
-        body.auth.refresh === 'manual' || body.auth.refresh === 'from-browser' ? body.auth.refresh : 'none',
+      refresh: body.auth.refresh === 'manual' || body.auth.refresh === 'from-browser' ? body.auth.refresh : 'none',
       secretKey: typeof body.auth.secretKey === 'string' ? body.auth.secretKey : undefined,
       browserUrls: Array.isArray(body.auth.browserUrls)
         ? body.auth.browserUrls.filter((item): item is string => {
@@ -223,7 +223,47 @@ function buildManifestPatch(body: Record<string, unknown>): CapabilityManifestPa
   if (isRecord(body.outputSchema)) {
     patch.outputSchema = body.outputSchema
   }
+  const operations = parseCapabilityOperations(body.operations)
+  if (operations) {
+    patch.operations = operations
+  }
   return patch
+}
+
+function parseCapabilityOperations(value: unknown): Record<string, CapabilityOperation> | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([id, rawOperation]) => {
+      if (!isRecord(rawOperation)) {
+        throw new Error(`Capability operation ${id} must be an object`)
+      }
+      const operation: CapabilityOperation = {
+        title: typeof rawOperation.title === 'string' ? rawOperation.title : '',
+        description: typeof rawOperation.description === 'string' ? rawOperation.description : '',
+        match: Array.isArray(rawOperation.match)
+          ? rawOperation.match.filter((item): item is string => {
+              return typeof item === 'string'
+            })
+          : [],
+        routingHint: isCapabilityRoutingHint(rawOperation.routingHint) ? rawOperation.routingHint : 'search-first',
+        inputSchema: isRecord(rawOperation.inputSchema) ? rawOperation.inputSchema : {},
+        outputSchema: isRecord(rawOperation.outputSchema) ? rawOperation.outputSchema : {},
+        permissions: Array.isArray(rawOperation.permissions)
+          ? rawOperation.permissions.filter((item): item is string => {
+              return typeof item === 'string'
+            })
+          : undefined,
+        sideEffect:
+          rawOperation.sideEffect === 'write' || rawOperation.sideEffect === 'dangerous'
+            ? rawOperation.sideEffect
+            : 'read',
+        requiresConfirmation: rawOperation.requiresConfirmation === true,
+      }
+      return [id, operation]
+    }),
+  )
 }
 
 function isCapabilityStatus(value: unknown): value is CapabilityStatus {
@@ -469,6 +509,7 @@ function renderStudioHtml(): string {
             <label>Permissions<textarea id="permissions" style="min-height: 90px;"></textarea></label>
             <label>Input schema<textarea id="inputSchema" style="min-height: 140px;"></textarea></label>
             <label>Output schema<textarea id="outputSchema" style="min-height: 140px;"></textarea></label>
+            <label>Operations<textarea id="operations" style="min-height: 220px;"></textarea></label>
           </section>
         </div>
       </div>
@@ -530,6 +571,7 @@ function renderStudioHtml(): string {
       el('permissions').value = (capability.permissions || []).join('\\n')
       el('inputSchema').value = JSON.stringify(capability.inputSchema || {}, null, 2)
       el('outputSchema').value = JSON.stringify(capability.outputSchema || {}, null, 2)
+      el('operations').value = JSON.stringify(capability.operations || {}, null, 2)
       el('script').value = capability.script || ''
     }
 
@@ -558,6 +600,7 @@ function renderStudioHtml(): string {
           permissions: lines(el('permissions').value),
           inputSchema: JSON.parse(el('inputSchema').value || '{}'),
           outputSchema: JSON.parse(el('outputSchema').value || '{}'),
+          operations: JSON.parse(el('operations').value || '{}'),
         }),
       })
       await refresh()

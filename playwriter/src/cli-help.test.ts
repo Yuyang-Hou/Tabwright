@@ -1,4 +1,5 @@
 // Verifies CLI help stays runnable without loading browser-start-only dependencies.
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -71,6 +72,18 @@ describe('playwriter cli help', () => {
     expect(indexHelp.stdout).toContain('--full')
     expect(listHelp.stderr).toBe('')
     expect(indexHelp.stderr).toBe('')
+  }, 30000)
+
+  test('teaches a fresh agent how to package and install capabilities', async () => {
+    const { stdout, stderr } = await runCli(['skill'])
+    const discoverySkill = fs.readFileSync(path.resolve(playwriterDir, '..', 'skills', 'playwriter', 'SKILL.md'), 'utf-8')
+
+    expect(stdout).toContain('playwriter capability pack query-user')
+    expect(stdout).toContain('playwriter capability install ./query-user.tgz')
+    expect(stdout).toContain('A shared capability always installs as `draft`')
+    expect(discoverySkill).toContain('playwriter capability pack <capability-id>')
+    expect(discoverySkill).toContain('playwriter capability install ./<capability-id>.tgz')
+    expect(stderr).toBe('')
   }, 30000)
 
   test('unknown command exits with code 1', async () => {

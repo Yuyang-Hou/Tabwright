@@ -10,25 +10,24 @@ import {
   getCapabilityContractHealth,
   readCapabilitySecrets,
   requireCapability,
+  resolveCapabilityOperation,
   updateCapabilityManifest,
   validateJsonAgainstSchema,
   type CapabilityContractCheckStatus,
   type CapabilityRecord,
   type CapabilityRunContract,
   type CapabilityRunRecord,
+  type ResolvedCapabilityOperation,
 } from './capability-registry.js'
 import type { ExecuteResult } from './executor.js'
 
 export interface CapabilityExecutor {
-  execute(
-    code: string,
-    timeout?: number,
-    options?: { includeStructuredResult?: boolean },
-  ): Promise<ExecuteResult>
+  execute(code: string, timeout?: number, options?: { includeStructuredResult?: boolean }): Promise<ExecuteResult>
 }
 
 export interface PreparedCapabilityRun {
   capability: CapabilityRecord
+  operation: ResolvedCapabilityOperation
   code: string
   input: unknown
   inputHash: string
@@ -103,7 +102,7 @@ export function prepareCapabilityRun(options: {
   confirmation?: string
 }): PreparedCapabilityRun {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  validateCapabilityRunnable({
+  const operation = validateCapabilityRunnable({
     capability,
     input: options.input,
     force: options.force,
@@ -113,7 +112,8 @@ export function prepareCapabilityRun(options: {
   const script = fs.readFileSync(capability.scriptPath, 'utf-8')
   return {
     capability,
-    code: buildCapabilityCode({ capability, script, input: options.input, force: options.force }),
+    operation,
+    code: buildCapabilityCode({ capability, operation, script, input: options.input, force: options.force }),
     input: options.input,
     inputHash: hashInput(options.input),
   }
@@ -131,7 +131,7 @@ export async function runNodeCapability(options: {
   if (capability.manifest.runtime !== 'node') {
     throw new Error(`Capability ${options.id} is runtime "${capability.manifest.runtime}", not "node"`)
   }
-  validateCapabilityRunnable({
+  const operation = validateCapabilityRunnable({
     capability,
     input: options.input,
     force: options.force,
@@ -142,11 +142,13 @@ export async function runNodeCapability(options: {
   const inputHash = hashInput(options.input)
   const execution = await executeNodeCapabilityScript({
     capability,
+    operation,
     input: options.input,
     timeout: options.timeout || 10000,
   }).catch((error: unknown) => {
     const finalized = finalizeCapabilityRun({
       capability,
+      operation,
       cwd: options.cwd,
       inputHash,
       startedAt: start,
@@ -161,6 +163,7 @@ export async function runNodeCapability(options: {
   })
   const finalized = finalizeCapabilityRun({
     capability,
+    operation,
     cwd: options.cwd,
     inputHash,
     startedAt: start,
@@ -201,6 +204,7 @@ export async function runCapabilityWithExecutor(options: {
     .catch((error: unknown) => {
       finalizeCapabilityRun({
         capability: prepared.capability,
+        operation: prepared.operation,
         cwd: options.cwd,
         inputHash: prepared.inputHash,
         startedAt: start,
@@ -226,6 +230,7 @@ export async function runCapabilityWithExecutor(options: {
   }
   const finalized = finalizeCapabilityRun({
     capability: prepared.capability,
+    operation: prepared.operation,
     cwd: options.cwd,
     inputHash: prepared.inputHash,
     startedAt: start,
@@ -251,6 +256,7 @@ export async function runCapabilityWithExecutor(options: {
 
 export function finalizeCapabilityRun(options: {
   capability: CapabilityRecord
+  operation: ResolvedCapabilityOperation
   cwd?: string
   inputHash: string
   startedAt: number
@@ -260,13 +266,14 @@ export function finalizeCapabilityRun(options: {
   const outputValidation =
     options.execution.status === 'success'
       ? validateJsonAgainstSchema({
-          schema: options.capability.manifest.outputSchema,
+          schema: options.operation.outputSchema,
           value: options.execution.output,
           label: 'output',
         })
       : { valid: false, errors: [] }
   const network = validateObservedNetworkUrls({
     capability: options.capability,
+    operation: options.operation,
     executionStatus: options.execution.status,
     observedNetworkUrls: options.execution.observedNetworkUrls || [],
   })
@@ -341,6 +348,7 @@ export function finalizeCapabilityRun(options: {
   })()
   const runRecord = buildCapabilityRunRecord({
     capability: options.capability,
+    operation: options.operation,
     status: options.execution.status === 'error' || contractError ? 'error' : 'success',
     durationMs: Date.now() - options.startedAt,
     inputHash: options.inputHash,
@@ -427,6 +435,7 @@ function isCapabilityExecutionEnvelope(value: unknown): value is CapabilityExecu
 
 function validateObservedNetworkUrls(options: {
   capability: CapabilityRecord
+  operation: ResolvedCapabilityOperation
   executionStatus: 'success' | 'error'
   observedNetworkUrls: string[]
 }): {
@@ -451,9 +460,11 @@ function validateObservedNetworkUrls(options: {
     }
   }
 
-  const networkPermissions = options.capability.manifest.permissions.filter((permission) => {
-    return permission === 'network' || permission.startsWith('network:')
-  })
+  const networkPermissions = (options.operation.permissions || options.capability.manifest.permissions).filter(
+    (permission) => {
+      return permission === 'network' || permission.startsWith('network:')
+    },
+  )
   if (networkPermissions.includes('network')) {
     return {
       status: options.executionStatus === 'error' ? 'unknown' : 'passed',
@@ -501,6 +512,7 @@ function matchesGlob(options: { value: string; pattern: string }): boolean {
 
 export function buildCapabilityRunRecord(options: {
   capability: CapabilityRecord
+  operation: ResolvedCapabilityOperation
   status: 'success' | 'error'
   durationMs: number
   inputHash: string
@@ -510,6 +522,7 @@ export function buildCapabilityRunRecord(options: {
 }): CapabilityRunRecord {
   return {
     id: options.capability.manifest.id,
+    operation: options.operation.id,
     status: options.status,
     durationMs: options.durationMs,
     inputHash: options.inputHash,
@@ -535,7 +548,7 @@ function validateCapabilityRunnable(options: {
   input: unknown
   force?: boolean
   confirmation?: string
-}): void {
+}): ResolvedCapabilityOperation {
   if (options.capability.manifest.status === 'disabled') {
     throw new Error(`Capability is disabled: ${options.capability.manifest.id}`)
   }
@@ -547,26 +560,26 @@ function validateCapabilityRunnable(options: {
   if (options.capability.manifest.status !== 'trusted' && !options.force) {
     throw new Error(`Capability is ${options.capability.manifest.status}. Run with --force or trust it first.`)
   }
+  const operation = resolveCapabilityOperation({ capability: options.capability, input: options.input })
   const validation = validateJsonAgainstSchema({
-    schema: options.capability.manifest.inputSchema,
+    schema: operation.inputSchema,
     value: options.input,
     label: 'input',
   })
   if (!validation.valid) {
     throw new Error(`Invalid capability input:\n${validation.errors.join('\n')}`)
   }
-  if (
-    options.capability.manifest.requiresConfirmation &&
-    options.confirmation !== options.capability.manifest.id
-  ) {
+  if (operation.requiresConfirmation && options.confirmation !== operation.confirmationToken) {
     throw new Error(
-      `Capability ${options.capability.manifest.id} requires explicit user confirmation for its ${options.capability.manifest.sideEffect} side effect. After approval, rerun with --confirm ${options.capability.manifest.id}.`,
+      `Capability ${options.capability.manifest.id}${operation.id ? ` operation ${operation.id}` : ''} requires explicit user confirmation for its ${operation.sideEffect} side effect. After approval, rerun with --confirm ${operation.confirmationToken}.`,
     )
   }
+  return operation
 }
 
 async function executeNodeCapabilityScript(options: {
   capability: CapabilityRecord
+  operation: ResolvedCapabilityOperation
   input: unknown
   timeout: number
 }): Promise<NodeCapabilityExecution> {
@@ -589,7 +602,8 @@ async function executeNodeCapabilityScript(options: {
       id: options.capability.manifest.id,
       title: options.capability.manifest.title,
       description: options.capability.manifest.description,
-      permissions: options.capability.manifest.permissions,
+      operation: options.operation.id,
+      permissions: options.operation.permissions || options.capability.manifest.permissions,
       runtime: options.capability.manifest.runtime,
     },
     secrets,
@@ -715,15 +729,22 @@ function formatNodeOutput(output: unknown): string {
   })}`
 }
 
-function buildCapabilityCode(options: { capability: CapabilityRecord; script: string; input: unknown; force?: boolean }): string {
+function buildCapabilityCode(options: {
+  capability: CapabilityRecord
+  operation: ResolvedCapabilityOperation
+  script: string
+  input: unknown
+  force?: boolean
+}): string {
   const inputLiteral = JSON.stringify(options.input)
   const capabilityLiteral = JSON.stringify({
     id: options.capability.manifest.id,
     title: options.capability.manifest.title,
     description: options.capability.manifest.description,
-    permissions: options.capability.manifest.permissions,
+    operation: options.operation.id,
+    permissions: options.operation.permissions || options.capability.manifest.permissions,
   })
-  const matchLiteral = JSON.stringify(options.capability.manifest.match)
+  const matchLiteral = JSON.stringify(options.operation.match)
   return [
     `const input = ${inputLiteral};`,
     `const capability = ${capabilityLiteral};`,
@@ -773,5 +794,8 @@ function buildCapabilityCode(options: { capability: CapabilityRecord; script: st
 }
 
 function hashInput(input: unknown): string {
-  return crypto.createHash('sha256').update(JSON.stringify(input) || 'undefined').digest('hex')
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(input) || 'undefined')
+    .digest('hex')
 }

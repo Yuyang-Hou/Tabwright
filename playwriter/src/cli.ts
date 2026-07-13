@@ -32,6 +32,7 @@ import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } 
 import { getCloudClient, loadCloudAuth, saveCloudAuth, CloudClient, buildLiveUrl } from './cloud-client.js'
 import {
   createCapability,
+  getCapabilitySafetySummary,
   listCapabilities,
   readCapabilityScript,
   routeCapabilities,
@@ -44,6 +45,7 @@ import {
   type CapabilityRecord,
 } from './capability-registry.js'
 import { initCapabilityAgentSkill, installCapabilityAgentSkill, showCapabilityAgentSkill } from './capability-agent-skill.js'
+import { installCapabilityPackage, packCapability } from './capability-package.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import {
   finalizeCapabilityRun,
@@ -52,7 +54,7 @@ import {
   readCapabilityExecutionObservation,
   runNodeCapability,
 } from './capability-runner.js'
-import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
+import { installBuiltinCapabilitySuite, isBuiltinCapabilitySuite } from './builtin-capabilities.js'
 import { createReplayAiIndexFromRecording, saveReplayAiIndex } from './replay-ai-index.js'
 import { listSavedRrwebRecordings } from './rrweb-recording-relay.js'
 import {
@@ -465,6 +467,13 @@ interface CapabilityInstallOptions {
   force?: boolean
   draft?: boolean
   skipAgentSkills?: boolean
+  withAgentSkill?: boolean
+  json?: boolean
+}
+
+interface CapabilityPackOptions {
+  output?: string
+  force?: boolean
   json?: boolean
 }
 
@@ -595,7 +604,8 @@ function printCapabilitySearch(options: {
     return
   }
   const lines = options.results.map((result) => {
-    const autonomy = result.capability.manifest.requiresConfirmation ? 'confirm' : result.capability.manifest.sideEffect
+    const safety = getCapabilitySafetySummary(result.capability)
+    const autonomy = safety.sideEffect === 'mixed' ? 'mixed' : safety.requiresConfirmation ? 'confirm' : safety.sideEffect
     return `${result.capability.manifest.id}  score=${result.score}  ${result.capability.manifest.runtime}/${autonomy}  ${result.capability.manifest.title}`
   })
   console.log(lines.join('\n'))
@@ -611,10 +621,14 @@ function printCapabilityRoutes(options: {
       shellCommand: route.shellCommand,
       command: route.command,
       capabilityId: route.capability.manifest.id,
+      operation: route.operation,
       id: route.capability.manifest.id,
       title: route.capability.manifest.title,
       location: route.capability.location,
-      routingHint: route.capability.manifest.routingHint,
+      routingHint:
+        route.operation === undefined
+          ? route.capability.manifest.routingHint
+          : route.capability.manifest.operations[route.operation]?.routingHint,
       input: route.input,
       commandWarning: route.commandWarning,
       executionHint: route.executionHint,
@@ -773,6 +787,7 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
     }).catch((error: unknown) => {
       finalizeCapabilityRun({
         capability: prepared.capability,
+        operation: prepared.operation,
         cwd: process.cwd(),
         inputHash: prepared.inputHash,
         startedAt: start,
@@ -793,6 +808,7 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
     })
     const finalized = finalizeCapabilityRun({
       capability: prepared.capability,
+      operation: prepared.operation,
       cwd: process.cwd(),
       inputHash: prepared.inputHash,
       startedAt: start,
@@ -1457,57 +1473,144 @@ cli
   })
 
 cli
-  .command('capability install <suite>', 'Install built-in Playwriter capabilities')
+  .command('capability pack <id>', 'Pack a capability for safe sharing')
+  .option('-o, --output <path>', 'Output .tgz path (default: <id>.tgz)')
+  .option('--force', 'Overwrite an existing package')
+  .option('--json', 'Print JSON')
+  .action(async (id: string, options: CapabilityPackOptions) => {
+    try {
+      const packed = await packCapability({
+        id,
+        cwd: process.cwd(),
+        output: options.output,
+        overwrite: options.force,
+      })
+      if (options.json) {
+        console.log(JSON.stringify(packed, null, 2))
+        return
+      }
+      console.log(`Packed ${packed.capabilityId}: ${packed.path}`)
+      console.log(`Integrity: ${packed.integrity}`)
+      console.log('Included files:')
+      packed.files.map((file) => {
+        console.log(`- ${file}`)
+        return file
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('capability install <source>', 'Install a built-in suite, capability directory, local .tgz, or .tgz URL')
   .option('--project', 'Install under .playwriter/capabilities in the current project')
   .option('--force', 'Overwrite existing installed capabilities')
-  .option('--draft', 'Install as draft instead of trusted')
+  .option('--draft', 'Install a built-in suite as draft instead of trusted')
   .option('--skip-agent-skills', 'Do not install bundled agent skills such as Codex skills')
+  .option('--with-agent-skill', 'Install a shared package agent skill after reviewing the source')
   .option('--json', 'Print JSON')
-  .action((suite: string, options: CapabilityInstallOptions) => {
+  .action(async (source: string, options: CapabilityInstallOptions) => {
     try {
-      const installed = installBuiltinCapabilitySuite({
-        suite,
+      if (isBuiltinCapabilitySuite(source)) {
+        const installed = installBuiltinCapabilitySuite({
+          suite: source,
+          cwd: process.cwd(),
+          location: options.project ? 'project' : 'user',
+          overwrite: options.force,
+          trust: options.draft ? false : true,
+          installAgentSkills: options.skipAgentSkills ? false : true,
+        })
+        const summary = {
+          type: 'builtin',
+          suite: installed.suite,
+          capabilities: installed.capabilities.map((capability) => {
+            return toCapabilitySummary(capability)
+          }),
+          agentSkills: installed.agentSkills,
+          next: installed.capabilities.flatMap((capability) => {
+            if (capability.manifest.auth.refresh !== 'from-browser') {
+              return []
+            }
+            return [`playwriter capability refresh-auth ${capability.manifest.id} --browser user --json`]
+          }),
+        }
+        if (options.json) {
+          console.log(JSON.stringify(summary, null, 2))
+          return
+        }
+        console.log(`Installed ${installed.suite}:`)
+        installed.capabilities.map((capability) => {
+          console.log(`- ${capability.manifest.id} (${capability.location}, ${capability.manifest.status})`)
+          return capability.manifest.id
+        })
+        if (installed.agentSkills.length > 0) {
+          console.log('')
+          console.log('Installed agent skills:')
+          installed.agentSkills.map((agentSkill) => {
+            console.log(`- ${agentSkill.target}:${agentSkill.name} at ${agentSkill.dir}`)
+            return agentSkill.name
+          })
+        }
+        if (summary.next.length > 0) {
+          console.log('')
+          console.log('Refresh auth with:')
+          summary.next.map((command) => {
+            console.log(`  ${command}`)
+            return command
+          })
+        }
+        return
+      }
+
+      const installed = await installCapabilityPackage({
+        source,
         cwd: process.cwd(),
         location: options.project ? 'project' : 'user',
         overwrite: options.force,
-        trust: options.draft ? false : true,
-        installAgentSkills: options.skipAgentSkills ? false : true,
       })
+      const agentSkill =
+        installed.agentSkillAvailable && options.withAgentSkill
+          ? installCapabilityAgentSkill({
+              id: installed.capability.manifest.id,
+              cwd: process.cwd(),
+              overwrite: options.force,
+              capability: installed.capability,
+            })
+          : null
+      const next = [
+        `playwriter capability describe ${installed.capability.manifest.id} --json`,
+        ...(installed.agentSkillAvailable && !agentSkill
+          ? [`Review the packaged agent skill, then install it with: playwriter capability skill install ${installed.capability.manifest.id}`]
+          : []),
+        ...(installed.capability.manifest.auth.refresh === 'from-browser'
+          ? [`playwriter capability refresh-auth ${installed.capability.manifest.id} --browser user --json`]
+          : []),
+        `Validate with capability run --force before trusting ${installed.capability.manifest.id}.`,
+      ]
       const summary = {
-        suite: installed.suite,
-        capabilities: installed.capabilities.map((capability) => {
-          return toCapabilitySummary(capability)
-        }),
-        agentSkills: installed.agentSkills,
-        next: installed.capabilities.flatMap((capability) => {
-          if (capability.manifest.auth.refresh !== 'from-browser') {
-            return []
-          }
-          return [`playwriter capability refresh-auth ${capability.manifest.id} --browser user --json`]
-        }),
+        type: 'package',
+        source: installed.source,
+        capability: toCapabilitySummary(installed.capability),
+        files: installed.files,
+        integrity: installed.integrity,
+        agentSkill,
+        next,
       }
       if (options.json) {
         console.log(JSON.stringify(summary, null, 2))
         return
       }
-      console.log(`Installed ${installed.suite}:`)
-      installed.capabilities.forEach((capability) => {
-        console.log(`- ${capability.manifest.id} (${capability.location}, ${capability.manifest.status})`)
+      console.log(`Installed ${installed.capability.manifest.id} as draft: ${installed.capability.dir}`)
+      console.log(`Integrity: ${installed.integrity}`)
+      if (agentSkill) {
+        console.log(`Installed agent skill: ${agentSkill.dir}`)
+      }
+      console.log('')
+      console.log('Next:')
+      next.map((step) => {
+        console.log(`  ${step}`)
+        return step
       })
-      if (installed.agentSkills.length > 0) {
-        console.log('')
-        console.log('Installed agent skills:')
-        installed.agentSkills.forEach((agentSkill) => {
-          console.log(`- ${agentSkill.target}:${agentSkill.name} at ${agentSkill.dir}`)
-        })
-      }
-      if (summary.next.length > 0) {
-        console.log('')
-        console.log('Refresh auth with:')
-        summary.next.forEach((command) => {
-          console.log(`  ${command}`)
-        })
-      }
     } catch (error) {
       exitWithError(error)
     }

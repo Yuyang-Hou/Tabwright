@@ -23,7 +23,9 @@ describe('capability studio', () => {
       })
 
       const pageResponse = await fetch(`http://${server.host}:${server.port}/`)
-      expect(await pageResponse.text()).toContain('Playwriter Studio')
+      const pageHtml = await pageResponse.text()
+      expect(pageHtml).toContain('Playwriter Studio')
+      expect(pageHtml).toContain('Operations')
 
       const apiResponse = await fetch(`http://${server.host}:${server.port}/api/capabilities`)
       const capabilities = (await apiResponse.json()) as Array<{ id: string; title: string }>

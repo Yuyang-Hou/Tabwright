@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Conan 文案配置'
+  short_description: '查询并安全管理国内正式与测试环境的 Conan 文案配置'
+  default_prompt: 'Use $conan-config to inspect or safely change this domestic Conan copywriting config.'

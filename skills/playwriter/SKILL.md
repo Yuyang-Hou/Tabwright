@@ -45,6 +45,18 @@ playwriter capability skill install <capability-id>
 
 `capability skill install` refuses untouched scaffold templates. Simple capabilities usually need only a good contract, not a separate agent skill.
 
+## Sharing Saved Capabilities
+
+When the user asks to package, share, export, or install a saved capability, use the capability package commands directly:
+
+```bash
+playwriter capability pack <capability-id>
+playwriter capability install ./<capability-id>.tgz
+playwriter capability install https://example.com/<capability-id>.tgz
+```
+
+`capability pack` includes only the manifest, entry script, optional README, and optional agent skills. It excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. Shared capabilities always install as `draft`. Do not trust one until its contract and script have been inspected and it has passed a `capability run --force` validation. Authentication must be refreshed from the recipient's own browser. Packaged agent skills are not installed unless the user explicitly passes `--with-agent-skill` or later runs `capability skill install <capability-id>`.
+
 ## Replay-to-Capability Handoff
 
 Turn a saved user demonstration into a capability through the CLI contract:

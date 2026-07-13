@@ -17,7 +17,11 @@ import {
 } from './capability-registry.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import { installBuiltinCapabilitySuite } from './builtin-capabilities.js'
-import { initCapabilityAgentSkill, installCapabilityAgentSkill, showCapabilityAgentSkill } from './capability-agent-skill.js'
+import {
+  initCapabilityAgentSkill,
+  installCapabilityAgentSkill,
+  showCapabilityAgentSkill,
+} from './capability-agent-skill.js'
 import { prepareCapabilityRun, runCapabilityWithExecutor, runNodeCapability } from './capability-runner.js'
 import { saveWorkflowCapability, saveWorkflowFromRecording } from './workflow-capability.js'
 
@@ -130,44 +134,46 @@ describe('capability registry', () => {
         codexHome,
       })
 
-      expect(installed.capabilities.map((capability) => capability.manifest.id)).toEqual([
-        'conan-config-search',
-        'conan-config-query',
-      ])
-      expect(installed.agentSkills.map((agentSkill) => agentSkill.name)).toEqual(['conan-config-query'])
+      expect(installed.capabilities.map((capability) => capability.manifest.id)).toEqual(['conan-config'])
+      expect(installed.agentSkills.map((agentSkill) => agentSkill.name)).toEqual(['conan-config'])
       expect(installed.agentSkills[0]?.target).toBe('codex')
+      expect(fs.readFileSync(path.join(codexHome, 'skills', 'conan-config', 'SKILL.md'), 'utf-8')).toContain(
+        '--confirm conan-config:apply-change',
+      )
       expect(
-        fs.readFileSync(path.join(codexHome, 'skills', 'conan-config-query', 'SKILL.md'), 'utf-8'),
-      ).toContain('never a shell command')
-      expect(
-        fs.readFileSync(path.join(codexHome, 'skills', 'conan-config-query', 'agents', 'openai.yaml'), 'utf-8'),
-      ).toContain('Conan Config Query')
+        fs.readFileSync(path.join(codexHome, 'skills', 'conan-config', 'agents', 'openai.yaml'), 'utf-8'),
+      ).toContain('Conan 文案配置')
       const projectCapabilityIds = listCapabilities({ cwd })
         .filter((capability) => {
           return capability.location === 'project'
         })
         .map((item) => item.manifest.id)
-      expect(projectCapabilityIds).toEqual([
-        'conan-config-query',
-        'conan-config-search',
-      ])
+      expect(projectCapabilityIds).toEqual(['conan-config'])
       const query = listCapabilities({ cwd }).find((capability) => {
-        return capability.manifest.id === 'conan-config-query'
+        return capability.manifest.id === 'conan-config'
       })
       if (!query) {
-        throw new Error('Expected conan-config-query to be installed')
+        throw new Error('Expected conan-config to be installed')
       }
       expect(query.manifest).toMatchObject({
         runtime: 'node',
         status: 'trusted',
-        match: [
-          'https://buff.zhenguanyu.com/*Space_Enhanced_Config*key=*rootGroupingKey=*',
-          'https://conan.zhenguanyu.com/*Space_Enhanced_Config*key=*rootGroupingKey=*',
-          'Space_Enhanced_Config key rootGroupingKey namespace',
-        ],
-        routingHint: 'exact-match-direct-run',
-        sideEffect: 'read',
-        requiresConfirmation: false,
+        sideEffect: 'write',
+        requiresConfirmation: true,
+        operations: {
+          search: { sideEffect: 'read', requiresConfirmation: false },
+          get: { routingHint: 'exact-match-direct-run', sideEffect: 'read', requiresConfirmation: false },
+          history: { sideEffect: 'read', requiresConfirmation: false },
+          'get-schema': { sideEffect: 'read', requiresConfirmation: false },
+          'prepare-change': { sideEffect: 'read', requiresConfirmation: false },
+          'apply-change': { sideEffect: 'write', requiresConfirmation: true },
+          'save-draft': { sideEffect: 'write', requiresConfirmation: true },
+          'publish-draft': { sideEffect: 'write', requiresConfirmation: true },
+          'discard-draft': { sideEffect: 'write', requiresConfirmation: true },
+          create: { sideEffect: 'write', requiresConfirmation: true },
+          copy: { sideEffect: 'write', requiresConfirmation: true },
+          rollback: { sideEffect: 'write', requiresConfirmation: true },
+        },
         auth: {
           type: 'cookie',
           refresh: 'from-browser',
@@ -175,18 +181,29 @@ describe('capability registry', () => {
         },
       })
       expect(toCapabilityContract(query)).toMatchObject({
-        id: 'conan-config-query',
-        routingHint: 'exact-match-direct-run',
-        autonomousInvocation: { allowed: true },
+        id: 'conan-config',
+        autonomousInvocation: { allowed: false },
+        operations: {
+          get: { autonomousInvocation: { allowed: true } },
+          'apply-change': {
+            confirmationToken: 'conan-config:apply-change',
+            autonomousInvocation: { allowed: false },
+          },
+          'save-draft': {
+            confirmationToken: 'conan-config:save-draft',
+            autonomousInvocation: { allowed: false },
+          },
+        },
       })
       expect(query.manifest.whenToUse.join('\n')).toContain('Space_Enhanced_Config')
-      expect(readCapabilityScript({ id: 'conan-config-query', cwd })).toContain('/conan-config/api/newConfigs/')
-      expect(readCapabilityScript({ id: 'conan-config-query', cwd })).toContain('saveConfigArtifacts')
-      expect(readCapabilityScript({ id: 'conan-config-query', cwd })).toContain('latest.full.json')
-      expect(query.manifest.inputSchema.properties).toMatchObject({
+      expect(readCapabilityScript({ id: 'conan-config', cwd })).toContain('/conan-config/api/newConfigs/')
+      expect(readCapabilityScript({ id: 'conan-config', cwd })).toContain('saveConfigArtifacts')
+      expect(readCapabilityScript({ id: 'conan-config', cwd })).toContain('source_changed_after_validation')
+      expect(query.manifest.operations.get?.inputSchema.properties).toMatchObject({
+        environment: { enum: ['cn-prod', 'cn-test'] },
         saveArtifacts: { type: 'boolean' },
       })
-      expect(query.manifest.outputSchema.properties).toMatchObject({
+      expect(query.manifest.operations.get?.outputSchema.properties).toMatchObject({
         artifacts: { type: 'object' },
       })
       expect(
@@ -195,17 +212,18 @@ describe('capability registry', () => {
           query:
             'https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia',
         })[0]?.capability.manifest.id,
-      ).toBe('conan-config-query')
+      ).toBe('conan-config')
       const routes = routeCapabilities({
         cwd,
-        task:
-          '查这个配置 https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia&config=%E5%8F%91%E5%88%B8',
+        task: '查这个配置 https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia&config=%E5%8F%91%E5%88%B8',
       })
-      expect(routes[0]?.capability.manifest.id).toBe('conan-config-query')
+      expect(routes[0]?.capability.manifest.id).toBe('conan-config')
+      expect(routes[0]?.operation).toBe('get')
       expect(routes[0]?.input).toEqual({
+        action: 'get',
         url: 'https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia&config=%E5%8F%91%E5%88%B8',
       })
-      expect(routes[0]?.command).toContain('playwriter capability run conan-config-query')
+      expect(routes[0]?.command).toContain('playwriter capability run conan-config')
       expect(routes[0]?.shellCommand).toBe(routes[0]?.command)
       expect(routes[0]?.commandWarning).toContain('not a shell command')
       expect(routes[0]?.commandWarning).toContain('run shellCommand exactly')
@@ -214,11 +232,677 @@ describe('capability registry', () => {
         runRequiresEscalatedSandbox: true,
         commandMustStartWith: 'playwriter capability run ',
       })
+      const testRoute = routeCapabilities({
+        cwd,
+        task: 'https://buff-test.zhenguanyu.com/micro-buff/#/buff-oversea-designer/Space_Enhanced_Config?key=demoConfig&rootGroupingKey=Space_Pedia',
+      })
+      expect(testRoute[0]?.operation).toBe('get')
       expect(routeCapabilities({ cwd, task: 'https://example.com/not-a-known-config' })).toEqual([])
-      expect(searchCapabilities({ cwd, query: '文案配置 查询 配置' })[0]?.capability.manifest.id).toMatch(
-        /^conan-config-/,
-      )
+      expect(
+        searchCapabilities({ cwd, query: '文案配置 查询 配置' }).some((result) => {
+          return result.capability.manifest.id === 'conan-config'
+        }),
+      ).toBe(true)
     } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('runs unified Conan config read and confirmed publish operations', async () => {
+    const cwd = createTempDir('capability-conan-config-run-')
+    const currentValue = { title: 'before', items: [{ enabled: false }] }
+    const targetValue = { title: 'after', items: [{ enabled: true }] }
+    let publishedValue = currentValue
+    let pendingValue = currentValue
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString())
+      const body = typeof init?.body === 'string' ? init.body : ''
+      const responseBody: unknown = (() => {
+        if (url.pathname.endsWith('/enhancedConfigs/searchTree')) {
+          return { code: 0, data: { configBases: [] } }
+        }
+        if (url.pathname.includes('/enhancedConfigs/detail/')) {
+          return {
+            code: 0,
+            data: {
+              config: {
+                id: 42,
+                namespace: 'Space_Pedia',
+                key: 'demo',
+                desc: 'Demo config',
+                name: 'Demo',
+                groupingId: 7,
+                schemaId: 9,
+                updatedTime: 123,
+                value: JSON.stringify(currentValue),
+              },
+              configDraft: null,
+            },
+          }
+        }
+        if (url.pathname.endsWith('/schema')) {
+          return [
+            {
+              schemaJson: JSON.stringify({
+                schema: {
+                  type: 'object',
+                  properties: {
+                    title: { name: 'title', title: '标题', type: 'string', 'x-index': 0 },
+                    items: { name: 'items', title: '列表', type: 'array', 'x-index': 1 },
+                  },
+                },
+                form: {},
+              }),
+            },
+          ]
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/update')) {
+          const payload = JSON.parse(body) as { value: string }
+          pendingValue = JSON.parse(payload.value) as typeof currentValue
+          return { code: 0, data: 88 }
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/publish')) {
+          publishedValue = pendingValue
+          return { code: 0, data: true }
+        }
+        if (url.pathname.includes('/newConfigs/')) {
+          return {
+            id: 42,
+            namespace: 'Space_Pedia',
+            key: 'demo',
+            desc: 'Demo config',
+            updatedTime: 123,
+            value: JSON.stringify(publishedValue),
+          }
+        }
+        throw new Error(`Unexpected Conan test request: ${url.toString()}`)
+      })()
+      return new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    try {
+      const installed = installBuiltinCapabilitySuite({
+        suite: 'conan-config',
+        location: 'project',
+        cwd,
+        installAgentSkills: false,
+      })
+      const capability = installed.capabilities[0]
+      if (!capability) {
+        throw new Error('Expected unified Conan config capability')
+      }
+      writeCapabilitySecrets({ capability, secrets: { cookieHeader: 'session=test' } })
+
+      await expect(
+        runNodeCapability({ id: 'conan-config', cwd, input: { action: 'search', query: 'demo' } }),
+      ).resolves.toMatchObject({ output: { action: 'search', resultCount: 0 } })
+
+      const prepared = await runNodeCapability({
+        id: 'conan-config',
+        cwd,
+        input: {
+          action: 'prepare-change',
+          namespace: 'Space_Pedia',
+          key: 'demo',
+          value: targetValue,
+          changeSummary: '更新标题并启用第一项',
+        },
+      })
+      const preparedOutput = prepared.output as {
+        schemaId: number
+        updatedTime: number
+        sourceSha256: string
+        targetSha256: string
+        diff: unknown[]
+      }
+      expect(preparedOutput.diff.length).toBeGreaterThan(0)
+
+      const applyInput = {
+        action: 'apply-change',
+        namespace: 'Space_Pedia',
+        key: 'demo',
+        value: targetValue,
+        changeSummary: '更新标题并启用第一项',
+        validationReport: {
+          passed: true,
+          errors: [],
+          warnings: [],
+          warningsAccepted: true,
+          environment: 'cn-prod',
+          schemaId: preparedOutput.schemaId,
+          updatedTime: preparedOutput.updatedTime,
+          sourceSha256: preparedOutput.sourceSha256,
+          targetSha256: preparedOutput.targetSha256,
+          summary: '校验通过',
+        },
+      }
+      await expect(runNodeCapability({ id: 'conan-config', cwd, input: applyInput })).rejects.toThrow(
+        'rerun with --confirm conan-config:apply-change',
+      )
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: applyInput,
+          confirmation: 'conan-config:apply-change',
+        }),
+      ).resolves.toMatchObject({ output: { status: 'published', submitted: true, verified: true } })
+      expect(publishedValue).toEqual(targetValue)
+    } finally {
+      vi.unstubAllGlobals()
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('runs Conan config draft, create, copy, history, and rollback operations in cn-test', async () => {
+    const cwd = createTempDir('capability-conan-config-lifecycle-')
+    type TestConfig = {
+      id: number
+      namespace: string
+      rootGroupingKey: string
+      key: string
+      name: string
+      desc: string
+      groupingId: number
+      schemaId: number
+      updatedTime: number
+      value: string
+    }
+    type TestDraft = {
+      id: number
+      opLdap: string
+      config: TestConfig
+    }
+    const initialValue = { title: 'current', enabled: false }
+    const draftValue = { title: 'draft', enabled: true }
+    const discardedValue = { title: 'discard me', enabled: true }
+    const historicalValue = { title: 'historical', enabled: false }
+    const configs = new Map<string, TestConfig>()
+    configs.set('Space_Pedia/demo_config', {
+      id: 42,
+      namespace: 'Space_Pedia',
+      rootGroupingKey: 'Space_Pedia',
+      key: 'demo_config',
+      name: 'Demo',
+      desc: 'Demo config',
+      groupingId: 7,
+      schemaId: 9,
+      updatedTime: 123,
+      value: JSON.stringify(initialValue),
+    })
+    let configDraft: TestDraft | null = null
+    let nextConfigId = 43
+    let nextDraftId = 88
+    const requestedHosts = new Set<string>()
+    const schemaRow = {
+      id: 9,
+      name: 'Demo schema',
+      schemaJson: JSON.stringify({
+        schema: {
+          type: 'object',
+          properties: {
+            title: { name: 'title', title: '标题', type: 'string', required: true, 'x-index': 0 },
+            enabled: { name: 'enabled', title: '启用', type: 'boolean', 'x-index': 1 },
+          },
+        },
+        form: {},
+      }),
+    }
+    const buildTree = () => {
+      return [
+        {
+          id: 1,
+          type: 2,
+          name: 'Space Pedia',
+          groupingKey: 'Space_Pedia',
+          updatedTime: 200,
+          children: [
+            {
+              id: 7,
+              type: 2,
+              name: 'Target group',
+              groupingKey: 'target_group',
+              updatedTime: 201,
+              children: Array.from(configs.values()).map((config) => {
+                return {
+                  id: config.id,
+                  type: 1,
+                  name: config.name,
+                  key: config.key,
+                  rootGroupingKey: config.rootGroupingKey,
+                  groupingId: config.groupingId,
+                  schemaId: config.schemaId,
+                }
+              }),
+            },
+          ],
+        },
+      ]
+    }
+    const findConfigById = (id: number) => {
+      return Array.from(configs.values()).find((config) => {
+        return config.id === id
+      })
+    }
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString())
+      requestedHosts.add(url.origin)
+      const body = typeof init?.body === 'string' ? init.body : ''
+      const responseBody: unknown = await (async () => {
+        if (url.pathname.endsWith('/enhancedConfigGroupings/rootGrouping')) {
+          return { code: 0, data: buildTree() }
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/searchTree')) {
+          return { code: 0, data: { configBases: buildTree() } }
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/detailHistory')) {
+          return {
+            code: 0,
+            data: [
+              {
+                id: 501,
+                configId: 42,
+                config: {
+                  ...configs.get('Space_Pedia/demo_config'),
+                  schemaId: 9,
+                  value: JSON.stringify(historicalValue),
+                },
+              },
+            ],
+          }
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/detail') && url.searchParams.has('id')) {
+          const config = findConfigById(Number(url.searchParams.get('id')))
+          return { code: 0, data: { config, configDraft: config?.id === 42 ? configDraft : null } }
+        }
+        if (url.pathname.includes('/enhancedConfigs/detail/')) {
+          const [, namespace, key] = url.pathname.match(/\/enhancedConfigs\/detail\/([^/]+)\/([^/]+)$/) || []
+          const config = configs.get(`${decodeURIComponent(namespace || '')}/${decodeURIComponent(key || '')}`)
+          return {
+            code: 0,
+            data: {
+              config,
+              configDraft: config?.id === 42 ? configDraft : null,
+              configHistories: config?.id === 42 ? [{ id: 501, configId: 42, opType: 3 }] : [],
+            },
+          }
+        }
+        if (url.pathname.endsWith('/schema')) {
+          return [schemaRow]
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/update')) {
+          const payload = JSON.parse(body) as {
+            id: number
+            name: string
+            desc: string
+            groupingId: number
+            schemaId: number
+            value: string
+          }
+          const config = findConfigById(payload.id)
+          if (!config) {
+            throw new Error(`Missing config for update: ${payload.id}`)
+          }
+          configDraft = {
+            id: nextDraftId,
+            opLdap: 'tester',
+            config: { ...config, ...payload },
+          }
+          nextDraftId += 1
+          return { code: 0, data: configDraft.id }
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/publish')) {
+          if (!configDraft) {
+            throw new Error('Missing draft for publish')
+          }
+          const config = findConfigById(configDraft.config.id)
+          if (!config) {
+            throw new Error(`Missing config for publish: ${configDraft.config.id}`)
+          }
+          Object.assign(config, configDraft.config, { updatedTime: config.updatedTime + 1 })
+          configDraft = null
+          return { code: 0, data: true }
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/unPublish')) {
+          configDraft = null
+          return { code: 0, data: true }
+        }
+        if (url.pathname.endsWith('/enhancedConfigs/add')) {
+          const payload = JSON.parse(body) as {
+            groupingId: number
+            key: string
+            name: string
+            desc: string
+            schemaId: number
+          }
+          const config: TestConfig = {
+            id: nextConfigId,
+            namespace: 'Space_Pedia',
+            rootGroupingKey: 'Space_Pedia',
+            key: payload.key,
+            name: payload.name,
+            desc: payload.desc,
+            groupingId: payload.groupingId,
+            schemaId: payload.schemaId,
+            updatedTime: 300,
+            value: '{}',
+          }
+          nextConfigId += 1
+          configs.set(`Space_Pedia/${config.key}`, config)
+          return {
+            code: 0,
+            data: { id: config.id, rootGroupingKey: config.rootGroupingKey, key: config.key },
+          }
+        }
+        if (url.pathname.includes('/newConfigs/')) {
+          const [, namespace, key] = url.pathname.match(/\/newConfigs\/([^/]+)\/([^/]+)$/) || []
+          return configs.get(`${decodeURIComponent(namespace || '')}/${decodeURIComponent(key || '')}`)
+        }
+        throw new Error(`Unexpected Conan lifecycle test request: ${url.toString()}`)
+      })()
+      return new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    try {
+      const installed = installBuiltinCapabilitySuite({
+        suite: 'conan-config',
+        location: 'project',
+        cwd,
+        installAgentSkills: false,
+      })
+      const capability = installed.capabilities[0]
+      if (!capability) {
+        throw new Error('Expected unified Conan config capability')
+      }
+      writeCapabilitySecrets({ capability, secrets: { cookieHeader: 'session=test' } })
+
+      await expect(
+        runNodeCapability({ id: 'conan-config', cwd, input: { action: 'list-spaces', environment: 'cn-test' } }),
+      ).resolves.toMatchObject({ output: { environment: 'cn-test', count: 1 } })
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: { action: 'get-schema', environment: 'cn-test', schemaId: 9 },
+        }),
+      ).resolves.toMatchObject({ output: { environment: 'cn-test', schemaId: 9 } })
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: {
+            action: 'history',
+            environment: 'cn-test',
+            namespace: 'Space_Pedia',
+            key: 'demo_config',
+            historyIds: [501],
+          },
+        }),
+      ).resolves.toMatchObject({ output: { historyCount: 1, details: [{ id: 501 }] } })
+
+      const prepared = await runNodeCapability({
+        id: 'conan-config',
+        cwd,
+        input: {
+          action: 'prepare-change',
+          environment: 'cn-test',
+          namespace: 'Space_Pedia',
+          key: 'demo_config',
+          value: draftValue,
+          changeSummary: 'save a test draft',
+        },
+      })
+      const preparedOutput = prepared.output as {
+        environment: string
+        schemaId: number
+        updatedTime: number
+        sourceSha256: string
+        targetSha256: string
+      }
+      const changeReport = {
+        passed: true,
+        errors: [],
+        warnings: [],
+        warningsAccepted: true,
+        environment: preparedOutput.environment,
+        schemaId: preparedOutput.schemaId,
+        updatedTime: preparedOutput.updatedTime,
+        sourceSha256: preparedOutput.sourceSha256,
+        targetSha256: preparedOutput.targetSha256,
+        summary: 'validated',
+      }
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: {
+            action: 'save-draft',
+            environment: 'cn-test',
+            namespace: 'Space_Pedia',
+            key: 'demo_config',
+            value: draftValue,
+            changeSummary: 'save a test draft',
+            validationReport: changeReport,
+          },
+          confirmation: 'conan-config:save-draft',
+        }),
+      ).resolves.toMatchObject({ output: { status: 'draft_saved', published: false, verified: true } })
+
+      const publishPrepared = await runNodeCapability({
+        id: 'conan-config',
+        cwd,
+        input: {
+          action: 'prepare-publish-draft',
+          environment: 'cn-test',
+          namespace: 'Space_Pedia',
+          key: 'demo_config',
+        },
+      })
+      const publishOutput = publishPrepared.output as {
+        environment: string
+        configDraftId: number
+        schemaId: number
+        updatedTime: number
+        sourceSha256: string
+        draftSha256: string
+      }
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: {
+            action: 'publish-draft',
+            environment: 'cn-test',
+            namespace: 'Space_Pedia',
+            key: 'demo_config',
+            validationReport: {
+              passed: true,
+              errors: [],
+              warnings: [],
+              warningsAccepted: true,
+              ...publishOutput,
+              summary: 'publish validated draft',
+            },
+          },
+          confirmation: 'conan-config:publish-draft',
+        }),
+      ).resolves.toMatchObject({ output: { status: 'published', published: true, verified: true } })
+
+      const discardPrepared = await runNodeCapability({
+        id: 'conan-config',
+        cwd,
+        input: {
+          action: 'prepare-change',
+          environment: 'cn-test',
+          namespace: 'Space_Pedia',
+          key: 'demo_config',
+          value: discardedValue,
+          changeSummary: 'discard this draft',
+        },
+      })
+      const discardChangeOutput = discardPrepared.output as {
+        environment: string
+        schemaId: number
+        updatedTime: number
+        sourceSha256: string
+        targetSha256: string
+      }
+      await runNodeCapability({
+        id: 'conan-config',
+        cwd,
+        input: {
+          action: 'save-draft',
+          environment: 'cn-test',
+          namespace: 'Space_Pedia',
+          key: 'demo_config',
+          value: discardedValue,
+          changeSummary: 'discard this draft',
+          validationReport: {
+            passed: true,
+            errors: [],
+            warnings: [],
+            warningsAccepted: true,
+            ...discardChangeOutput,
+            summary: 'validated',
+          },
+        },
+        confirmation: 'conan-config:save-draft',
+      })
+      const discardInspection = await runNodeCapability({
+        id: 'conan-config',
+        cwd,
+        input: {
+          action: 'prepare-publish-draft',
+          environment: 'cn-test',
+          namespace: 'Space_Pedia',
+          key: 'demo_config',
+        },
+      })
+      const discardInspectionOutput = discardInspection.output as { configDraftId: number; draftSha256: string }
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: {
+            action: 'discard-draft',
+            environment: 'cn-test',
+            namespace: 'Space_Pedia',
+            key: 'demo_config',
+            configDraftId: discardInspectionOutput.configDraftId,
+            draftSha256: discardInspectionOutput.draftSha256,
+          },
+          confirmation: 'conan-config:discard-draft',
+        }),
+      ).resolves.toMatchObject({ output: { status: 'draft_discarded', verified: true } })
+
+      const rollbackPrepared = await runNodeCapability({
+        id: 'conan-config',
+        cwd,
+        input: {
+          action: 'prepare-rollback',
+          environment: 'cn-test',
+          namespace: 'Space_Pedia',
+          key: 'demo_config',
+          historyId: 501,
+        },
+      })
+      const rollbackOutput = rollbackPrepared.output as {
+        environment: string
+        historyId: number
+        schemaId: number
+        updatedTime: number
+        sourceSha256: string
+        historicalSha256: string
+      }
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: {
+            action: 'rollback',
+            environment: 'cn-test',
+            namespace: 'Space_Pedia',
+            key: 'demo_config',
+            historyId: 501,
+            validationReport: {
+              passed: true,
+              errors: [],
+              warnings: [],
+              warningsAccepted: true,
+              ...rollbackOutput,
+              summary: 'rollback validated',
+            },
+          },
+          confirmation: 'conan-config:rollback',
+        }),
+      ).resolves.toMatchObject({ output: { status: 'rolled_back', published: true, verified: true } })
+
+      const createInput = {
+        action: 'prepare-create',
+        environment: 'cn-test',
+        groupingId: 7,
+        key: 'new_config',
+        name: 'New config',
+        desc: 'New config description',
+        schemaId: 9,
+      }
+      const createPrepared = await runNodeCapability({ id: 'conan-config', cwd, input: createInput })
+      const createOutput = createPrepared.output as {
+        environment: string
+        groupingUpdatedTime: number
+        targetSha256: string
+      }
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: {
+            ...createInput,
+            action: 'create',
+            preparationReport: createOutput,
+          },
+          confirmation: 'conan-config:create',
+        }),
+      ).resolves.toMatchObject({ output: { status: 'created', published: true, verified: true } })
+
+      const copyInput = {
+        action: 'prepare-copy',
+        environment: 'cn-test',
+        sourceNamespace: 'Space_Pedia',
+        sourceKey: 'demo_config',
+        groupingId: 7,
+        targetKey: 'copy_config',
+      }
+      const copyPrepared = await runNodeCapability({ id: 'conan-config', cwd, input: copyInput })
+      const copyOutput = copyPrepared.output as {
+        environment: string
+        groupingUpdatedTime: number
+        targetSha256: string
+        sourceDefinitionSha256: string
+      }
+      await expect(
+        runNodeCapability({
+          id: 'conan-config',
+          cwd,
+          input: {
+            ...copyInput,
+            action: 'copy',
+            preparationReport: copyOutput,
+          },
+          confirmation: 'conan-config:copy',
+        }),
+      ).resolves.toMatchObject({
+        output: { status: 'copied', contentCopied: false, published: true, verified: true },
+      })
+
+      expect(requestedHosts).toEqual(new Set(['https://ytkconan.zhenguanyu.com']))
+    } finally {
+      vi.unstubAllGlobals()
       fs.rmSync(cwd, { recursive: true, force: true })
     }
   })
@@ -260,22 +944,34 @@ describe('capability registry', () => {
       const editedSkill = fs
         .readFileSync(skillPath, 'utf-8')
         .replace('<!-- PLAYWRITER_AGENT_SKILL_TEMPLATE: edit before install -->\n\n', '')
-        .replace('TODO: Explain when agents should use the query-user Playwriter capability. Mention concrete user phrasing, exact-match signals, and when not to use it.', 'Use when the user asks to look up an admin user by email.')
-        .replace('- TODO: Describe the concrete user intent, URL pattern, page state, or data shape that should trigger this capability.', '- Use for admin user lookup requests that include an email address.')
+        .replace(
+          'TODO: Explain when agents should use the query-user Playwriter capability. Mention concrete user phrasing, exact-match signals, and when not to use it.',
+          'Use when the user asks to look up an admin user by email.',
+        )
+        .replace(
+          '- TODO: Describe the concrete user intent, URL pattern, page state, or data shape that should trigger this capability.',
+          '- Use for admin user lookup requests that include an email address.',
+        )
         .replace('- TODO: State when this capability should not be used.', '- Do not use for public profile lookup.')
         .replace('- TODO: Define the default answer shape.', '- Return user id, email, and status.')
-        .replace('- TODO: Say when to show a short summary versus when to point to artifacts.', '- Keep chat output short and point to artifacts for raw API output.')
-        .replace('- TODO: Say whether large outputs should be saved, filtered, or exported only on request.', '- Export only when the user asks.')
+        .replace(
+          '- TODO: Say when to show a short summary versus when to point to artifacts.',
+          '- Keep chat output short and point to artifacts for raw API output.',
+        )
+        .replace(
+          '- TODO: Say whether large outputs should be saved, filtered, or exported only on request.',
+          '- Export only when the user asks.',
+        )
       fs.writeFileSync(skillPath, editedSkill)
 
       const installed = installCapabilityAgentSkill({ id: 'query-user', cwd, codexHome })
       expect(installed.dir).toBe(path.join(codexHome, 'skills', 'query-user'))
-      expect(
-        fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'SKILL.md'), 'utf-8'),
-      ).toContain('Use when the user asks to look up an admin user by email.')
-      expect(
-        fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'agents', 'openai.yaml'), 'utf-8'),
-      ).toContain('Query User')
+      expect(fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'SKILL.md'), 'utf-8')).toContain(
+        'Use when the user asks to look up an admin user by email.',
+      )
+      expect(fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'agents', 'openai.yaml'), 'utf-8')).toContain(
+        'Query User',
+      )
 
       createCapability({ id: 'update-user', location: 'project', cwd, runtime: 'browser' })
       updateCapabilityManifest({
@@ -575,6 +1271,95 @@ describe('capability runner', () => {
     }
   })
 
+  test('applies schemas and confirmation at operation scope', async () => {
+    const cwd = createTempDir('capability-operation-policy-')
+    try {
+      createCapability({ id: 'mixed-tool', location: 'project', cwd, runtime: 'node' })
+      updateCapabilityScript({
+        id: 'mixed-tool',
+        cwd,
+        source: 'return input.action === "read" ? { value: input.value } : { updated: true, value: input.value };',
+      })
+      updateCapabilityManifest({
+        id: 'mixed-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          sideEffect: 'write',
+          requiresConfirmation: true,
+          operations: {
+            read: {
+              title: 'Read',
+              description: 'Read a value',
+              match: ['https://example.com/read*'],
+              routingHint: 'exact-match-direct-run',
+              inputSchema: {
+                type: 'object',
+                properties: { action: { type: 'string' }, value: { type: 'string' } },
+                required: ['action', 'value'],
+              },
+              outputSchema: {
+                type: 'object',
+                properties: { value: { type: 'string' } },
+                required: ['value'],
+              },
+              sideEffect: 'read',
+              requiresConfirmation: false,
+            },
+            write: {
+              title: 'Write',
+              description: 'Write a value',
+              match: [],
+              routingHint: 'search-first',
+              inputSchema: {
+                type: 'object',
+                properties: { action: { type: 'string' }, value: { type: 'string' } },
+                required: ['action', 'value'],
+              },
+              outputSchema: {
+                type: 'object',
+                properties: { updated: { type: 'boolean' }, value: { type: 'string' } },
+                required: ['updated', 'value'],
+              },
+              sideEffect: 'write',
+              requiresConfirmation: true,
+            },
+          },
+        },
+      })
+
+      await expect(
+        runNodeCapability({ id: 'mixed-tool', cwd, input: { action: 'read', value: 'a' } }),
+      ).resolves.toMatchObject({
+        output: { value: 'a' },
+        runRecord: { operation: 'read' },
+      })
+      await expect(
+        runNodeCapability({ id: 'mixed-tool', cwd, input: { action: 'write', value: 'b' }, force: true }),
+      ).rejects.toThrow('rerun with --confirm mixed-tool:write')
+      await expect(
+        runNodeCapability({
+          id: 'mixed-tool',
+          cwd,
+          input: { action: 'write', value: 'b' },
+          force: true,
+          confirmation: 'mixed-tool',
+        }),
+      ).rejects.toThrow('rerun with --confirm mixed-tool:write')
+      await expect(
+        runNodeCapability({
+          id: 'mixed-tool',
+          cwd,
+          input: { action: 'write', value: 'b' },
+          force: true,
+          confirmation: 'mixed-tool:write',
+        }),
+      ).resolves.toMatchObject({ output: { updated: true, value: 'b' }, runRecord: { operation: 'write' } })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   test('does not execute node or browser scripts before confirmation', async () => {
     const cwd = createTempDir('capability-confirmation-execution-')
     try {
@@ -595,9 +1380,9 @@ describe('capability runner', () => {
         patch: { status: 'trusted', sideEffect: 'write', requiresConfirmation: true },
       })
 
-      await expect(
-        runNodeCapability({ id: 'confirmed-node-write', cwd, input: {}, force: true }),
-      ).rejects.toThrow('requires explicit user confirmation')
+      await expect(runNodeCapability({ id: 'confirmed-node-write', cwd, input: {}, force: true })).rejects.toThrow(
+        'requires explicit user confirmation',
+      )
       expect(fs.existsSync(path.join(nodeCapability.dir, 'artifacts', 'executed.txt'))).toBe(false)
 
       createCapability({ id: 'confirmed-browser-write', location: 'project', cwd, runtime: 'browser' })
@@ -955,9 +1740,9 @@ describe('capability runner', () => {
       })
       updateCapabilityManifest({ id: 'node-timeout-tool', cwd, patch: { status: 'trusted' } })
 
-      await expect(
-        runNodeCapability({ id: 'node-timeout-tool', cwd, input: {}, timeout: 50 }),
-      ).rejects.toThrow('Capability execution timed out after 50ms')
+      await expect(runNodeCapability({ id: 'node-timeout-tool', cwd, input: {}, timeout: 50 })).rejects.toThrow(
+        'Capability execution timed out after 50ms',
+      )
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

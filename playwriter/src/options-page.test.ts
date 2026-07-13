@@ -172,6 +172,9 @@ describe('extension options page', () => {
     })
     await page.setViewportSize({ width: 1280, height: 720 })
     try {
+      await testCtx.browserContext.grantPermissions(['clipboard-read', 'clipboard-write'], {
+        origin: staticServer.baseUrl,
+      })
       await page.route(`http://127.0.0.1:${TEST_PORT}/**`, async (route) => {
         const request = route.request()
         const url = new URL(request.url())
@@ -210,7 +213,7 @@ describe('extension options page', () => {
 
       await page.goto(`${staticServer.baseUrl}/src/options.html`)
       await page.locator('.language-button[data-language="en"]').click()
-      const recordingItem = page.locator('.recording-item').filter({ hasText: 'tab 7' })
+      const recordingItem = page.locator('.recording-item').first()
       await recordingItem.waitFor({ timeout: 10000 })
       await expect
         .poll(async () => {
@@ -242,7 +245,7 @@ describe('extension options page', () => {
         const list = element as unknown as { scrollTop: number }
         list.scrollTop = 0
       })
-      await recordingItem.click()
+      await recordingItem.locator('.recording-select').click()
 
       await expect
         .poll(() => {
@@ -296,12 +299,16 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('#replay-details').textContent()
         })
-        .toContain('--browser user')
-      await expect
-        .poll(async () => {
-          return await page.locator('#replay-details').textContent()
-        })
-        .toContain('--confirm')
+        .toContain('https://example.com/materials/new')
+      await recordingItem.getByRole('button', { name: 'Copy for AI' }).click()
+      const replayContext = await page.evaluate(async () => {
+        const clipboardNavigator = navigator as Navigator & {
+          clipboard: { readText: () => Promise<string> }
+        }
+        return await clipboardNavigator.clipboard.readText()
+      })
+      expect(replayContext).toContain('Replay ID: replay-options-smoke')
+      expect(replayContext).toContain(replay.path)
       await page.locator('#replay-player .replayer-wrapper').waitFor()
       await expect
         .poll(async () => {
@@ -314,12 +321,13 @@ describe('extension options page', () => {
         })
         .toBe(true)
     } finally {
+      await testCtx.browserContext.clearPermissions()
       await page.close()
       await staticServer.close()
     }
   }, 30000)
 
-  test('shows capabilities and AI prompt actions from the options page', async () => {
+  test('shows capabilities with clear status labels and focused actions', async () => {
     if (!testCtx) {
       throw new Error('Test context is not initialized')
     }
@@ -545,24 +553,24 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('#skill-detail').textContent()
         })
-        .toContain('Copy edit prompt')
+        .toContain('Needs your confirmation')
       await expect
         .poll(async () => {
           return await page.locator('#skill-detail').textContent()
         })
-        .toContain('email: string')
+        .toContain('AI instructions need publishing')
       await expect
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
         .toContain('Contract healthy')
-      await page.getByRole('button', { name: 'Copy approved run' }).click()
+      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
       const runCommand = await readClipboard()
       expect(runCommand).toBe(trustedNextCommand)
-      await page.getByRole('button', { name: 'Copy use prompt' }).click()
-      const usePrompt = await readClipboard()
-      expect(usePrompt).toContain('Stop and ask for my explicit approval')
-      expect(usePrompt).toContain(trustedNextCommand)
+      await page.getByRole('button', { name: 'Copy for AI' }).click()
+      const aiContext = await readClipboard()
+      expect(aiContext).toContain('Capability ID: query-user')
+      expect(aiContext).toContain('Look up a user by email.')
 
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await expect
@@ -575,11 +583,8 @@ describe('extension options page', () => {
           return await page.locator('.lifecycle-card').textContent()
         })
         .toContain('output.userId must be string')
-      expect(await page.getByRole('button', { name: 'Copy approved run' }).count()).toBe(0)
       await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
       expect(await readClipboard()).toBe(driftedNextCommand)
-      await page.getByRole('button', { name: 'Copy use prompt' }).click()
-      expect(await readClipboard()).toContain('Do not run the capability as a normal task until it reaches Trusted')
 
       await page.locator('.skill-item').filter({ hasText: 'Legacy Disabled' }).click()
       await expect
@@ -595,8 +600,8 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('Contract not validated')
-      await page.getByRole('button', { name: 'Copy run' }).click()
+        .toContain('Not yet checked for usability')
+      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
       expect(await readClipboard()).toContain("playwriter capability run 'legacy-trusted'")
 
       await page.locator('.skill-item').filter({ hasText: 'Historical Trusted' }).click()
@@ -604,8 +609,8 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('Contract not validated')
-      await page.getByRole('button', { name: 'Copy run' }).click()
+        .toContain('Not yet checked for usability')
+      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
       expect(await readClipboard()).toBe(historicalTrustedNextCommand)
 
       await page.locator('.skill-item').filter({ hasText: 'Future Lifecycle' }).click()
@@ -619,7 +624,6 @@ describe('extension options page', () => {
           return await page.locator('#skill-detail').textContent()
         })
         .not.toContain('future-run-format')
-      expect(await page.getByRole('button', { name: 'Copy run' }).count()).toBe(0)
       await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
       expect(await readClipboard()).toBe("playwriter capability describe 'future-lifecycle' --json")
 
@@ -629,12 +633,12 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('下一步：修复契约漂移')
+        .toContain('下一步：重新检查')
       await expect
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('检测到契约漂移 · 检查于')
+        .toContain('配置发生变化 · 检查于')
       expect(await page.locator('.lifecycle-card').textContent()).not.toContain('$action$')
     } finally {
       await testCtx.browserContext.clearPermissions()

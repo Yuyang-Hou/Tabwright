@@ -178,20 +178,9 @@ const messageFallbacks = {
   empty_no_replays: 'No DOM replays yet.',
   empty_no_capabilities: 'No capabilities yet.',
   empty_no_matches: 'No matches for this search.',
-  copy_handoff: 'Copy handoff',
-  copy_compile: 'Copy compile',
-  copy_edit_prompt: 'Copy edit prompt',
-  copy_use_prompt: 'Copy use prompt',
-  copy_skill_prompt: 'Copy skill prompt',
-  copy_run: 'Copy run',
-  copy_run_after_approval: 'Copy approved run',
+  copy_for_ai: 'Copy for AI',
   copy_next_step: 'Copy next step',
-  label_ai_handoff: 'AI handoff',
-  label_compile_command: 'Compile command',
-  label_edit_prompt: 'Edit prompt',
-  label_use_prompt: 'Use prompt',
-  label_skill_prompt: 'Skill prompt',
-  label_run_command: 'Run command',
+  label_ai_context: 'AI context',
   label_next_command: 'Next-step command',
   detail_id: 'ID',
   detail_path: 'Path',
@@ -202,7 +191,6 @@ const messageFallbacks = {
   detail_tab: 'Tab',
   detail_url: 'URL',
   detail_session: 'Session',
-  detail_ai_handoff: 'AI handoff',
   events_count: '$1 events',
   tab_label: 'tab $1',
   no_fields_declared: 'No fields declared.',
@@ -216,14 +204,39 @@ const messageFallbacks = {
   field_autonomy: 'Autonomy',
   field_recent_runs: 'Recent runs',
   field_agent_skill: 'Agent skill',
+  field_runtime: 'Runtime',
+  field_effect: 'Side effect',
+  field_routing: 'Routing',
+  field_location: 'Location',
+  technical_details: 'Technical details',
+  badge_auto_ready: 'Can run automatically',
+  badge_needs_confirmation: 'Needs your confirmation',
+  badge_manual_only: 'Manual run only',
+  badge_needs_validation: 'Needs validation',
+  badge_needs_trust: 'Needs trust approval',
+  badge_validation_expired: 'Validation expired',
+  badge_disabled: 'Disabled',
+  badge_skill_installed: 'AI instructions ready',
+  badge_skill_draft: 'AI instructions need publishing',
+  badge_skill_missing: 'AI instructions missing',
+  runtime_browser: 'Browser',
+  runtime_node: 'Node.js',
+  effect_read: 'Read only',
+  effect_write: 'Modifies data',
+  effect_dangerous: 'High-risk changes',
+  routing_exact: 'Exact match',
+  routing_semantic: 'Semantic match',
+  routing_manual: 'Manual',
+  location_project: 'Project',
+  location_global: 'Global',
   lifecycle_title: 'Lifecycle',
-  lifecycle_step_drafted: 'Draft',
-  lifecycle_step_validated: 'Validated',
-  lifecycle_step_trusted: 'Trusted',
-  lifecycle_stage_drafted: 'Drafted',
-  lifecycle_stage_validated: 'Validated',
+  lifecycle_step_drafted: 'Draft created',
+  lifecycle_step_validated: 'Validation passed',
+  lifecycle_step_trusted: 'Trust approved',
+  lifecycle_stage_drafted: 'Needs validation',
+  lifecycle_stage_validated: 'Validation passed',
   lifecycle_stage_trusted: 'Trusted',
-  lifecycle_stage_drifted: 'Drifted',
+  lifecycle_stage_drifted: 'Validation expired',
   lifecycle_stage_disabled: 'Disabled',
   lifecycle_next_step: 'Next step: $1',
   lifecycle_action_validate: 'Validate contract',
@@ -232,10 +245,10 @@ const messageFallbacks = {
   lifecycle_action_repair: 'Repair contract drift',
   lifecycle_action_enable: 'Enable as draft',
   lifecycle_health_checked: '$1 · checked $2',
-  lifecycle_health_not_checked: '$1 · no conformance run recorded',
+  lifecycle_health_not_checked: 'Not yet checked for usability',
   lifecycle_health_healthy: 'Contract healthy',
   lifecycle_health_drifted: 'Contract drift detected',
-  lifecycle_health_unknown: 'Contract not validated',
+  lifecycle_health_unknown: 'Usability not confirmed',
   lifecycle_drift_warning: 'Normal execution and AI autonomy stay blocked until the contract passes validation again.',
   lifecycle_disabled_warning: 'This capability is disabled. Enable it as a draft before validation or execution.',
   autonomy_trusted_readonly: 'trusted read-only capability',
@@ -413,6 +426,14 @@ function localizeDocument(): void {
     }
     element.setAttribute('aria-label', msg(key))
   })
+
+  document.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach((element) => {
+    const key = element.dataset.i18nTitle
+    if (!key || !isMessageKey(key)) {
+      return
+    }
+    element.title = msg(key)
+  })
 }
 
 const statusText = document.querySelector<HTMLParagraphElement>('#status-text')
@@ -446,6 +467,7 @@ const replayTimeline = document.querySelector<HTMLInputElement>('#replay-timelin
 const replayTime = document.querySelector<HTMLSpanElement>('#replay-time')
 const replayWarning = document.querySelector<HTMLParagraphElement>('#replay-warning')
 const replayDetails = document.querySelector<HTMLDivElement>('#replay-details')
+const toast = document.querySelector<HTMLDivElement>('#toast')
 
 let activeTab: ActiveTab = 'recordings'
 let selectedReplayId: string | null = null
@@ -464,6 +486,7 @@ let replayProgressTimer: number | null = null
 let replayMissingNodeWarningCount = 0
 let replayWarningTimer: number | null = null
 let activeReplayLoggerController: ReplayLoggerController | null = null
+let toastTimer: number | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -927,6 +950,65 @@ function displayList(values: string[], emptyText: string): string {
   return values.join('\n')
 }
 
+function runtimeLabel(runtime: string): string {
+  if (runtime === 'browser') return msg('runtime_browser')
+  if (runtime === 'node') return msg('runtime_node')
+  return runtime
+}
+
+function effectLabel(effect: string): string {
+  if (effect === 'read') return msg('effect_read')
+  if (effect === 'write') return msg('effect_write')
+  if (effect === 'dangerous') return msg('effect_dangerous')
+  return effect
+}
+
+function routingLabel(routingHint: string): string {
+  if (routingHint === 'exact-match-direct-run') return msg('routing_exact')
+  if (routingHint === 'semantic-match') return msg('routing_semantic')
+  if (routingHint === 'manual') return msg('routing_manual')
+  return routingHint
+}
+
+function locationLabel(location: string): string {
+  if (location === 'project') return msg('location_project')
+  if (location === 'global') return msg('location_global')
+  return location
+}
+
+function agentSkillBadge(capability: CapabilityContract): HTMLSpanElement {
+  if (capability.agentSkill.installedExists) {
+    return createBadge(msg('badge_skill_installed'), 'ready')
+  }
+  if (capability.agentSkill.draftExists) {
+    return createBadge(msg('badge_skill_draft'), 'draft')
+  }
+  return createBadge(msg('badge_skill_missing'), 'blocked')
+}
+
+function capabilityReadinessBadge(capability: CapabilityContract): HTMLSpanElement {
+  const lifecycle = resolveCapabilityLifecycle(capability)
+  if (capability.autonomousInvocation.allowed) {
+    return createBadge(msg('badge_auto_ready'), 'ready')
+  }
+  if (lifecycle.stage === 'disabled') {
+    return createBadge(msg('badge_disabled'), 'disabled')
+  }
+  if (lifecycle.stage === 'drifted') {
+    return createBadge(msg('badge_validation_expired'), 'drifted')
+  }
+  if (lifecycle.stage === 'drafted') {
+    return createBadge(msg('badge_needs_validation'), 'draft')
+  }
+  if (lifecycle.stage === 'validated') {
+    return createBadge(msg('badge_needs_trust'), 'validated')
+  }
+  if (capability.requiresConfirmation) {
+    return createBadge(msg('badge_needs_confirmation'), 'write')
+  }
+  return createBadge(msg('badge_manual_only'), 'write')
+}
+
 function createBadge(text: string, tone = text): HTMLSpanElement {
   const badge = document.createElement('span')
   badge.className = `badge badge-${cssToken(tone)}`
@@ -936,7 +1018,19 @@ function createBadge(text: string, tone = text): HTMLSpanElement {
 
 async function copyTextToClipboard(options: { label: string; text: string }): Promise<void> {
   await navigator.clipboard.writeText(options.text)
-  setStatus(msg('status_copied', options.label))
+  if (!toast) {
+    setStatus(msg('status_copied', options.label))
+    return
+  }
+  if (toastTimer !== null) {
+    window.clearTimeout(toastTimer)
+  }
+  toast.textContent = msg('status_copied', options.label)
+  toast.hidden = false
+  toastTimer = window.setTimeout(() => {
+    toast.hidden = true
+    toastTimer = null
+  }, 2200)
 }
 
 function copyWithStatus(options: { label: string; text: string }): void {
@@ -999,55 +1093,13 @@ function setActiveTab(tab: ActiveTab): void {
   }
 }
 
-function replayCapabilityId(recording: SavedReplayRecording): string {
-  return `replay-${
-    recording.id
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(-28) || 'workflow'
-  }`
-}
-
-function replayMakeCommand(recording: SavedReplayRecording): string {
-  return [
-    'playwriter replay make',
-    shellQuote(recording.id),
-    shellQuote(replayCapabilityId(recording)),
-    '--force',
-    '--goal',
-    shellQuote('describe the repeatable workflow goal here'),
-  ].join(' ')
-}
-
-function replayRunCommand(recording: SavedReplayRecording): string {
-  const capabilityId = replayCapabilityId(recording)
-  return [
-    'playwriter capability run',
-    shellQuote(capabilityId),
-    '--browser user',
-    '--force',
-    '--confirm',
-    shellQuote(capabilityId),
-    '--input-json',
-    shellQuote('{"value":"example"}'),
-    '--json',
-  ].join(' ')
-}
-
-function replayAiHandoffText(recording: SavedReplayRecording): string {
+function replayAiContextText(recording: SavedReplayRecording): string {
   if (isChineseLocale()) {
     return [
-      '使用这个 Playwriter DOM replay 作为工作流证据。',
-      `Replay id: ${recording.id}`,
-      recording.url ? `录制 URL: ${recording.url}` : '',
-      '',
-      '编译能力：',
-      replayMakeCommand(recording),
-      '',
-      '修改输入后运行：',
-      '先暂停并取得用户明确确认；确认后才可执行：',
-      replayRunCommand(recording),
+      '这是一个 Playwriter DOM replay 录制。',
+      `Replay ID：${recording.id}`,
+      `文件路径：${recording.path}`,
+      recording.url ? `录制 URL：${recording.url}` : '',
     ]
       .filter((line) => {
         return line.length > 0
@@ -1056,15 +1108,10 @@ function replayAiHandoffText(recording: SavedReplayRecording): string {
   }
 
   return [
-    'Use this Playwriter DOM replay as workflow evidence.',
-    `Replay id: ${recording.id}`,
+    'This is a Playwriter DOM replay recording.',
+    `Replay ID: ${recording.id}`,
+    `File path: ${recording.path}`,
     recording.url ? `Recorded URL: ${recording.url}` : '',
-    '',
-    'Compile:',
-    replayMakeCommand(recording),
-    '',
-    'Stop and ask for explicit user confirmation. Only after approval, edit the input and run:',
-    replayRunCommand(recording),
   ]
     .filter((line) => {
       return line.length > 0
@@ -1084,9 +1131,6 @@ function setReplayDetails(recording: SavedReplayRecording): void {
     `${msg('detail_tab')}: ${recording.tabId}`,
     recording.url ? `${msg('detail_url')}: ${recording.url}` : '',
     recording.sessionId ? `${msg('detail_session')}: ${recording.sessionId}` : '',
-    '',
-    `${msg('detail_ai_handoff')}:`,
-    replayAiHandoffText(recording),
   ]
     .filter((line) => {
       return line.length > 0
@@ -1371,32 +1415,27 @@ function createRecordingActions(recording: SavedReplayRecording): HTMLDivElement
   const actions = document.createElement('div')
   actions.className = 'recording-actions'
 
-  const handoff = document.createElement('button')
-  handoff.type = 'button'
-  handoff.textContent = msg('copy_handoff')
-  handoff.addEventListener('click', (event: MouseEvent) => {
+  const copyForAi = document.createElement('button')
+  copyForAi.type = 'button'
+  copyForAi.textContent = msg('copy_for_ai')
+  copyForAi.addEventListener('click', (event: MouseEvent) => {
     event.stopPropagation()
-    copyWithStatus({ label: msg('label_ai_handoff'), text: replayAiHandoffText(recording) })
+    copyWithStatus({ label: msg('label_ai_context'), text: replayAiContextText(recording) })
   })
 
-  const compile = document.createElement('button')
-  compile.type = 'button'
-  compile.textContent = msg('copy_compile')
-  compile.addEventListener('click', (event: MouseEvent) => {
-    event.stopPropagation()
-    copyWithStatus({ label: msg('label_compile_command'), text: replayMakeCommand(recording) })
-  })
-
-  actions.replaceChildren(handoff, compile)
+  actions.replaceChildren(copyForAi)
   return actions
 }
 
-function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement {
-  const item = document.createElement('button')
-  item.type = 'button'
+function createRecordingItem(recording: SavedReplayRecording): HTMLDivElement {
+  const item = document.createElement('div')
   item.className = 'recording-item'
   item.dataset.replayId = recording.id
-  item.ariaLabel = msg('open_replay_aria', recording.id)
+
+  const select = document.createElement('button')
+  select.type = 'button'
+  select.className = 'recording-select'
+  select.ariaLabel = msg('open_replay_aria', recording.id)
 
   const title = document.createElement('div')
   title.className = 'recording-title'
@@ -1407,8 +1446,6 @@ function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement
   meta.textContent = [
     formatDuration(recording.duration),
     msg('events_count', String(recording.eventCount)),
-    formatSize(recording.size),
-    msg('tab_label', String(recording.tabId)),
     recording.url || '',
   ]
     .filter((part) => {
@@ -1416,13 +1453,14 @@ function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement
     })
     .join(' | ')
 
-  item.replaceChildren(title, meta, createRecordingActions(recording))
-  item.addEventListener('click', () => {
+  select.replaceChildren(title, meta)
+  select.addEventListener('click', () => {
     playReplay(recording).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
       setStatus(message)
     })
   })
+  item.replaceChildren(select, createRecordingActions(recording))
   return item
 }
 
@@ -1609,10 +1647,6 @@ function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityL
   }
 }
 
-function isCapabilityReadyToRun(lifecycle: CapabilityLifecycle): boolean {
-  return lifecycle.stage === 'trusted' && lifecycle.nextAction === 'run'
-}
-
 function lifecycleStageMessage(stage: CapabilityLifecycle['stage']): string {
   if (stage === 'validated') return msg('lifecycle_stage_validated')
   if (stage === 'trusted') return msg('lifecycle_stage_trusted')
@@ -1629,151 +1663,24 @@ function lifecycleActionMessage(action: CapabilityLifecycle['nextAction']): stri
   return msg('lifecycle_action_validate')
 }
 
-function capabilityRouteCommand(): string {
-  return ['playwriter capability route', shellQuote('<user task or URL>'), '--json'].join(' ')
-}
-
-function capabilityEditPrompt(capability: CapabilityContract): string {
-  if (!isChineseLocale()) {
+function capabilityAiContextText(capability: CapabilityContract): string {
+  if (isChineseLocale()) {
     return [
-      `Please help me update this Playwriter capability: ${capability.id}`,
-      `Current directory: ${capability.dir}`,
-      '',
-      'Inspect the current capability first:',
-      `playwriter capability describe ${capability.id} --json`,
-      `playwriter capability show ${capability.id} --script`,
-      '',
-      'My requested change: <describe the change here>',
-      '',
-      'Requirements:',
-      '- Decide whether this only changes the contract or also script.js',
-      '- Run this package typecheck or the relevant tests after editing',
-      '- Do not trust this capability unless I explicitly ask',
+      '这是一个 Playwriter capability。',
+      `Capability ID：${capability.id}`,
+      `标题：${capability.title}`,
+      `描述：${capability.description}`,
+      `目录：${capability.dir}`,
     ].join('\n')
   }
 
   return [
-    `请帮我修改 Playwriter capability：${capability.id}`,
-    `当前目录：${capability.dir}`,
-    '',
-    '先查看当前能力：',
-    `playwriter capability describe ${capability.id} --json`,
-    `playwriter capability show ${capability.id} --script`,
-    '',
-    '我的修改需求：<在这里写清楚要改什么>',
-    '',
-    '要求：',
-    '- 先判断只需要改 contract，还是也要改 script.js',
-    '- 修改后运行当前包的 typecheck 或相关测试',
-    '- 不要 trust 这个 capability，除非我明确要求',
+    'This is a Playwriter capability.',
+    `Capability ID: ${capability.id}`,
+    `Title: ${capability.title}`,
+    `Description: ${capability.description}`,
+    `Directory: ${capability.dir}`,
   ].join('\n')
-}
-
-function capabilityUsePrompt(capability: CapabilityContract): string {
-  const lifecycle = resolveCapabilityLifecycle(capability)
-  if (!isCapabilityReadyToRun(lifecycle)) {
-    if (!isChineseLocale()) {
-      return [
-        `Please prepare this Playwriter capability: ${capability.id}`,
-        '',
-        `Current lifecycle stage: ${lifecycleStageMessage(lifecycle.stage)}`,
-        `Next step: ${lifecycleActionMessage(lifecycle.nextAction)}`,
-        lifecycle.nextCommand,
-        '',
-        'Use only this lifecycle step. Do not run the capability as a normal task until it reaches Trusted.',
-        '',
-        'My task: <write the task or paste the URL here>',
-      ].join('\n')
-    }
-
-    return [
-      `请先准备这个 Playwriter capability：${capability.id}`,
-      '',
-      `当前生命周期：${lifecycleStageMessage(lifecycle.stage)}`,
-      `下一步：${lifecycleActionMessage(lifecycle.nextAction)}`,
-      lifecycle.nextCommand,
-      '',
-      '只执行这一步生命周期操作；在状态达到“可信”前，不要把它当作普通任务直接运行。',
-      '',
-      '我的任务：<在这里写任务或粘贴 URL>',
-    ].join('\n')
-  }
-
-  if (!isChineseLocale()) {
-    return [
-      `Please use this Playwriter capability: ${capability.id}`,
-      '',
-      'Try routing first:',
-      capabilityRouteCommand(),
-      '',
-      capability.requiresConfirmation
-        ? 'This capability has side effects. Stop and ask for my explicit approval of the concrete input; only after approval use:'
-        : 'If direct execution is appropriate, use:',
-      lifecycle.nextCommand,
-      '',
-      'My task: <write the task or paste the URL here>',
-    ].join('\n')
-  }
-
-  return [
-    `请使用 Playwriter capability：${capability.id}`,
-    '',
-    '先尝试路由：',
-    capabilityRouteCommand(),
-    '',
-    capability.requiresConfirmation
-      ? '这个能力有副作用。先暂停并让我明确确认具体输入；只有确认后才可使用：'
-      : '如果确认要直接运行，用：',
-    lifecycle.nextCommand,
-    '',
-    '我的任务：<在这里写任务或粘贴 URL>',
-  ].join('\n')
-}
-
-function capabilitySkillPrompt(capability: CapabilityContract): string {
-  if (!isChineseLocale()) {
-    return [
-      `Please create or improve the agent skill for this Playwriter capability: ${capability.id}.`,
-      '',
-      'Inspect the current capability first:',
-      `playwriter capability describe ${capability.id} --json`,
-      '',
-      capability.agentSkill.draftExists
-        ? `Existing draft: ${capability.agentSkill.draftPath}`
-        : capability.agentSkill.initCommand,
-      capability.agentSkill.draftExists ? capability.agentSkill.showCommand : '',
-      '',
-      'The skill should define when to use it, when not to use it, the first command, auth/sandbox notes, and the default output shape.',
-      '',
-      'Install it after editing:',
-      capability.agentSkill.installCommand,
-    ]
-      .filter((line) => {
-        return line.length > 0
-      })
-      .join('\n')
-  }
-
-  return [
-    `请帮我为 Playwriter capability：${capability.id} 创建或完善 agent skill。`,
-    '',
-    '先查看当前能力：',
-    `playwriter capability describe ${capability.id} --json`,
-    '',
-    capability.agentSkill.draftExists
-      ? `已有草稿：${capability.agentSkill.draftPath}`
-      : capability.agentSkill.initCommand,
-    capability.agentSkill.draftExists ? capability.agentSkill.showCommand : '',
-    '',
-    'skill 里需要写清：什么时候用、什么时候不用、第一条命令、auth/sandbox 注意事项、默认输出格式。',
-    '',
-    '完成后再安装：',
-    capability.agentSkill.installCommand,
-  ]
-    .filter((line) => {
-      return line.length > 0
-    })
-    .join('\n')
 }
 
 function createField(options: { title: string; value: string; full?: boolean }): HTMLDivElement {
@@ -1839,7 +1746,7 @@ function lifecycleHealthMessage(lifecycle: CapabilityLifecycle): string {
     return msg('lifecycle_health_unknown')
   })()
   if (!lifecycle.contractHealth.checkedAt) {
-    return msg('lifecycle_health_not_checked', healthLabel)
+    return msg('lifecycle_health_not_checked')
   }
   const timestamp = Date.parse(lifecycle.contractHealth.checkedAt)
   const checkedAt = Number.isNaN(timestamp)
@@ -1920,50 +1827,20 @@ function createCapabilityLifecycle(capability: CapabilityContract): HTMLElement 
 function createCapabilityActions(capability: CapabilityContract): HTMLDivElement {
   const actions = document.createElement('div')
   actions.className = 'skill-actions'
-  const lifecycle = resolveCapabilityLifecycle(capability)
 
-  const editPrompt = document.createElement('button')
-  editPrompt.type = 'button'
-  editPrompt.textContent = msg('copy_edit_prompt')
-  editPrompt.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_edit_prompt'), text: capabilityEditPrompt(capability) })
+  const copyForAi = document.createElement('button')
+  copyForAi.type = 'button'
+  copyForAi.textContent = msg('copy_for_ai')
+  copyForAi.addEventListener('click', () => {
+    copyWithStatus({ label: msg('label_ai_context'), text: capabilityAiContextText(capability) })
   })
 
-  const usePrompt = document.createElement('button')
-  usePrompt.type = 'button'
-  usePrompt.textContent = msg('copy_use_prompt')
-  usePrompt.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_use_prompt'), text: capabilityUsePrompt(capability) })
-  })
-
-  const skillPrompt = document.createElement('button')
-  skillPrompt.type = 'button'
-  skillPrompt.textContent = msg('copy_skill_prompt')
-  skillPrompt.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_skill_prompt'), text: capabilitySkillPrompt(capability) })
-  })
-
-  const runCommand = document.createElement('button')
-  runCommand.type = 'button'
-  runCommand.textContent = isCapabilityReadyToRun(lifecycle)
-    ? capability.requiresConfirmation
-      ? msg('copy_run_after_approval')
-      : msg('copy_run')
-    : msg('copy_next_step')
-  runCommand.addEventListener('click', () => {
-    copyWithStatus({
-      label: isCapabilityReadyToRun(lifecycle) ? msg('label_run_command') : msg('label_next_command'),
-      text: lifecycle.nextCommand,
-    })
-  })
-
-  actions.replaceChildren(editPrompt, usePrompt, skillPrompt, runCommand)
+  actions.replaceChildren(copyForAi)
   return actions
 }
 
 function renderCapabilityDetail(capability: CapabilityContract): void {
   if (!skillDetail) return
-  const lifecycle = resolveCapabilityLifecycle(capability)
 
   const header = document.createElement('div')
   header.className = 'skill-header'
@@ -1973,35 +1850,37 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
 
   const meta = document.createElement('div')
   meta.className = 'detail-meta'
-  meta.textContent = `${capability.id} | ${capability.location} | ${capability.dir}`
+  meta.textContent = capability.id
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
   badges.replaceChildren(
-    createBadge(lifecycle.stage),
-    createBadge(capability.runtime),
-    createBadge(capability.sideEffect),
-    createBadge(capability.routingHint),
-    createBadge(
-      capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked',
-      capability.autonomousInvocation.allowed ? 'ready' : 'blocked',
-    ),
-    createBadge(
-      capability.agentSkill.installedExists
-        ? 'skill-installed'
-        : capability.agentSkill.draftExists
-          ? 'skill-draft'
-          : 'skill-missing',
-    ),
+    capabilityReadinessBadge(capability),
+    createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
+    agentSkillBadge(capability),
   )
 
   header.replaceChildren(title, meta, badges, createCapabilityActions(capability))
 
-  const fields = document.createElement('div')
-  fields.className = 'field-grid'
-  fields.replaceChildren(
+  const primaryFields = document.createElement('div')
+  primaryFields.className = 'field-grid'
+  primaryFields.replaceChildren(
     createField({ title: msg('field_description'), value: capability.description || '-', full: true }),
     createField({ title: msg('field_when_to_use'), value: displayList(capability.whenToUse, '-'), full: true }),
+  )
+
+  const advancedDetails = document.createElement('details')
+  advancedDetails.className = 'advanced-details'
+  const advancedSummary = document.createElement('summary')
+  advancedSummary.textContent = msg('technical_details')
+  const advancedFields = document.createElement('div')
+  advancedFields.className = 'field-grid'
+  advancedFields.replaceChildren(
+    createField({ title: msg('field_runtime'), value: runtimeLabel(capability.runtime) }),
+    createField({ title: msg('field_effect'), value: effectLabel(capability.sideEffect) }),
+    createField({ title: msg('field_routing'), value: routingLabel(capability.routingHint) }),
+    createField({ title: msg('detail_path'), value: capability.dir }),
+    createField({ title: msg('field_location'), value: locationLabel(capability.location) }),
     createField({ title: msg('field_when_not_to_use'), value: displayList(capability.whenNotToUse, '-'), full: true }),
     createField({ title: msg('field_match'), value: displayList(capability.match, '-') }),
     createField({ title: msg('field_permissions'), value: displayList(capability.permissions, '-') }),
@@ -2038,8 +1917,9 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
       full: true,
     }),
   )
+  advancedDetails.replaceChildren(advancedSummary, advancedFields)
 
-  skillDetail.replaceChildren(header, createCapabilityLifecycle(capability), fields)
+  skillDetail.replaceChildren(header, createCapabilityLifecycle(capability), primaryFields, advancedDetails)
 }
 
 function updateActiveCapability(): void {
@@ -2056,7 +1936,6 @@ function selectCapability(capability: CapabilityContract): void {
 }
 
 function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement {
-  const lifecycle = resolveCapabilityLifecycle(capability)
   const item = document.createElement('button')
   item.type = 'button'
   item.className = 'skill-item'
@@ -2069,23 +1948,13 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
 
   const meta = document.createElement('div')
   meta.className = 'skill-meta'
-  meta.textContent = [
-    lifecycle.stage,
-    capability.runtime,
-    capability.location,
-    capability.sideEffect,
-    capability.id,
-  ].join(' | ')
+  meta.textContent = capability.description || capability.id
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
   badges.replaceChildren(
-    createBadge(lifecycle.stage),
-    createBadge(capability.sideEffect),
-    createBadge(
-      capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked',
-      capability.autonomousInvocation.allowed ? 'ready' : 'blocked',
-    ),
+    capabilityReadinessBadge(capability),
+    createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
   )
 
   item.replaceChildren(title, meta, badges)
@@ -2139,10 +2008,12 @@ function renderCapabilities(): void {
       return createCapabilityItem(capability)
     }),
   )
-  const selected = filteredCapabilities.find((capability) => {
-    return capability.id === selectedCapabilityId
-  })
+  const selected =
+    filteredCapabilities.find((capability) => {
+      return capability.id === selectedCapabilityId
+    }) || filteredCapabilities[0]
   if (selected) {
+    selectedCapabilityId = selected.id
     renderCapabilityDetail(selected)
     updateActiveCapability()
     return

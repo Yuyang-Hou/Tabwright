@@ -77,6 +77,25 @@ playwriter replay eval --report tmp/replay-eval-report.html --keep-artifacts
 
 The suite creates local example pages, writes rrweb recordings, builds AI indexes, compiles draft capabilities, runs the generated scripts in a real browser, and verifies the final page/request result. Use it before changing replay recording, replay indexing, workflow compilation, or generated capability scripts.
 
+## Share Capabilities
+
+Pack a saved capability into a sanitized archive, then send the `.tgz` file or host it at an HTTPS URL:
+
+```bash
+playwriter capability pack my-capability
+playwriter capability install ./my-capability.tgz
+playwriter capability install https://example.com/my-capability.tgz
+```
+
+Packages include `capability.json`, the entry script, `README.md`, and optional agent skills. They never include `secrets.json`, `runs.jsonl`, or `artifacts/`. Shared capabilities always install as `draft`; inspect and validate them with `--force` before trusting them. Authentication is local to each recipient and must be refreshed separately. Packaged agent skills are not installed by default; review one first, then use `capability skill install`, or opt in during installation with `--with-agent-skill`.
+
+For repository-scoped sharing, install directly from a capability directory with `--project`. Official suites such as `conan-config` continue to install by name:
+
+```bash
+playwriter capability install ../shared-capabilities/my-capability --project
+playwriter capability install conan-config
+```
+
 ## CLI Usage
 
 Each session has **isolated state**. Browser tabs are **shared** across sessions.

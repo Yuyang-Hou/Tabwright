@@ -27,6 +27,23 @@ export interface CapabilityExample {
   output?: unknown
 }
 
+export interface CapabilityOperation {
+  title: string
+  description: string
+  match: string[]
+  routingHint: CapabilityRoutingHint
+  inputSchema: Record<string, unknown>
+  outputSchema: Record<string, unknown>
+  permissions?: string[]
+  sideEffect: CapabilitySideEffect
+  requiresConfirmation: boolean
+}
+
+export interface ResolvedCapabilityOperation extends CapabilityOperation {
+  id?: string
+  confirmationToken: string
+}
+
 export interface CapabilityManifest {
   schemaVersion: 1
   id: string
@@ -43,6 +60,7 @@ export interface CapabilityManifest {
   permissions: string[]
   sideEffect: CapabilitySideEffect
   requiresConfirmation: boolean
+  operations: Record<string, CapabilityOperation>
   auth: CapabilityAuthConfig
   examples: CapabilityExample[]
   entry: string
@@ -63,6 +81,7 @@ export interface CapabilityRecord {
 
 export interface CapabilityRunRecord {
   id: string
+  operation?: string
   status: 'success' | 'error'
   url?: string
   durationMs: number
@@ -130,6 +149,7 @@ interface ScoredCapabilitySearchResult extends CapabilitySearchResult {
 
 export interface CapabilityRouteResult {
   capability: CapabilityRecord
+  operation?: string
   input: Record<string, unknown>
   command: string
   shellCommand: string
@@ -173,8 +193,22 @@ const CapabilityExampleSchema = z
     output: z.unknown().optional(),
   })
   .passthrough()
+const CapabilityOperationSchema = z
+  .object({
+    title: z.string().default(''),
+    description: z.string().default(''),
+    match: z.array(z.string()).default([]),
+    routingHint: CapabilityRoutingHintSchema.default('search-first'),
+    inputSchema: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),
+    outputSchema: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),
+    permissions: z.array(z.string()).optional(),
+    sideEffect: CapabilitySideEffectSchema.default('read'),
+    requiresConfirmation: z.boolean().default(false),
+  })
+  .passthrough()
 const CapabilityRunRecordSchema = z.object({
   id: z.string(),
+  operation: z.string().optional(),
   status: z.enum(['success', 'error']),
   url: z.string().optional(),
   durationMs: z.number(),
@@ -226,6 +260,9 @@ const CapabilityManifestSchema = z
     permissions: z.array(z.string()).default([]),
     sideEffect: CapabilitySideEffectSchema.default('read'),
     requiresConfirmation: z.boolean().default(false),
+    operations: z
+      .record(z.string().regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/), CapabilityOperationSchema)
+      .default({}),
     auth: CapabilityAuthConfigSchema,
     examples: z.array(CapabilityExampleSchema).default([]),
     entry: z.string().default('script.js'),
@@ -236,6 +273,10 @@ const CapabilityManifestSchema = z
     updatedAt: z.string().optional(),
   })
   .passthrough()
+
+export function parseCapabilityManifest(value: unknown): CapabilityManifest {
+  return CapabilityManifestSchema.parse(value)
+}
 
 export function getUserCapabilitiesDir(): string {
   return path.join(os.homedir(), '.playwriter', 'capabilities')
@@ -287,7 +328,7 @@ function resolveCapabilityEntry(options: { dir: string; entry: string }): string
 
 function parseManifest(options: { manifestPath: string }): CapabilityManifest {
   const raw = readJsonFile(options.manifestPath)
-  return CapabilityManifestSchema.parse(raw)
+  return parseCapabilityManifest(raw)
 }
 
 export function readCapability(options: { dir: string; location: CapabilityLocation }): CapabilityRecord {
@@ -354,10 +395,21 @@ export function requireCapability(options: { id: string; cwd?: string }): Capabi
 }
 
 export function capabilityMatchesText(options: { capability: CapabilityManifest; text: string }): boolean {
-  if (options.capability.match.length === 0) {
+  return matchesCapabilityPatterns({ patterns: options.capability.match, text: options.text })
+}
+
+export function capabilityOperationMatchesText(options: {
+  operation: ResolvedCapabilityOperation
+  text: string
+}): boolean {
+  return matchesCapabilityPatterns({ patterns: options.operation.match, text: options.text })
+}
+
+function matchesCapabilityPatterns(options: { patterns: string[]; text: string }): boolean {
+  if (options.patterns.length === 0) {
     return true
   }
-  return options.capability.match.some((pattern) => {
+  return options.patterns.some((pattern) => {
     const regex = new RegExp(`^${pattern.split('*').map(escapeRegex).join('.*')}$`)
     return regex.test(options.text)
   })
@@ -369,6 +421,86 @@ export function capabilityMatchesUrl(options: { capability: CapabilityManifest; 
 
 function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+}
+
+export function getCapabilityOperations(capability: CapabilityRecord): ResolvedCapabilityOperation[] {
+  const operations = Object.entries(capability.manifest.operations)
+  if (operations.length === 0) {
+    return [
+      {
+        id: undefined,
+        title: capability.manifest.title,
+        description: capability.manifest.description,
+        match: capability.manifest.match,
+        routingHint: capability.manifest.routingHint,
+        inputSchema: capability.manifest.inputSchema,
+        outputSchema: capability.manifest.outputSchema,
+        permissions: capability.manifest.permissions,
+        sideEffect: capability.manifest.sideEffect,
+        requiresConfirmation: capability.manifest.requiresConfirmation,
+        confirmationToken: capability.manifest.id,
+      },
+    ]
+  }
+  return operations.map(([id, operation]) => {
+    return {
+      ...operation,
+      id,
+      permissions: operation.permissions || capability.manifest.permissions,
+      confirmationToken: `${capability.manifest.id}:${id}`,
+    }
+  })
+}
+
+export function getCapabilitySafetySummary(capability: CapabilityRecord): {
+  sideEffect: CapabilitySideEffect | 'mixed'
+  requiresConfirmation: boolean
+} {
+  const operations = getCapabilityOperations(capability)
+  const sideEffects = new Set(
+    operations.map((operation) => {
+      return operation.sideEffect
+    }),
+  )
+  return {
+    sideEffect: sideEffects.size === 1 ? operations[0]?.sideEffect || capability.manifest.sideEffect : 'mixed',
+    requiresConfirmation: operations.some((operation) => {
+      return operation.requiresConfirmation
+    }),
+  }
+}
+
+export function resolveCapabilityOperation(options: {
+  capability: CapabilityRecord
+  input: unknown
+}): ResolvedCapabilityOperation {
+  const operations = getCapabilityOperations(options.capability)
+  if (operations.length === 1 && operations[0]?.id === undefined) {
+    return operations[0]
+  }
+  if (!isPlainObject(options.input) || typeof options.input.action !== 'string') {
+    throw new Error(
+      `Capability ${options.capability.manifest.id} requires input.action. Use one of: ${operations
+        .map((operation) => {
+          return operation.id
+        })
+        .join(', ')}`,
+    )
+  }
+  const action = options.input.action
+  const operation = operations.find((candidate) => {
+    return candidate.id === action
+  })
+  if (!operation) {
+    throw new Error(
+      `Unsupported capability action "${action}". Use one of: ${operations
+        .map((candidate) => {
+          return candidate.id
+        })
+        .join(', ')}`,
+    )
+  }
+  return operation
 }
 
 export function createCapability(options: {
@@ -405,6 +537,7 @@ export function createCapability(options: {
     permissions: options.runtime === 'node' ? ['network'] : ['browser.read'],
     sideEffect: 'read',
     requiresConfirmation: false,
+    operations: {},
     auth: {
       type: 'none',
       refresh: 'none',
@@ -734,6 +867,13 @@ export function getCapabilityLifecycle(capability: CapabilityRecord): Capability
       return isPlainObject(example.input)
     })?.input
     const input = isPlainObject(exampleInput) ? exampleInput : {}
+    const operation: ResolvedCapabilityOperation | undefined = (() => {
+      try {
+        return resolveCapabilityOperation({ capability, input })
+      } catch {
+        return undefined
+      }
+    })()
     const args = [
       'playwriter',
       'capability',
@@ -743,7 +883,7 @@ export function getCapabilityLifecycle(capability: CapabilityRecord): Capability
       '--input-json',
       quoteShell(JSON.stringify(input)),
       ...(nextAction === 'validate' ? ['--force'] : []),
-      ...(capability.manifest.requiresConfirmation ? ['--confirm', capability.manifest.id] : []),
+      ...(operation?.requiresConfirmation ? ['--confirm', operation.confirmationToken] : []),
       '--json',
     ]
     return args.join(' ')
@@ -752,13 +892,25 @@ export function getCapabilityLifecycle(capability: CapabilityRecord): Capability
   return { stage, nextAction, nextCommand, contractHealth }
 }
 
-export function getCapabilityAutonomy(capability: CapabilityRecord): { allowed: boolean; reasons: string[] } {
+export function getCapabilityAutonomy(
+  capability: CapabilityRecord,
+  operation?: ResolvedCapabilityOperation,
+): { allowed: boolean; reasons: string[] } {
   const contractHealth = getCapabilityContractHealth(capability)
+  const operations = operation ? [operation] : getCapabilityOperations(capability)
   const blockers = [
     capability.manifest.status === 'trusted' ? '' : `status is ${capability.manifest.status}`,
     contractHealth.state === 'drifted' ? 'current contract failed conformance' : '',
-    capability.manifest.sideEffect === 'read' ? '' : `sideEffect is ${capability.manifest.sideEffect}`,
-    capability.manifest.requiresConfirmation ? 'requires confirmation' : '',
+    ...operations.flatMap((candidate) => {
+      return [
+        candidate.sideEffect === 'read'
+          ? ''
+          : `${candidate.id ? `operation ${candidate.id} ` : ''}sideEffect is ${candidate.sideEffect}`,
+        candidate.requiresConfirmation
+          ? `${candidate.id ? `operation ${candidate.id} ` : ''}requires confirmation`
+          : '',
+      ]
+    }),
   ].filter((reason) => {
     return reason.length > 0
   })
@@ -769,16 +921,42 @@ export function getCapabilityAutonomy(capability: CapabilityRecord): { allowed: 
 }
 
 export function toCapabilityContract(capability: CapabilityRecord): Record<string, unknown> {
+  const safety = getCapabilitySafetySummary(capability)
+  const operations = Object.fromEntries(
+    getCapabilityOperations(capability)
+      .filter((operation) => {
+        return operation.id !== undefined
+      })
+      .map((operation) => {
+        return [
+          operation.id,
+          {
+            title: operation.title,
+            description: operation.description,
+            match: operation.match,
+            routingHint: operation.routingHint,
+            inputSchema: operation.inputSchema,
+            outputSchema: operation.outputSchema,
+            permissions: operation.permissions,
+            sideEffect: operation.sideEffect,
+            requiresConfirmation: operation.requiresConfirmation,
+            confirmationToken: operation.confirmationToken,
+            autonomousInvocation: getCapabilityAutonomy(capability, operation),
+          },
+        ]
+      }),
+  )
   return {
     ...toCapabilitySummary(capability),
     whenToUse: capability.manifest.whenToUse,
     whenNotToUse: capability.manifest.whenNotToUse,
     tags: capability.manifest.tags,
-    sideEffect: capability.manifest.sideEffect,
-    requiresConfirmation: capability.manifest.requiresConfirmation,
+    sideEffect: safety.sideEffect,
+    requiresConfirmation: safety.requiresConfirmation,
     auth: capability.manifest.auth,
     examples: capability.manifest.examples,
     autonomousInvocation: getCapabilityAutonomy(capability),
+    operations,
     recentRuns: readCapabilityRuns({ capability, limit: 5 }),
     lifecycle: getCapabilityLifecycle(capability),
   }
@@ -821,48 +999,48 @@ export function routeCapabilities(options: { task: string; cwd?: string; limit?:
     return []
   }
   const candidates = getRouteCandidateTexts(task)
-  const routes = dedupeCapabilitiesById(listCapabilities({ cwd: options.cwd }))
-    .filter((capability) => {
-      return capability.manifest.routingHint === 'exact-match-direct-run'
-    })
-    .filter((capability) => {
-      return getCapabilityAutonomy(capability).allowed
-    })
-    .flatMap((capability) => {
-      const matchedText = candidates.find((candidate) => {
-        return (
-          capability.manifest.match.length > 0 &&
-          capabilityMatchesText({ capability: capability.manifest, text: candidate })
-        )
+  const routes = dedupeCapabilitiesById(listCapabilities({ cwd: options.cwd })).flatMap((capability) => {
+    return getCapabilityOperations(capability)
+      .filter((operation) => {
+        return operation.routingHint === 'exact-match-direct-run'
       })
-      if (!matchedText) {
-        return []
-      }
-      const input = buildRouteInput({ capability, task, matchedText })
-      const shellCommand = buildCapabilityRunCommand({ id: capability.manifest.id, input })
-      return [
-        {
-          capability,
-          input,
-          command: shellCommand,
-          shellCommand,
-          commandWarning: buildCapabilityCommandWarning({ id: capability.manifest.id }),
-          executionHint: {
-            routeCanRunSandboxed: true,
-            runRequiresEscalatedSandbox: true,
-            commandMustStartWith: 'playwriter capability run ',
-            reason:
-              'capability run writes runs.jsonl and may write artifacts under ~/.playwriter/capabilities; use escalated/unsandboxed execution in Codex sandbox',
+      .filter((operation) => {
+        return getCapabilityAutonomy(capability, operation).allowed
+      })
+      .flatMap((operation) => {
+        const matchedText = candidates.find((candidate) => {
+          return operation.match.length > 0 && capabilityOperationMatchesText({ operation, text: candidate })
+        })
+        if (!matchedText) {
+          return []
+        }
+        const input = buildRouteInput({ capability, operation, task, matchedText })
+        const shellCommand = buildCapabilityRunCommand({ id: capability.manifest.id, input })
+        return [
+          {
+            capability,
+            operation: operation.id,
+            input,
+            command: shellCommand,
+            shellCommand,
+            commandWarning: buildCapabilityCommandWarning({ id: capability.manifest.id }),
+            executionHint: {
+              routeCanRunSandboxed: true,
+              runRequiresEscalatedSandbox: true,
+              commandMustStartWith: 'playwriter capability run ',
+              reason:
+                'capability run writes runs.jsonl and may write artifacts under ~/.playwriter/capabilities; use escalated/unsandboxed execution in Codex sandbox',
+            },
+            reasons: [
+              `${operation.id ? `operation: ${operation.id}, ` : ''}routingHint: exact-match-direct-run`,
+              'autonomousInvocation: trusted read-only capability',
+              `matched: ${matchedText}`,
+            ],
+            matchedText,
           },
-          reasons: [
-            'routingHint: exact-match-direct-run',
-            'autonomousInvocation: trusted read-only capability',
-            `matched: ${matchedText}`,
-          ],
-          matchedText,
-        },
-      ]
-    })
+        ]
+      })
+  })
   return typeof options.limit === 'number' ? routes.slice(0, options.limit) : routes
 }
 
@@ -889,22 +1067,25 @@ function getRouteCandidateTexts(task: string): string[] {
 
 function buildRouteInput(options: {
   capability: CapabilityRecord
+  operation: ResolvedCapabilityOperation
   task: string
   matchedText: string
 }): Record<string, unknown> {
-  if (options.matchedText.startsWith('http') && hasInputProperty({ capability: options.capability, name: 'url' })) {
-    return { url: options.matchedText }
+  const actionInput = options.operation.id ? { action: options.operation.id } : {}
+  if (
+    options.matchedText.startsWith('http') &&
+    hasInputProperty({ schema: options.operation.inputSchema, name: 'url' })
+  ) {
+    return { ...actionInput, url: options.matchedText }
   }
-  if (hasInputProperty({ capability: options.capability, name: 'query' })) {
-    return { query: options.task }
+  if (hasInputProperty({ schema: options.operation.inputSchema, name: 'query' })) {
+    return { ...actionInput, query: options.task }
   }
-  return {}
+  return actionInput
 }
 
-function hasInputProperty(options: { capability: CapabilityRecord; name: string }): boolean {
-  const properties = isPlainObject(options.capability.manifest.inputSchema.properties)
-    ? options.capability.manifest.inputSchema.properties
-    : {}
+function hasInputProperty(options: { schema: Record<string, unknown>; name: string }): boolean {
+  const properties = isPlainObject(options.schema.properties) ? options.schema.properties : {}
   return properties[options.name] !== undefined
 }
 
@@ -921,6 +1102,7 @@ function quoteShell(value: string): string {
 }
 
 export function toCapabilitySummary(capability: CapabilityRecord): Record<string, unknown> {
+  const safety = getCapabilitySafetySummary(capability)
   return {
     id: capability.manifest.id,
     title: capability.manifest.title,
@@ -930,8 +1112,9 @@ export function toCapabilitySummary(capability: CapabilityRecord): Record<string
     match: capability.manifest.match,
     routingHint: capability.manifest.routingHint,
     permissions: capability.manifest.permissions,
-    sideEffect: capability.manifest.sideEffect,
-    requiresConfirmation: capability.manifest.requiresConfirmation,
+    sideEffect: safety.sideEffect,
+    requiresConfirmation: safety.requiresConfirmation,
+    operations: capability.manifest.operations,
     whenToUse: capability.manifest.whenToUse,
     whenNotToUse: capability.manifest.whenNotToUse,
     tags: capability.manifest.tags,
@@ -977,6 +1160,7 @@ function scoreCapabilitySearch(options: {
   capability: CapabilityRecord
   tokens: string[]
 }): ScoredCapabilitySearchResult {
+  const operations = Object.entries(options.capability.manifest.operations)
   const weightedFields: Array<{ label: string; weight: number; values: string[] }> = [
     { label: 'id', weight: 5, values: [options.capability.manifest.id] },
     { label: 'title', weight: 6, values: [options.capability.manifest.title] },
@@ -984,6 +1168,13 @@ function scoreCapabilitySearch(options: {
     { label: 'whenToUse', weight: 8, values: options.capability.manifest.whenToUse },
     { label: 'tags', weight: 6, values: options.capability.manifest.tags },
     { label: 'match', weight: 3, values: options.capability.manifest.match },
+    {
+      label: 'operations',
+      weight: 6,
+      values: operations.flatMap(([id, operation]) => {
+        return [id, operation.title, operation.description, ...operation.match]
+      }),
+    },
   ]
 
   const matches = weightedFields.flatMap((field) => {

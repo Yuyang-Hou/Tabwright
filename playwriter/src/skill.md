@@ -15,7 +15,7 @@ If using npx or bunx always use @latest for the first session command. so we are
 
 ### Capability routing shortcuts
 
-For concrete user tasks, first check saved capability contracts. When a capability has `routingHint: "exact-match-direct-run"`, its `match` patterns exactly fit the task, and `autonomousInvocation.allowed` is true (`trusted`, `sideEffect: "read"`, `requiresConfirmation: false`), run that capability directly with the extracted input. Do not search, describe, or open a page first.
+For concrete user tasks, first check saved capability contracts. When a capability or one of its operations has `routingHint: "exact-match-direct-run"`, its `match` patterns exactly fit the task, and that operation's `autonomousInvocation.allowed` is true (`trusted`, `sideEffect: "read"`, `requiresConfirmation: false`), run it directly with the extracted input. Routed operation inputs include `action`. Do not search, describe, or open a page first.
 
 If the exact-match capability index is not already visible in the current skill or tool context, use `playwriter capability route "<task-or-url>" --json` as the metadata check. Do not use `capability search` or `capability describe` for an exact-match direct-run candidate.
 
@@ -293,9 +293,20 @@ playwriter capability update bilibili-current-user --contract-file contract.json
 playwriter capability trust query-user
 ```
 
+Share a user-authored capability as a sanitized `.tgz`, or install it directly from a directory or HTTPS `.tgz` URL:
+
+```bash
+playwriter capability pack query-user
+playwriter capability install ./query-user.tgz
+playwriter capability install ../shared-capabilities/query-user --project
+playwriter capability install https://example.com/query-user.tgz
+```
+
+Capability packages contain only `capability.json`, the configured entry script, optional `README.md`, and optional `agent-skills/`. The pack command excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. A shared capability always installs as `draft`, even if its author trusted it locally. Inspect its contract and script, refresh auth with the recipient's own browser session when needed, validate it with `capability run --force`, and only then trust it. Packaged agent skills are not installed by default because they influence agent behavior; review one and run `capability skill install <id>`, or explicitly pass `--with-agent-skill`. Bundled suites such as `conan-config` remain installable by name and may be trusted by the publisher; use `--skip-agent-skills` for built-in suites.
+
 When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
 
-- Put machine-readable behavior in the capability contract: `match`, `routingHint`, schemas, `sideEffect`, `requiresConfirmation`, `auth`, and examples.
+- Put machine-readable behavior in the capability contract: `match`, `routingHint`, schemas, `sideEffect`, `requiresConfirmation`, `auth`, and examples. For a capability with multiple safety boundaries, define `operations` keyed by `input.action`; each operation owns its match/routing metadata, schemas, permissions, side effect, and confirmation requirement.
 - Put executable behavior in `script.js`.
 - Put capability-specific agent instructions in an agent skill only when the capability is high-frequency, easy to misuse, has exact-match routing, needs auth/sandbox guidance, or needs nontrivial output/display rules.
 - Do not rely on the CLI to write final skill prose. The CLI only scaffolds and installs; the AI that learned the workflow must edit the skill content.
@@ -313,7 +324,7 @@ playwriter capability skill install query-user
 
 Run a capability with structured JSON input. `node` runtime capabilities run locally without opening Chrome. `browser` runtime capabilities create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
 
-If the contract has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only then rerun with `--confirm <capability-id>`. The confirmation value must exactly match the capability id; `--force` never bypasses this gate.
+If the selected operation has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only then rerun with its exact `confirmationToken`, typically `--confirm <capability-id>:<operation>`. Capabilities without operations continue to use `--confirm <capability-id>`. `--force` never bypasses this gate.
 
 ```bash
 playwriter capability run query-user --input-json '{"email":"a@example.com"}' --json
@@ -360,7 +371,7 @@ const filePath = artifacts.writeJson({ filename: "latest.json", value: data })
 return { data, artifacts: { filePath } }
 ```
 
-Agents should use capability search and describe before creating new automation. A capability can be called autonomously only when it is `trusted`, has `sideEffect: "read"`, and has `requiresConfirmation: false`. Draft capabilities require `--force` before they can run. Confirmation-required capabilities additionally require `--confirm <capability-id>` after explicit user approval; `--force` cannot substitute for approval. Editing a trusted capability's script automatically downgrades it to draft. Updating the AI contract through `--contract-file` also downgrades trusted capabilities to draft unless the patch explicitly sets a status. Use `playwriter studio` to start the standalone local management page for capabilities.
+Agents should use capability search and describe before creating new automation. A capability operation can be called autonomously only when the capability is `trusted`, that operation has `sideEffect: "read"`, and it has `requiresConfirmation: false`. Draft capabilities require `--force` before they can run. Confirmation-required operations additionally require their exact `confirmationToken` after explicit user approval; `--force` cannot substitute for approval. Editing a trusted capability's script automatically downgrades it to draft. Updating the AI contract through `--contract-file` also downgrades trusted capabilities to draft unless the patch explicitly sets a status. Use `playwriter studio` to start the standalone local management page for capabilities.
 
 ### Debugging playwriter issues
 
