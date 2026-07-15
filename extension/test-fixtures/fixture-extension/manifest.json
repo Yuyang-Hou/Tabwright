@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Playwriter Test Fixture",
+  "name": "Tabwright Test Fixture",
   "version": "1.0",
-  "description": "Minimal extension used by playwriter tests to reproduce chrome-extension:// iframe issues",
+  "description": "Minimal extension used by Tabwright tests to reproduce chrome-extension:// iframe issues",
   "background": {
     "service_worker": "background.js"
   },

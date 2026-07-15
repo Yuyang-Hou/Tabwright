@@ -125,12 +125,12 @@ export const app = new Spiceflow()
     const { QuickStartPanel } = await import('./components/quick-start-panel.tsx')
     const { CloudSessionsPanel } = await import('./components/cloud-sessions-panel.tsx')
 
-    const { PlaywriterLogo } = await import('./components/auth-page.tsx')
+    const { TabwrightLogo } = await import('./components/auth-page.tsx')
 
     return (
       <div className="mx-auto max-w-3xl px-6 py-10 min-h-screen flex flex-col">
         <div className="flex items-center justify-between mb-8">
-          <PlaywriterLogo imageClassName="h-8" />
+          <TabwrightLogo imageClassName="h-8" />
           <div className="flex items-center gap-4">
             <a href="https://playwriter.dev" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Docs
@@ -158,16 +158,16 @@ export const app = new Spiceflow()
         </div>
         <footer className="mt-auto pt-6 border-t border-border">
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-            <a href="https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe" className="hover:text-foreground transition-colors">
+            <a href="https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe" className="hover:text-foreground transition-colors">
               Chrome Extension
             </a>
             <a href="https://playwriter.dev" className="hover:text-foreground transition-colors">
               Docs
             </a>
-            <a href="https://github.com/remorses/playwriter" className="hover:text-foreground transition-colors">
+            <a href="https://github.com/Yuyang-Hou/tabwright" className="hover:text-foreground transition-colors">
               GitHub
             </a>
-            <a href="https://github.com/remorses/playwriter/releases" className="hover:text-foreground transition-colors">
+            <a href="https://github.com/Yuyang-Hou/tabwright/releases" className="hover:text-foreground transition-colors">
               Changelog
             </a>
             <a href="https://playwriter.dev/#pricing" className="hover:text-foreground transition-colors">

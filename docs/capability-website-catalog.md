@@ -1,6 +1,6 @@
 # Website Capability Catalog
 
-This document tracks additional website capabilities designed and smoke-tested for the local Playwriter capability runtime.
+This document tracks additional website capabilities designed and smoke-tested for the local Tabwright capability runtime.
 
 ## Capability Selection
 
@@ -22,24 +22,24 @@ All capabilities in this batch are read-only and do not require confirmation aft
 | Capability | Test Input | Result |
 | --- | --- | --- |
 | `github-repo-summary` | `{"owner":"microsoft","repo":"playwright"}` | passed; returned `microsoft/playwright`, stars, forks, open issues, and latest release |
-| `npm-package-info` | `{"packageName":"playwriter"}` | passed; returned `playwriter` latest version `0.4.0` |
+| `npm-package-info` | `{"packageName":"tabwright"}` | passed; returned `tabwright` latest version `0.4.0` |
 | `hacker-news-top` | `{"limit":3}` | passed; returned three current front page stories |
 | `bilibili-popular-videos` | `{"limit":3}` | passed; returned three public Bilibili popular videos |
 
 Smoke test command shape:
 
 ```bash
-playwriter capability search "GitHub 仓库 stars latest release" --json
-playwriter capability run github-repo-summary --input-json '{"owner":"microsoft","repo":"playwright"}' --json
+tabwright capability search "GitHub 仓库 stars latest release" --json
+tabwright capability run github-repo-summary --input-json '{"owner":"microsoft","repo":"playwright"}' --json
 
-playwriter capability search "npm 包 最新版本" --json
-playwriter capability run npm-package-info --input-json '{"packageName":"playwriter"}' --json
+tabwright capability search "npm 包 最新版本" --json
+tabwright capability run npm-package-info --input-json '{"packageName":"tabwright"}' --json
 
-playwriter capability search "Hacker News 热门文章" --json
-playwriter capability run hacker-news-top --input-json '{"limit":3}' --json
+tabwright capability search "Hacker News 热门文章" --json
+tabwright capability run hacker-news-top --input-json '{"limit":3}' --json
 
-playwriter capability search "Bilibili 热门视频" --json
-playwriter capability run bilibili-popular-videos --input-json '{"limit":3}' --json
+tabwright capability search "Bilibili 热门视频" --json
+tabwright capability run bilibili-popular-videos --input-json '{"limit":3}' --json
 ```
 
 ## Installed User Capabilities
@@ -47,7 +47,7 @@ playwriter capability run bilibili-popular-videos --input-json '{"limit":3}' --j
 These capabilities were installed under:
 
 ```text
-~/.playwriter/capabilities/
+~/.tabwright/capabilities/
 ```
 
 They are user-local examples, not committed project fixtures. The project record of the design and tests is this document.

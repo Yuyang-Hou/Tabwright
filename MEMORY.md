@@ -100,7 +100,7 @@ should become controllable.
 
 Listener lives at `extension/src/background.ts` next to the other
 `chrome.tabs.*` / `chrome.windows.*` listeners near the bottom of the file.
-Test coverage: `playwriter/src/popup-relocation.test.ts` uses a local
+Test coverage: `tabwright/src/popup-relocation.test.ts` uses a local
 HTTP server with a button that calls `window.open(..., 'popup=1')`, then
 asserts the new page appears in `context.pages()` and no popup-type window
 remains via `chrome.windows.getAll`.
@@ -119,7 +119,7 @@ into (the source tab's window, not an arbitrary "first normal" window).
 
 ## Warning delivery timing in PlaywrightExecutor is fragile
 
-`enqueueWarning` + `flushWarningsForScope` at `playwriter/src/executor.ts:375-405`
+`enqueueWarning` + `flushWarningsForScope` at `tabwright/src/executor.ts:375-405`
 only emit warnings whose `id > scope.cursor` at the moment `flushWarningsForScope`
 runs. If a `page.on('popup')` (or other async) listener enqueues a warning
 AFTER the execute() call's flush has already run, the warning is delivered
@@ -180,12 +180,12 @@ prototype + on the channel proxy target. See
 
 ## Always-on MAIN world bundle injection from extension (Apr 2026)
 
-To inject a playwriter/dist/*.js bundle into every Playwriter-attached tab at
+To inject a tabwright/dist/*.js bundle into every Playwriter-attached tab at
 the extension layer: use `Page.addScriptToEvaluateOnNewDocument` + `Runtime.evaluate`
 in `attachTab`, NOT `chrome.scripting.executeScript({ func })`. The CDP pair
 survives hard navigations; executeScript is one-shot.
 
-Inline the bundle via vite `?raw` import (`import code from '../../playwriter/dist/foo.js?raw'`).
+Inline the bundle via vite `?raw` import (`import code from '../../tabwright/dist/foo.js?raw'`).
 Works because playwriter builds before the extension in pnpm filter order, and
 `vite/client` types in extension tsconfig.json cover the `?raw` import.
 

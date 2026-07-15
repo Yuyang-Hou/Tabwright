@@ -1,10 +1,12 @@
-declare const process: { env: { PLAYWRITER_PORT: string } }
+declare const process: { env: { TABWRIGHT_PORT: string; PLAYWRITER_PORT: string } }
 
 import { EventType, Replayer, ReplayerEvents, type eventWithTime } from 'rrweb'
 import 'rrweb/dist/style.css'
+import { createReplayLogger, type ReplayLoggerController } from './replay-logger'
+import type { RelayReviewIssue } from './relay-warning'
 
 const RELAY_HOST = '127.0.0.1'
-const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
+const RELAY_PORT = Number(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT) || 19988
 const RELAY_BASE_URL = `http://${RELAY_HOST}:${RELAY_PORT}`
 const LANGUAGE_STORAGE_KEY = 'playwriterOptionsLanguage'
 
@@ -61,6 +63,33 @@ interface CapabilityAgentSkillStatus {
   installCommand: string
 }
 
+interface CapabilityLifecycle {
+  stage: 'drafted' | 'validated' | 'trusted' | 'drifted' | 'disabled'
+  nextAction: 'validate' | 'trust' | 'run' | 'repair' | 'enable'
+  nextCommand: string
+  contractHealth: {
+    state: 'healthy' | 'drifted' | 'unknown'
+    checkedAt?: string
+    reasons: string[]
+  }
+}
+
+type CapabilityAuthStatus = 'not-required' | 'missing' | 'authenticated' | 'expiring' | 'expired' | 'unknown'
+
+interface CapabilityAuthState {
+  type: string
+  status: CapabilityAuthStatus
+  canRefresh: boolean
+  browserUrls: string[]
+  requiredCookieNames: string[]
+  cookieNames: string[]
+  refreshedAt?: string
+  expiresAt?: string
+  browserKey?: string
+  reason?: string
+  refreshCommand?: string
+}
+
 interface CapabilityContract {
   id: string
   title: string
@@ -85,6 +114,8 @@ interface CapabilityContract {
   }
   recentRuns: CapabilityRunRecord[]
   agentSkill: CapabilityAgentSkillStatus
+  authState?: CapabilityAuthState
+  lifecycle?: CapabilityLifecycle
 }
 
 interface CapabilitiesResponse {
@@ -92,8 +123,15 @@ interface CapabilitiesResponse {
   capabilities: CapabilityContract[]
 }
 
+type LoadError = { type: 'relay'; issue: RelayReviewIssue } | { type: 'message'; message: string }
+type CapabilityContractPayload = Omit<CapabilityContract, 'recentRuns' | 'lifecycle'> & {
+  recentRuns: unknown[]
+  lifecycle?: unknown
+  authState?: unknown
+}
+
 const messageFallbacks = {
-  app_title: 'Playwriter',
+  app_title: 'Tabwright',
   app_subtitle: 'Local browser automation cockpit',
   status_label: 'Status',
   status_loading_recordings: 'Loading recordings...',
@@ -129,6 +167,11 @@ const messageFallbacks = {
   sections_aria_label: 'Options sections',
   metrics_aria_label: 'Current view summary',
   replay_timeline_label: 'Replay timeline',
+  replay_warning_missing_nodes_one:
+    'Some visual details could not be reconstructed because 1 DOM update referenced a missing node. The replay may still be usable.',
+  replay_warning_missing_nodes_other:
+    'Some visual details could not be reconstructed because $1 DOM updates referenced missing nodes. The replay may still be usable.',
+  replay_warning_aria_label: 'Replay reconstruction notice',
   status_copied: '$1 copied',
   status_loading_replay: 'Loading replay $1...',
   status_replay_ready: 'Replay ready $1',
@@ -143,21 +186,20 @@ const messageFallbacks = {
   error_invalid_recordings: 'Invalid recordings response',
   error_load_capabilities: 'Failed to load capabilities: $1',
   error_invalid_capabilities: 'Invalid capabilities response',
+  relay_review_warning_title: 'Saved data is temporarily unavailable',
+  relay_review_outdated:
+    'Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Tabwright, then refresh.',
+  relay_review_unavailable:
+    'Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Tabwright, then refresh.',
+  lifecycle_unsupported:
+    'This extension cannot interpret the capability lifecycle. Update Tabwright before running it.',
   empty_no_replays: 'No DOM replays yet.',
   empty_no_capabilities: 'No capabilities yet.',
   empty_no_matches: 'No matches for this search.',
-  copy_handoff: 'Copy handoff',
-  copy_compile: 'Copy compile',
-  copy_edit_prompt: 'Copy edit prompt',
-  copy_use_prompt: 'Copy use prompt',
-  copy_skill_prompt: 'Copy skill prompt',
-  copy_run: 'Copy run',
-  label_ai_handoff: 'AI handoff',
-  label_compile_command: 'Compile command',
-  label_edit_prompt: 'Edit prompt',
-  label_use_prompt: 'Use prompt',
-  label_skill_prompt: 'Skill prompt',
-  label_run_command: 'Run command',
+  copy_for_ai: 'Copy for AI',
+  copy_next_step: 'Copy next step',
+  label_ai_context: 'AI context',
+  label_next_command: 'Next-step command',
   detail_id: 'ID',
   detail_path: 'Path',
   detail_saved: 'Saved',
@@ -167,7 +209,6 @@ const messageFallbacks = {
   detail_tab: 'Tab',
   detail_url: 'URL',
   detail_session: 'Session',
-  detail_ai_handoff: 'AI handoff',
   events_count: '$1 events',
   tab_label: 'tab $1',
   no_fields_declared: 'No fields declared.',
@@ -181,12 +222,88 @@ const messageFallbacks = {
   field_autonomy: 'Autonomy',
   field_recent_runs: 'Recent runs',
   field_agent_skill: 'Agent skill',
+  field_runtime: 'Runtime',
+  field_effect: 'Side effect',
+  field_routing: 'Routing',
+  field_location: 'Location',
+  technical_details: 'Technical details',
+  badge_auto_ready: 'Can run automatically',
+  badge_needs_confirmation: 'Needs your confirmation',
+  badge_manual_only: 'Manual run only',
+  badge_needs_validation: 'Needs validation',
+  badge_needs_trust: 'Needs trust approval',
+  badge_validation_expired: 'Validation expired',
+  badge_disabled: 'Disabled',
+  badge_skill_installed: 'AI instructions ready',
+  badge_skill_draft: 'AI instructions need publishing',
+  badge_skill_missing: 'AI instructions missing',
+  runtime_browser: 'Browser',
+  runtime_node: 'Node.js',
+  effect_read: 'Read only',
+  effect_write: 'Modifies data',
+  effect_dangerous: 'High-risk changes',
+  routing_exact: 'Exact match',
+  routing_semantic: 'Semantic match',
+  routing_manual: 'Manual',
+  location_project: 'Project',
+  location_global: 'Global',
+  lifecycle_title: 'Lifecycle',
+  lifecycle_step_drafted: 'Draft created',
+  lifecycle_step_validated: 'Validation passed',
+  lifecycle_step_trusted: 'Trust approved',
+  lifecycle_stage_drafted: 'Needs validation',
+  lifecycle_stage_validated: 'Validation passed',
+  lifecycle_stage_trusted: 'Trusted',
+  lifecycle_stage_drifted: 'Validation expired',
+  lifecycle_stage_disabled: 'Disabled',
+  lifecycle_next_step: 'Next step: $1',
+  lifecycle_action_validate: 'Validate contract',
+  lifecycle_action_trust: 'Mark trusted',
+  lifecycle_action_run: 'Run capability',
+  lifecycle_action_repair: 'Repair contract drift',
+  lifecycle_action_enable: 'Enable as draft',
+  lifecycle_health_checked: '$1 · checked $2',
+  lifecycle_health_not_checked: 'Not yet checked for usability',
+  lifecycle_health_healthy: 'Contract healthy',
+  lifecycle_health_drifted: 'Contract drift detected',
+  lifecycle_health_unknown: 'Usability not confirmed',
+  lifecycle_drift_warning: 'Normal execution and AI autonomy stay blocked until the contract passes validation again.',
+  lifecycle_disabled_warning: 'This capability is disabled. Enable it as a draft before validation or execution.',
   autonomy_trusted_readonly: 'trusted read-only capability',
   agent_skill_installed: 'installed: $1',
   agent_skill_draft: 'draft: $1',
   agent_skill_missing: 'not created',
   open_replay_aria: 'Open replay $1',
   open_capability_aria: 'Open capability $1',
+  auth_title: 'Browser authentication',
+  auth_status_missing: 'Not authenticated',
+  auth_status_authenticated: 'Authenticated',
+  auth_status_expiring: 'Expires soon',
+  auth_status_expired: 'Authentication expired',
+  auth_status_unknown: 'Status unknown',
+  auth_description_missing: 'Connect your current Chrome login before validating or running this capability.',
+  auth_description_authenticated: 'Authentication is saved locally and ready for this capability.',
+  auth_description_expiring: 'Authentication expires within 24 hours. Refresh it to avoid failed runs.',
+  auth_description_expired: 'The saved login has expired or the latest run reported an authentication failure.',
+  auth_description_unknown: 'Refresh the saved login to inspect its current cookie expiry.',
+  auth_domains: 'Cookie scope',
+  auth_last_refreshed: 'Last authenticated',
+  auth_expires: 'Cookie expiry',
+  auth_expiry_unknown: 'Session or server-managed',
+  auth_action_connect: 'Authenticate with current Chrome',
+  auth_action_refresh: 'Refresh authentication',
+  auth_confirm_title: 'Allow browser authentication?',
+  auth_confirm_description:
+    'Tabwright will read cookies only for the domains below and save them locally for this capability.',
+  auth_privacy: 'Cookie values stay on this device and are never included when the capability is shared.',
+  auth_confirm_action: 'Allow and authenticate',
+  auth_cancel_action: 'Cancel',
+  auth_progress: 'Authenticating $1...',
+  auth_success: '$1 authentication updated',
+  auth_error_generic: 'Authentication failed: $1',
+  auth_error_browser_not_connected: 'This Chrome profile is not connected to Tabwright.',
+  auth_error_multiple_profiles: 'Multiple Chrome profiles are connected. Retry from the profile that opened this page.',
+  auth_error_no_enabled_tab: 'Enable Tabwright on a normal browser tab, then retry authentication.',
 } as const
 
 type MessageKey = keyof typeof messageFallbacks
@@ -254,6 +371,19 @@ function localeMessagesUrl(language: LanguageCode): string {
   return `../${path}`
 }
 
+function normalizeLocaleMessage(rawMessage: Record<string, unknown>): string {
+  const message = typeof rawMessage.message === 'string' ? rawMessage.message : ''
+  if (!isRecord(rawMessage.placeholders)) {
+    return message
+  }
+  return Object.entries(rawMessage.placeholders).reduce((result, [name, rawPlaceholder]) => {
+    if (!isRecord(rawPlaceholder) || typeof rawPlaceholder.content !== 'string') {
+      return result
+    }
+    return result.replaceAll(`$${name}$`, rawPlaceholder.content)
+  }, message)
+}
+
 function parseLocaleMessages(value: unknown): LocaleMessages {
   if (!isRecord(value)) {
     return {}
@@ -263,7 +393,7 @@ function parseLocaleMessages(value: unknown): LocaleMessages {
       if (!isMessageKey(key) || !isRecord(rawMessage) || typeof rawMessage.message !== 'string') {
         return []
       }
-      return [[key, rawMessage.message]]
+      return [[key, normalizeLocaleMessage(rawMessage)]]
     }),
   )
 }
@@ -343,9 +473,19 @@ function localizeDocument(): void {
     }
     element.setAttribute('aria-label', msg(key))
   })
+
+  document.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach((element) => {
+    const key = element.dataset.i18nTitle
+    if (!key || !isMessageKey(key)) {
+      return
+    }
+    element.title = msg(key)
+  })
 }
 
 const statusText = document.querySelector<HTMLParagraphElement>('#status-text')
+const relayReviewWarning = document.querySelector<HTMLElement>('#relay-review-warning')
+const relayReviewWarningText = document.querySelector<HTMLParagraphElement>('#relay-review-warning-text')
 const refreshButton = document.querySelector<HTMLButtonElement>('#refresh-button')
 const searchInput = document.querySelector<HTMLInputElement>('#search-input')
 const viewEyebrow = document.querySelector<HTMLParagraphElement>('#view-eyebrow')
@@ -372,7 +512,9 @@ const replayControls = document.querySelector<HTMLDivElement>('#replay-controls'
 const replayPlayToggle = document.querySelector<HTMLButtonElement>('#replay-play-toggle')
 const replayTimeline = document.querySelector<HTMLInputElement>('#replay-timeline')
 const replayTime = document.querySelector<HTMLSpanElement>('#replay-time')
+const replayWarning = document.querySelector<HTMLParagraphElement>('#replay-warning')
 const replayDetails = document.querySelector<HTMLDivElement>('#replay-details')
+const toast = document.querySelector<HTMLDivElement>('#toast')
 
 let activeTab: ActiveTab = 'recordings'
 let selectedReplayId: string | null = null
@@ -380,21 +522,30 @@ let selectedCapabilityId: string | null = null
 let replayRecordings: SavedReplayRecording[] = []
 let capabilities: CapabilityContract[] = []
 let capabilityCwd = ''
+let replayLoadError: LoadError | null = null
+let capabilityLoadError: LoadError | null = null
 let searchQuery = ''
 let replayFitCleanup: (() => void) | null = null
 let activeReplayer: Replayer | null = null
 let replayIsPlaying = false
 let replayTotalTime = 0
 let replayProgressTimer: number | null = null
+let replayMissingNodeWarningCount = 0
+let replayWarningTimer: number | null = null
+let activeReplayLoggerController: ReplayLoggerController | null = null
+let toastTimer: number | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => {
-    return typeof item === 'string'
-  })
+  return (
+    Array.isArray(value) &&
+    value.every((item) => {
+      return typeof item === 'string'
+    })
+  )
 }
 
 function isStringOrUndefined(value: unknown): value is string | undefined {
@@ -483,7 +634,81 @@ function isAutonomousInvocation(value: unknown): value is CapabilityContract['au
   return isRecord(value) && typeof value.allowed === 'boolean' && isStringArray(value.reasons)
 }
 
-function isCapabilityContract(value: unknown): value is CapabilityContract {
+function isCapabilityAuthStatus(value: unknown): value is CapabilityAuthStatus {
+  return (
+    value === 'not-required' ||
+    value === 'missing' ||
+    value === 'authenticated' ||
+    value === 'expiring' ||
+    value === 'expired' ||
+    value === 'unknown'
+  )
+}
+
+function isCapabilityAuthState(value: unknown): value is CapabilityAuthState {
+  return (
+    isRecord(value) &&
+    typeof value.type === 'string' &&
+    isCapabilityAuthStatus(value.status) &&
+    typeof value.canRefresh === 'boolean' &&
+    isStringArray(value.browserUrls) &&
+    isStringArray(value.requiredCookieNames) &&
+    isStringArray(value.cookieNames) &&
+    isStringOrUndefined(value.refreshedAt) &&
+    isStringOrUndefined(value.expiresAt) &&
+    isStringOrUndefined(value.browserKey) &&
+    isStringOrUndefined(value.reason) &&
+    isStringOrUndefined(value.refreshCommand)
+  )
+}
+
+function isLifecycleStage(value: unknown): value is CapabilityLifecycle['stage'] {
+  return (
+    value === 'drafted' || value === 'validated' || value === 'trusted' || value === 'drifted' || value === 'disabled'
+  )
+}
+
+function isLifecycleAction(value: unknown): value is CapabilityLifecycle['nextAction'] {
+  return value === 'validate' || value === 'trust' || value === 'run' || value === 'repair' || value === 'enable'
+}
+
+function isCapabilityLifecycle(value: unknown): value is CapabilityLifecycle {
+  if (!isRecord(value) || !isRecord(value.contractHealth)) {
+    return false
+  }
+  if (!isLifecycleStage(value.stage) || !isLifecycleAction(value.nextAction)) {
+    return false
+  }
+  const expectedAction: Record<CapabilityLifecycle['stage'], CapabilityLifecycle['nextAction']> = {
+    drafted: 'validate',
+    validated: 'trust',
+    trusted: 'run',
+    drifted: 'repair',
+    disabled: 'enable',
+  }
+  const hasConsistentHealth = (() => {
+    if (value.stage === 'validated') {
+      return value.contractHealth.state === 'healthy'
+    }
+    if (value.stage === 'trusted') {
+      return value.contractHealth.state !== 'drifted'
+    }
+    if (value.stage === 'drifted') {
+      return value.contractHealth.state === 'drifted'
+    }
+    return true
+  })()
+  return (
+    value.nextAction === expectedAction[value.stage] &&
+    typeof value.nextCommand === 'string' &&
+    ['healthy', 'drifted', 'unknown'].includes(String(value.contractHealth.state)) &&
+    isStringOrUndefined(value.contractHealth.checkedAt) &&
+    isStringArray(value.contractHealth.reasons) &&
+    hasConsistentHealth
+  )
+}
+
+function isCapabilityContractPayload(value: unknown): value is CapabilityContractPayload {
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&
@@ -505,18 +730,82 @@ function isCapabilityContract(value: unknown): value is CapabilityContract {
     typeof value.dir === 'string' &&
     isAutonomousInvocation(value.autonomousInvocation) &&
     Array.isArray(value.recentRuns) &&
-    value.recentRuns.every(isCapabilityRunRecord) &&
     isCapabilityAgentSkillStatus(value.agentSkill)
   )
 }
 
-function isCapabilitiesResponse(value: unknown): value is CapabilitiesResponse {
-  return isRecord(value) && typeof value.cwd === 'string' && Array.isArray(value.capabilities) && value.capabilities.every(isCapabilityContract)
+function normalizeCapabilityContract(value: unknown): CapabilityContract | null {
+  if (!isCapabilityContractPayload(value)) {
+    return null
+  }
+  const hasUnsupportedLifecycle = value.lifecycle !== undefined && !isCapabilityLifecycle(value.lifecycle)
+  const unsupportedReason = msg('lifecycle_unsupported')
+  return {
+    ...value,
+    autonomousInvocation: hasUnsupportedLifecycle
+      ? { allowed: false, reasons: [unsupportedReason] }
+      : value.autonomousInvocation,
+    recentRuns: value.recentRuns.filter(isCapabilityRunRecord),
+    authState: isCapabilityAuthState(value.authState) ? value.authState : undefined,
+    lifecycle: hasUnsupportedLifecycle
+      ? {
+          stage: 'drifted',
+          nextAction: 'repair',
+          nextCommand: `tabwright capability describe ${shellQuote(value.id)} --json`,
+          contractHealth: { state: 'drifted', reasons: [unsupportedReason] },
+        }
+      : isCapabilityLifecycle(value.lifecycle)
+        ? value.lifecycle
+        : undefined,
+  }
+}
+
+function parseCapabilitiesResponse(value: unknown): CapabilitiesResponse | null {
+  if (!isRecord(value) || typeof value.cwd !== 'string' || !Array.isArray(value.capabilities)) {
+    return null
+  }
+  return {
+    cwd: value.cwd,
+    capabilities: value.capabilities.flatMap((capability) => {
+      const normalized = normalizeCapabilityContract(capability)
+      return normalized ? [normalized] : []
+    }),
+  }
 }
 
 function setStatus(text: string): void {
   if (!statusText) return
   statusText.textContent = text
+}
+
+function relayReviewMessage(issue: RelayReviewIssue): string {
+  return issue === 'outdated' ? msg('relay_review_outdated') : msg('relay_review_unavailable')
+}
+
+function loadErrorText(error: LoadError | null): string {
+  if (!error) {
+    return ''
+  }
+  return error.type === 'relay' ? relayReviewMessage(error.issue) : error.message
+}
+
+function currentRelayReviewIssue(): RelayReviewIssue | null {
+  const issues = [replayLoadError, capabilityLoadError].flatMap((error) => {
+    return error?.type === 'relay' ? [error.issue] : []
+  })
+  if (issues.includes('outdated')) {
+    return 'outdated'
+  }
+  return issues.includes('unavailable') ? 'unavailable' : null
+}
+
+function updateRelayReviewWarning(): void {
+  if (!relayReviewWarning || !relayReviewWarningText) {
+    return
+  }
+  const issue = currentRelayReviewIssue()
+  relayReviewWarning.hidden = !issue
+  relayReviewWarningText.textContent = issue ? relayReviewMessage(issue) : ''
 }
 
 function formatDate(timestamp: number): string {
@@ -605,8 +894,8 @@ function getFilteredCapabilities(): CapabilityContract[] {
 }
 
 function updateTabCounts(): void {
-  setText(recordingsCount, String(replayRecordings.length))
-  setText(skillsCount, String(capabilities.length))
+  setText(recordingsCount, replayLoadError ? '–' : String(replayRecordings.length))
+  setText(skillsCount, capabilityLoadError ? '–' : String(capabilities.length))
 }
 
 function updateViewLabels(): void {
@@ -636,6 +925,13 @@ function updateViewLabels(): void {
 
 function updateMetrics(): void {
   updateTabCounts()
+  const activeLoadError = activeTab === 'recordings' ? replayLoadError : capabilityLoadError
+  if (activeLoadError) {
+    setText(metricPrimaryValue, '–')
+    setText(metricSecondaryValue, '–')
+    setText(metricTertiaryValue, '–')
+    return
+  }
   if (activeTab === 'recordings') {
     const totalDuration = replayRecordings.reduce((total, recording) => {
       return total + recording.duration
@@ -679,6 +975,8 @@ function rerenderLocalizedContent(): void {
   updateViewLabels()
   updateMetrics()
   updateReplayControls()
+  updateReplayWarning()
+  updateRelayReviewWarning()
 
   if (selectedReplayId) {
     const selectedRecording = replayRecordings.find((recording) => {
@@ -691,12 +989,12 @@ function rerenderLocalizedContent(): void {
 
   if (activeTab === 'recordings') {
     renderReplays()
-    setStatus(replayCountText(replayRecordings.length))
+    setStatus(loadErrorText(replayLoadError) || replayCountText(replayRecordings.length))
     return
   }
 
   renderCapabilities()
-  setStatus(capabilityCountText(capabilities.length, capabilityCwd))
+  setStatus(loadErrorText(capabilityLoadError) || capabilityCountText(capabilities.length, capabilityCwd))
 }
 
 async function applyLanguage(language: LanguageCode): Promise<void> {
@@ -728,6 +1026,65 @@ function displayList(values: string[], emptyText: string): string {
   return values.join('\n')
 }
 
+function runtimeLabel(runtime: string): string {
+  if (runtime === 'browser') return msg('runtime_browser')
+  if (runtime === 'node') return msg('runtime_node')
+  return runtime
+}
+
+function effectLabel(effect: string): string {
+  if (effect === 'read') return msg('effect_read')
+  if (effect === 'write') return msg('effect_write')
+  if (effect === 'dangerous') return msg('effect_dangerous')
+  return effect
+}
+
+function routingLabel(routingHint: string): string {
+  if (routingHint === 'exact-match-direct-run') return msg('routing_exact')
+  if (routingHint === 'semantic-match') return msg('routing_semantic')
+  if (routingHint === 'manual') return msg('routing_manual')
+  return routingHint
+}
+
+function locationLabel(location: string): string {
+  if (location === 'project') return msg('location_project')
+  if (location === 'global') return msg('location_global')
+  return location
+}
+
+function agentSkillBadge(capability: CapabilityContract): HTMLSpanElement {
+  if (capability.agentSkill.installedExists) {
+    return createBadge(msg('badge_skill_installed'), 'ready')
+  }
+  if (capability.agentSkill.draftExists) {
+    return createBadge(msg('badge_skill_draft'), 'draft')
+  }
+  return createBadge(msg('badge_skill_missing'), 'blocked')
+}
+
+function capabilityReadinessBadge(capability: CapabilityContract): HTMLSpanElement {
+  const lifecycle = resolveCapabilityLifecycle(capability)
+  if (capability.autonomousInvocation.allowed) {
+    return createBadge(msg('badge_auto_ready'), 'ready')
+  }
+  if (lifecycle.stage === 'disabled') {
+    return createBadge(msg('badge_disabled'), 'disabled')
+  }
+  if (lifecycle.stage === 'drifted') {
+    return createBadge(msg('badge_validation_expired'), 'drifted')
+  }
+  if (lifecycle.stage === 'drafted') {
+    return createBadge(msg('badge_needs_validation'), 'draft')
+  }
+  if (lifecycle.stage === 'validated') {
+    return createBadge(msg('badge_needs_trust'), 'validated')
+  }
+  if (capability.requiresConfirmation) {
+    return createBadge(msg('badge_needs_confirmation'), 'write')
+  }
+  return createBadge(msg('badge_manual_only'), 'write')
+}
+
 function createBadge(text: string, tone = text): HTMLSpanElement {
   const badge = document.createElement('span')
   badge.className = `badge badge-${cssToken(tone)}`
@@ -735,9 +1092,274 @@ function createBadge(text: string, tone = text): HTMLSpanElement {
   return badge
 }
 
+function effectiveAuthStatus(authState: CapabilityAuthState): CapabilityAuthStatus {
+  if (!authState.expiresAt || (authState.status !== 'authenticated' && authState.status !== 'expiring')) {
+    return authState.status
+  }
+  const expiresAt = Date.parse(authState.expiresAt)
+  if (Number.isNaN(expiresAt)) {
+    return authState.status
+  }
+  if (expiresAt <= Date.now()) {
+    return 'expired'
+  }
+  if (expiresAt - Date.now() <= 24 * 60 * 60 * 1000) {
+    return 'expiring'
+  }
+  return 'authenticated'
+}
+
+function authStatusLabel(authState: CapabilityAuthState): string {
+  const status = effectiveAuthStatus(authState)
+  if (status === 'missing') return msg('auth_status_missing')
+  if (status === 'authenticated') return msg('auth_status_authenticated')
+  if (status === 'expiring') return msg('auth_status_expiring')
+  if (status === 'expired') return msg('auth_status_expired')
+  return msg('auth_status_unknown')
+}
+
+function authStatusDescription(authState: CapabilityAuthState): string {
+  const status = effectiveAuthStatus(authState)
+  if (status === 'missing') return msg('auth_description_missing')
+  if (status === 'authenticated') return msg('auth_description_authenticated')
+  if (status === 'expiring') return msg('auth_description_expiring')
+  if (status === 'expired') return msg('auth_description_expired')
+  return msg('auth_description_unknown')
+}
+
+function authStatusTone(authState: CapabilityAuthState): string {
+  const status = effectiveAuthStatus(authState)
+  if (status === 'authenticated') return 'ready'
+  if (status === 'expired') return 'blocked'
+  return 'draft'
+}
+
+function authDomain(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+function formatAuthDate(options: { value?: string; fallback: string }): string {
+  if (!options.value) {
+    return options.fallback
+  }
+  const timestamp = Date.parse(options.value)
+  if (Number.isNaN(timestamp)) {
+    return options.value
+  }
+  return new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
+}
+
+async function readCurrentInstallId(): Promise<string | undefined> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+    return undefined
+  }
+  const result = await chrome.storage.local.get('playwriterInstallId')
+  return typeof result.playwriterInstallId === 'string' ? result.playwriterInstallId : undefined
+}
+
+function authRefreshErrorMessage(options: { code?: string; error: string }): string {
+  if (options.code === 'browser_not_connected') return msg('auth_error_browser_not_connected')
+  if (options.code === 'multiple_browser_profiles') return msg('auth_error_multiple_profiles')
+  if (options.code === 'no_enabled_tab') return msg('auth_error_no_enabled_tab')
+  return msg('auth_error_generic', options.error)
+}
+
+async function refreshCapabilityAuth(options: {
+  capability: CapabilityContract
+  button: HTMLButtonElement
+  errorMessage: HTMLElement
+}): Promise<void> {
+  const approved = await confirmCapabilityAuth(options.capability)
+  if (!approved) {
+    return
+  }
+  const originalText = options.button.textContent || ''
+  options.button.disabled = true
+  options.button.textContent = msg('auth_progress', options.capability.title)
+  options.errorMessage.hidden = true
+  options.errorMessage.textContent = ''
+  setStatus(msg('auth_progress', options.capability.title))
+  try {
+    const installId = await readCurrentInstallId()
+    const response = await fetch(
+      `${RELAY_BASE_URL}/capabilities/${encodeURIComponent(options.capability.id)}/auth/refresh`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ installId }),
+      },
+    )
+    const data: unknown = await response.json().catch(() => null)
+    if (!response.ok) {
+      const code = isRecord(data) && typeof data.code === 'string' ? data.code : undefined
+      const error = isRecord(data) && typeof data.error === 'string' ? data.error : String(response.status)
+      const message = authRefreshErrorMessage({ code, error })
+      options.errorMessage.textContent = message
+      options.errorMessage.hidden = false
+      setStatus(message)
+      return
+    }
+    await loadCapabilities()
+    setStatus(msg('auth_success', options.capability.title))
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    const displayMessage = msg('auth_error_generic', message)
+    options.errorMessage.textContent = displayMessage
+    options.errorMessage.hidden = false
+    setStatus(displayMessage)
+  } finally {
+    options.button.disabled = false
+    options.button.textContent = originalText
+  }
+}
+
+function confirmCapabilityAuth(capability: CapabilityContract): Promise<boolean> {
+  const authState = capability.authState
+  if (!authState) {
+    return Promise.resolve(false)
+  }
+  const dialog = document.createElement('dialog')
+  dialog.className = 'auth-dialog'
+
+  const content = document.createElement('div')
+  content.className = 'auth-dialog-content'
+  const title = document.createElement('h2')
+  title.textContent = msg('auth_confirm_title')
+  const description = document.createElement('p')
+  description.textContent = msg('auth_confirm_description')
+  const domains = document.createElement('div')
+  domains.className = 'auth-domain-list'
+  domains.replaceChildren(
+    ...authState.browserUrls.map((url) => {
+      const item = document.createElement('code')
+      item.textContent = authDomain(url)
+      return item
+    }),
+  )
+  const privacy = document.createElement('p')
+  privacy.className = 'auth-privacy'
+  privacy.textContent = msg('auth_privacy')
+
+  const actions = document.createElement('div')
+  actions.className = 'auth-dialog-actions'
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.textContent = msg('auth_cancel_action')
+  const confirm = document.createElement('button')
+  confirm.type = 'button'
+  confirm.className = 'primary'
+  confirm.textContent = msg('auth_confirm_action')
+  actions.replaceChildren(cancel, confirm)
+  content.replaceChildren(title, description, domains, privacy, actions)
+  dialog.replaceChildren(content)
+  document.body.append(dialog)
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false
+    const finish = (approved: boolean) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      dialog.close()
+      dialog.remove()
+      resolve(approved)
+    }
+    cancel.addEventListener('click', () => {
+      finish(false)
+    })
+    confirm.addEventListener('click', () => {
+      finish(true)
+    })
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault()
+      finish(false)
+    })
+    dialog.showModal()
+  })
+}
+
+function createCapabilityAuthCard(capability: CapabilityContract): HTMLElement | null {
+  const authState = capability.authState
+  if (!authState || authState.type !== 'cookie' || authState.status === 'not-required') {
+    return null
+  }
+  const status = effectiveAuthStatus(authState)
+  const card = document.createElement('section')
+  card.className = 'auth-card'
+  card.dataset.status = status
+
+  const heading = document.createElement('div')
+  heading.className = 'auth-heading'
+  const title = document.createElement('h3')
+  title.textContent = msg('auth_title')
+  heading.replaceChildren(title, createBadge(authStatusLabel(authState), authStatusTone(authState)))
+
+  const description = document.createElement('p')
+  description.className = 'auth-description'
+  description.textContent = authStatusDescription(authState)
+
+  const scope = document.createElement('div')
+  scope.className = 'auth-detail'
+  const scopeLabel = document.createElement('strong')
+  scopeLabel.textContent = msg('auth_domains')
+  const scopeValue = document.createElement('span')
+  scopeValue.textContent = authState.browserUrls.map(authDomain).join(', ')
+  scope.replaceChildren(scopeLabel, scopeValue)
+
+  const timestamps = document.createElement('div')
+  timestamps.className = 'auth-meta'
+  const refreshed = document.createElement('span')
+  refreshed.textContent = `${msg('auth_last_refreshed')}: ${formatAuthDate({ value: authState.refreshedAt, fallback: '-' })}`
+  const expires = document.createElement('span')
+  expires.textContent = `${msg('auth_expires')}: ${formatAuthDate({
+    value: authState.expiresAt,
+    fallback: msg('auth_expiry_unknown'),
+  })}`
+  timestamps.replaceChildren(refreshed, expires)
+
+  const privacy = document.createElement('p')
+  privacy.className = 'auth-privacy'
+  privacy.textContent = msg('auth_privacy')
+
+  const errorMessage = document.createElement('p')
+  errorMessage.className = 'auth-error'
+  errorMessage.setAttribute('role', 'alert')
+  errorMessage.hidden = true
+
+  const action = document.createElement('button')
+  action.type = 'button'
+  action.className = 'auth-action'
+  action.dataset.authAction = capability.id
+  action.textContent = status === 'missing' ? msg('auth_action_connect') : msg('auth_action_refresh')
+  action.hidden = !authState.canRefresh
+  action.addEventListener('click', () => {
+    void refreshCapabilityAuth({ capability, button: action, errorMessage })
+  })
+
+  card.replaceChildren(heading, description, scope, timestamps, privacy, errorMessage, action)
+  return card
+}
+
 async function copyTextToClipboard(options: { label: string; text: string }): Promise<void> {
   await navigator.clipboard.writeText(options.text)
-  setStatus(msg('status_copied', options.label))
+  if (!toast) {
+    setStatus(msg('status_copied', options.label))
+    return
+  }
+  if (toastTimer !== null) {
+    window.clearTimeout(toastTimer)
+  }
+  toast.textContent = msg('status_copied', options.label)
+  toast.hidden = false
+  toastTimer = window.setTimeout(() => {
+    toast.hidden = true
+    toastTimer = null
+  }, 2200)
 }
 
 function copyWithStatus(options: { label: string; text: string }): void {
@@ -780,9 +1402,17 @@ function setActiveTab(tab: ActiveTab): void {
   updateMetrics()
   if (tab === 'recordings') {
     renderReplays()
+    const errorText = loadErrorText(replayLoadError)
+    if (errorText) {
+      setStatus(errorText)
+    }
   }
   if (tab === 'skills') {
     renderCapabilities()
+    const errorText = loadErrorText(capabilityLoadError)
+    if (errorText) {
+      setStatus(errorText)
+    }
   }
   if (tab === 'skills' && capabilities.length === 0) {
     loadCapabilities().catch((error: unknown) => {
@@ -792,47 +1422,13 @@ function setActiveTab(tab: ActiveTab): void {
   }
 }
 
-function replayCapabilityId(recording: SavedReplayRecording): string {
-  return `replay-${recording.id
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(-28) || 'workflow'}`
-}
-
-function replayMakeCommand(recording: SavedReplayRecording): string {
-  return [
-    'playwriter replay make',
-    shellQuote(recording.id),
-    shellQuote(replayCapabilityId(recording)),
-    '--force',
-    '--goal',
-    shellQuote('describe the repeatable workflow goal here'),
-  ].join(' ')
-}
-
-function replayRunCommand(recording: SavedReplayRecording): string {
-  return [
-    'playwriter capability run',
-    shellQuote(replayCapabilityId(recording)),
-    '--force',
-    '--input-json',
-    shellQuote('{"value":"example"}'),
-  ].join(' ')
-}
-
-function replayAiHandoffText(recording: SavedReplayRecording): string {
+function replayAiContextText(recording: SavedReplayRecording): string {
   if (isChineseLocale()) {
     return [
-      '使用这个 Playwriter DOM replay 作为工作流证据。',
-      `Replay id: ${recording.id}`,
-      recording.url ? `录制 URL: ${recording.url}` : '',
-      '',
-      '编译能力：',
-      replayMakeCommand(recording),
-      '',
-      '修改输入后运行：',
-      replayRunCommand(recording),
+      '这是一个 Tabwright DOM replay 录制。',
+      `Replay ID：${recording.id}`,
+      `文件路径：${recording.path}`,
+      recording.url ? `录制 URL：${recording.url}` : '',
     ]
       .filter((line) => {
         return line.length > 0
@@ -841,15 +1437,10 @@ function replayAiHandoffText(recording: SavedReplayRecording): string {
   }
 
   return [
-    'Use this Playwriter DOM replay as workflow evidence.',
-    `Replay id: ${recording.id}`,
+    'This is a Tabwright DOM replay recording.',
+    `Replay ID: ${recording.id}`,
+    `File path: ${recording.path}`,
     recording.url ? `Recorded URL: ${recording.url}` : '',
-    '',
-    'Compile:',
-    replayMakeCommand(recording),
-    '',
-    'Run after editing input:',
-    replayRunCommand(recording),
   ]
     .filter((line) => {
       return line.length > 0
@@ -869,9 +1460,6 @@ function setReplayDetails(recording: SavedReplayRecording): void {
     `${msg('detail_tab')}: ${recording.tabId}`,
     recording.url ? `${msg('detail_url')}: ${recording.url}` : '',
     recording.sessionId ? `${msg('detail_session')}: ${recording.sessionId}` : '',
-    '',
-    `${msg('detail_ai_handoff')}:`,
-    replayAiHandoffText(recording),
   ]
     .filter((line) => {
       return line.length > 0
@@ -970,6 +1558,41 @@ function updateReplayControls(timeOffset = activeReplayer?.getCurrentTime() ?? 0
   }
 }
 
+function updateReplayWarning(): void {
+  if (!replayWarning) {
+    return
+  }
+  if (replayMissingNodeWarningCount === 0) {
+    replayWarning.hidden = true
+    replayWarning.textContent = ''
+    return
+  }
+  const key: MessageKey =
+    replayMissingNodeWarningCount === 1 ? 'replay_warning_missing_nodes_one' : 'replay_warning_missing_nodes_other'
+  replayWarning.textContent = msg(key, String(replayMissingNodeWarningCount))
+  replayWarning.hidden = false
+}
+
+function resetReplayDiagnostics(): void {
+  if (replayWarningTimer !== null) {
+    window.clearTimeout(replayWarningTimer)
+    replayWarningTimer = null
+  }
+  replayMissingNodeWarningCount = 0
+  updateReplayWarning()
+}
+
+function recordMissingReplayNodeWarning(): void {
+  replayMissingNodeWarningCount += 1
+  if (replayWarningTimer !== null) {
+    return
+  }
+  replayWarningTimer = window.setTimeout(() => {
+    replayWarningTimer = null
+    updateReplayWarning()
+  }, 250)
+}
+
 function startReplayProgressLoop(): void {
   stopReplayProgressLoop()
   replayProgressTimer = window.setInterval(() => {
@@ -1000,13 +1623,17 @@ function resetReplayControls(totalTime: number): void {
 
 function destroyActiveReplayer(): void {
   const replayer = activeReplayer
+  const loggerController = activeReplayLoggerController
   activeReplayer = null
+  activeReplayLoggerController = null
   replayFitCleanup?.()
   replayFitCleanup = null
   stopReplayProgressLoop()
+  loggerController?.dispose()
   if (replayer) {
     replayer.destroy()
   }
+  resetReplayDiagnostics()
   updateReplayControls(0)
 }
 
@@ -1014,13 +1641,26 @@ function mountReplay(events: RrwebEvent[]): void {
   if (!replayPlayer) return
   destroyActiveReplayer()
   replayPlayer.textContent = ''
-  const replayer = new Replayer(events, {
-    root: replayPlayer,
-    mouseTail: false,
-    UNSAFE_replayCanvas: true,
-    triggerFocus: false,
+  const loggerController = createReplayLogger({
+    logger: console,
+    onMissingNodeWarning: recordMissingReplayNodeWarning,
   })
+  const replayer = (() => {
+    try {
+      return new Replayer(events, {
+        root: replayPlayer,
+        mouseTail: false,
+        UNSAFE_replayCanvas: true,
+        triggerFocus: false,
+        logger: loggerController.logger,
+      })
+    } catch (error) {
+      loggerController.dispose()
+      throw error
+    }
+  })()
   activeReplayer = replayer
+  activeReplayLoggerController = loggerController
   replayer.on(ReplayerEvents.Start, () => {
     setReplayPlaying(true)
   })
@@ -1085,7 +1725,13 @@ async function playReplay(recording: SavedReplayRecording): Promise<void> {
   if (!response.ok) {
     throw new Error(msg('error_load_replay', String(response.status)))
   }
-  const data: unknown = await response.json()
+  const data: unknown = await (async () => {
+    try {
+      return await response.json()
+    } catch (cause: unknown) {
+      throw new Error(msg('error_invalid_replay_events'), { cause })
+    }
+  })()
   if (!isReplayEventsResponse(data)) {
     throw new Error(msg('error_invalid_replay_events'))
   }
@@ -1098,32 +1744,27 @@ function createRecordingActions(recording: SavedReplayRecording): HTMLDivElement
   const actions = document.createElement('div')
   actions.className = 'recording-actions'
 
-  const handoff = document.createElement('button')
-  handoff.type = 'button'
-  handoff.textContent = msg('copy_handoff')
-  handoff.addEventListener('click', (event: MouseEvent) => {
+  const copyForAi = document.createElement('button')
+  copyForAi.type = 'button'
+  copyForAi.textContent = msg('copy_for_ai')
+  copyForAi.addEventListener('click', (event: MouseEvent) => {
     event.stopPropagation()
-    copyWithStatus({ label: msg('label_ai_handoff'), text: replayAiHandoffText(recording) })
+    copyWithStatus({ label: msg('label_ai_context'), text: replayAiContextText(recording) })
   })
 
-  const compile = document.createElement('button')
-  compile.type = 'button'
-  compile.textContent = msg('copy_compile')
-  compile.addEventListener('click', (event: MouseEvent) => {
-    event.stopPropagation()
-    copyWithStatus({ label: msg('label_compile_command'), text: replayMakeCommand(recording) })
-  })
-
-  actions.replaceChildren(handoff, compile)
+  actions.replaceChildren(copyForAi)
   return actions
 }
 
-function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement {
-  const item = document.createElement('button')
-  item.type = 'button'
+function createRecordingItem(recording: SavedReplayRecording): HTMLDivElement {
+  const item = document.createElement('div')
   item.className = 'recording-item'
   item.dataset.replayId = recording.id
-  item.ariaLabel = msg('open_replay_aria', recording.id)
+
+  const select = document.createElement('button')
+  select.type = 'button'
+  select.className = 'recording-select'
+  select.ariaLabel = msg('open_replay_aria', recording.id)
 
   const title = document.createElement('div')
   title.className = 'recording-title'
@@ -1134,8 +1775,6 @@ function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement
   meta.textContent = [
     formatDuration(recording.duration),
     msg('events_count', String(recording.eventCount)),
-    formatSize(recording.size),
-    msg('tab_label', String(recording.tabId)),
     recording.url || '',
   ]
     .filter((part) => {
@@ -1143,19 +1782,29 @@ function createRecordingItem(recording: SavedReplayRecording): HTMLButtonElement
     })
     .join(' | ')
 
-  item.replaceChildren(title, meta, createRecordingActions(recording))
-  item.addEventListener('click', () => {
+  select.replaceChildren(title, meta)
+  select.addEventListener('click', () => {
     playReplay(recording).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
       setStatus(message)
     })
   })
+  item.replaceChildren(select, createRecordingActions(recording))
   return item
 }
 
 function renderReplays(): void {
   if (!replaysList) return
   updateMetrics()
+
+  const errorText = loadErrorText(replayLoadError)
+  if (errorText && replayRecordings.length === 0) {
+    const error = document.createElement('div')
+    error.className = 'empty-state empty-state-warning'
+    error.textContent = errorText
+    replaysList.replaceChildren(error)
+    return
+  }
 
   if (replayRecordings.length === 0) {
     const empty = document.createElement('div')
@@ -1184,16 +1833,42 @@ function renderReplays(): void {
 
 async function loadReplays(): Promise<void> {
   setStatus(msg('status_loading_recordings'))
-  const response = await fetch(`${RELAY_BASE_URL}/rrweb-recordings`)
+  replayLoadError = null
+  updateRelayReviewWarning()
+  const response: Response = await (async () => {
+    try {
+      return await fetch(`${RELAY_BASE_URL}/rrweb-recordings`)
+    } catch (cause: unknown) {
+      replayLoadError = { type: 'relay', issue: 'unavailable' }
+      renderReplays()
+      updateRelayReviewWarning()
+      throw new Error(loadErrorText(replayLoadError), { cause })
+    }
+  })()
   if (!response.ok) {
-    throw new Error(msg('error_load_recordings', String(response.status)))
+    replayLoadError = { type: 'relay', issue: response.status === 404 ? 'outdated' : 'unavailable' }
+    renderReplays()
+    updateRelayReviewWarning()
+    throw new Error(loadErrorText(replayLoadError))
   }
-  const data: unknown = await response.json()
+  const data: unknown = await (async () => {
+    try {
+      return await response.json()
+    } catch (cause: unknown) {
+      replayLoadError = { type: 'message', message: msg('error_invalid_recordings') }
+      renderReplays()
+      throw new Error(loadErrorText(replayLoadError), { cause })
+    }
+  })()
   if (!isReplaysResponse(data)) {
-    throw new Error(msg('error_invalid_recordings'))
+    replayLoadError = { type: 'message', message: msg('error_invalid_recordings') }
+    renderReplays()
+    throw new Error(loadErrorText(replayLoadError))
   }
   replayRecordings = data.recordings
+  replayLoadError = null
   renderReplays()
+  updateRelayReviewWarning()
   setStatus(replayCountText(data.recordings.length))
 }
 
@@ -1249,12 +1924,15 @@ function schemaSummary(schema: Record<string, unknown>): string {
 function capabilityRunCommand(capability: CapabilityContract): string {
   const input = JSON.stringify(buildExampleInput(capability.inputSchema))
   return [
-    'playwriter capability run',
+    'tabwright capability run',
     shellQuote(capability.id),
+    capability.runtime === 'browser' ? '--browser user' : '',
     '--input-json',
     shellQuote(input),
     '--json',
     capability.status === 'trusted' ? '' : '--force',
+    capability.requiresConfirmation ? '--confirm' : '',
+    capability.requiresConfirmation ? shellQuote(capability.id) : '',
   ]
     .filter((part) => {
       return part.length > 0
@@ -1262,114 +1940,76 @@ function capabilityRunCommand(capability: CapabilityContract): string {
     .join(' ')
 }
 
-function capabilityRouteCommand(): string {
-  return ['playwriter capability route', shellQuote('<user task or URL>'), '--json'].join(' ')
+function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityLifecycle {
+  if (capability.lifecycle) {
+    return capability.lifecycle
+  }
+  if (capability.status === 'disabled') {
+    return {
+      stage: 'disabled',
+      nextAction: 'enable',
+      nextCommand: `tabwright capability draft ${shellQuote(capability.id)}`,
+      contractHealth: { state: 'unknown', reasons: [] },
+    }
+  }
+  if (capability.status === 'drifted') {
+    return {
+      stage: 'drifted',
+      nextAction: 'repair',
+      nextCommand: `tabwright capability show ${shellQuote(capability.id)}`,
+      contractHealth: { state: 'drifted', reasons: [] },
+    }
+  }
+  if (capability.status === 'trusted') {
+    return {
+      stage: 'trusted',
+      nextAction: 'run',
+      nextCommand: capabilityRunCommand(capability),
+      contractHealth: { state: 'unknown', reasons: [] },
+    }
+  }
+  return {
+    stage: 'drafted',
+    nextAction: 'validate',
+    nextCommand: capabilityRunCommand(capability),
+    contractHealth: { state: 'unknown', reasons: [] },
+  }
 }
 
-function capabilityEditPrompt(capability: CapabilityContract): string {
-  if (!isChineseLocale()) {
+function lifecycleStageMessage(stage: CapabilityLifecycle['stage']): string {
+  if (stage === 'validated') return msg('lifecycle_stage_validated')
+  if (stage === 'trusted') return msg('lifecycle_stage_trusted')
+  if (stage === 'drifted') return msg('lifecycle_stage_drifted')
+  if (stage === 'disabled') return msg('lifecycle_stage_disabled')
+  return msg('lifecycle_stage_drafted')
+}
+
+function lifecycleActionMessage(action: CapabilityLifecycle['nextAction']): string {
+  if (action === 'trust') return msg('lifecycle_action_trust')
+  if (action === 'run') return msg('lifecycle_action_run')
+  if (action === 'repair') return msg('lifecycle_action_repair')
+  if (action === 'enable') return msg('lifecycle_action_enable')
+  return msg('lifecycle_action_validate')
+}
+
+function capabilityAiContextText(capability: CapabilityContract): string {
+  if (isChineseLocale()) {
     return [
-      `Please help me update this Playwriter capability: ${capability.id}`,
-      `Current directory: ${capability.dir}`,
-      '',
-      'Inspect the current capability first:',
-      `playwriter capability describe ${capability.id} --json`,
-      `playwriter capability show ${capability.id} --script`,
-      '',
-      'My requested change: <describe the change here>',
-      '',
-      'Requirements:',
-      '- Decide whether this only changes the contract or also script.js',
-      '- Run this package typecheck or the relevant tests after editing',
-      '- Do not trust this capability unless I explicitly ask',
+      '这是一个 Tabwright capability。',
+      `Capability ID：${capability.id}`,
+      `标题：${capability.title}`,
+      `描述：${capability.description}`,
+      `目录：${capability.dir}`,
     ].join('\n')
   }
 
   return [
-    `请帮我修改 Playwriter capability：${capability.id}`,
-    `当前目录：${capability.dir}`,
-    '',
-    '先查看当前能力：',
-    `playwriter capability describe ${capability.id} --json`,
-    `playwriter capability show ${capability.id} --script`,
-    '',
-    '我的修改需求：<在这里写清楚要改什么>',
-    '',
-    '要求：',
-    '- 先判断只需要改 contract，还是也要改 script.js',
-    '- 修改后运行当前包的 typecheck 或相关测试',
-    '- 不要 trust 这个 capability，除非我明确要求',
+    'This is a Tabwright capability.',
+    `Capability ID: ${capability.id}`,
+    `Title: ${capability.title}`,
+    `Description: ${capability.description}`,
+    `Directory: ${capability.dir}`,
   ].join('\n')
-}
-
-function capabilityUsePrompt(capability: CapabilityContract): string {
-  if (!isChineseLocale()) {
-    return [
-      `Please use this Playwriter capability: ${capability.id}`,
-      '',
-      'Try routing first:',
-      capabilityRouteCommand(),
-      '',
-      'If direct execution is appropriate, use:',
-      capabilityRunCommand(capability),
-      '',
-      'My task: <write the task or paste the URL here>',
-    ].join('\n')
-  }
-
-  return [
-    `请使用 Playwriter capability：${capability.id}`,
-    '',
-    '先尝试路由：',
-    capabilityRouteCommand(),
-    '',
-    '如果确认要直接运行，用：',
-    capabilityRunCommand(capability),
-    '',
-    '我的任务：<在这里写任务或粘贴 URL>',
-  ].join('\n')
-}
-
-function capabilitySkillPrompt(capability: CapabilityContract): string {
-  if (!isChineseLocale()) {
-    return [
-      `Please create or improve the agent skill for this Playwriter capability: ${capability.id}.`,
-      '',
-      'Inspect the current capability first:',
-      `playwriter capability describe ${capability.id} --json`,
-      '',
-      capability.agentSkill.draftExists ? `Existing draft: ${capability.agentSkill.draftPath}` : capability.agentSkill.initCommand,
-      capability.agentSkill.draftExists ? capability.agentSkill.showCommand : '',
-      '',
-      'The skill should define when to use it, when not to use it, the first command, auth/sandbox notes, and the default output shape.',
-      '',
-      'Install it after editing:',
-      capability.agentSkill.installCommand,
-    ]
-      .filter((line) => {
-        return line.length > 0
-      })
-      .join('\n')
-  }
-
-  return [
-    `请帮我为 Playwriter capability：${capability.id} 创建或完善 agent skill。`,
-    '',
-    '先查看当前能力：',
-    `playwriter capability describe ${capability.id} --json`,
-    '',
-    capability.agentSkill.draftExists ? `已有草稿：${capability.agentSkill.draftPath}` : capability.agentSkill.initCommand,
-    capability.agentSkill.draftExists ? capability.agentSkill.showCommand : '',
-    '',
-    'skill 里需要写清：什么时候用、什么时候不用、第一条命令、auth/sandbox 注意事项、默认输出格式。',
-    '',
-    '完成后再安装：',
-    capability.agentSkill.installCommand,
-  ]
-    .filter((line) => {
-      return line.length > 0
-    })
-    .join('\n')
 }
 
 function createField(options: { title: string; value: string; full?: boolean }): HTMLDivElement {
@@ -1387,39 +2027,144 @@ function createField(options: { title: string; value: string; full?: boolean }):
   return field
 }
 
+function lifecycleStepState(options: {
+  stage: CapabilityLifecycle['stage']
+  stepIndex: number
+}): 'done' | 'current' | 'pending' | 'blocked' {
+  if (options.stage === 'disabled') {
+    return 'blocked'
+  }
+  if (options.stage === 'drifted') {
+    return options.stepIndex === 0 ? 'blocked' : 'pending'
+  }
+  const currentIndex = options.stage === 'trusted' ? 2 : options.stage === 'validated' ? 1 : 0
+  if (options.stepIndex < currentIndex) {
+    return 'done'
+  }
+  if (options.stepIndex === currentIndex) {
+    return 'current'
+  }
+  return 'pending'
+}
+
+function createLifecycleStep(options: {
+  label: string
+  state: 'done' | 'current' | 'pending' | 'blocked'
+}): HTMLLIElement {
+  const step = document.createElement('li')
+  step.className = 'lifecycle-step'
+  step.dataset.state = options.state
+  if (options.state === 'current') {
+    step.setAttribute('aria-current', 'step')
+  }
+
+  const marker = document.createElement('span')
+  marker.className = 'lifecycle-marker'
+  marker.setAttribute('aria-hidden', 'true')
+
+  const label = document.createElement('span')
+  label.textContent = options.label
+  step.replaceChildren(marker, label)
+  return step
+}
+
+function lifecycleHealthMessage(lifecycle: CapabilityLifecycle): string {
+  const healthLabel = (() => {
+    if (lifecycle.contractHealth.state === 'healthy') return msg('lifecycle_health_healthy')
+    if (lifecycle.contractHealth.state === 'drifted') return msg('lifecycle_health_drifted')
+    return msg('lifecycle_health_unknown')
+  })()
+  if (!lifecycle.contractHealth.checkedAt) {
+    return msg('lifecycle_health_not_checked')
+  }
+  const timestamp = Date.parse(lifecycle.contractHealth.checkedAt)
+  const checkedAt = Number.isNaN(timestamp)
+    ? lifecycle.contractHealth.checkedAt
+    : new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
+  return msg('lifecycle_health_checked', [healthLabel, checkedAt])
+}
+
+function createCapabilityLifecycle(capability: CapabilityContract): HTMLElement {
+  const lifecycle = resolveCapabilityLifecycle(capability)
+  const card = document.createElement('section')
+  card.className = 'lifecycle-card'
+  card.dataset.stage = lifecycle.stage
+
+  const heading = document.createElement('div')
+  heading.className = 'lifecycle-heading'
+  const title = document.createElement('h3')
+  title.textContent = msg('lifecycle_title')
+  heading.replaceChildren(title, createBadge(lifecycleStageMessage(lifecycle.stage), lifecycle.stage))
+
+  const steps = document.createElement('ol')
+  steps.className = 'lifecycle-steps'
+  steps.setAttribute('aria-label', msg('lifecycle_title'))
+  steps.replaceChildren(
+    createLifecycleStep({
+      label: msg('lifecycle_step_drafted'),
+      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 0 }),
+    }),
+    createLifecycleStep({
+      label: msg('lifecycle_step_validated'),
+      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 1 }),
+    }),
+    createLifecycleStep({
+      label: msg('lifecycle_step_trusted'),
+      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 2 }),
+    }),
+  )
+
+  const summary = document.createElement('div')
+  summary.className = 'lifecycle-summary'
+  const nextStep = document.createElement('strong')
+  nextStep.textContent = msg('lifecycle_next_step', lifecycleActionMessage(lifecycle.nextAction))
+  const health = document.createElement('span')
+  health.textContent = lifecycleHealthMessage(lifecycle)
+  summary.replaceChildren(nextStep, health)
+
+  const command = document.createElement('div')
+  command.className = 'lifecycle-command'
+  const code = document.createElement('code')
+  code.textContent = lifecycle.nextCommand
+  code.title = lifecycle.nextCommand
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.textContent = msg('copy_next_step')
+  copy.addEventListener('click', () => {
+    copyWithStatus({ label: msg('label_next_command'), text: lifecycle.nextCommand })
+  })
+  command.replaceChildren(code, copy)
+
+  const warningText = (() => {
+    if (lifecycle.stage === 'drifted') {
+      return [msg('lifecycle_drift_warning'), ...lifecycle.contractHealth.reasons].join('\n')
+    }
+    if (lifecycle.stage === 'disabled') {
+      return msg('lifecycle_disabled_warning')
+    }
+    return ''
+  })()
+  const warning = document.createElement('p')
+  warning.className = 'lifecycle-warning'
+  warning.textContent = warningText
+  warning.hidden = warningText.length === 0
+
+  card.replaceChildren(heading, steps, summary, command, warning)
+  return card
+}
+
 function createCapabilityActions(capability: CapabilityContract): HTMLDivElement {
   const actions = document.createElement('div')
   actions.className = 'skill-actions'
 
-  const editPrompt = document.createElement('button')
-  editPrompt.type = 'button'
-  editPrompt.textContent = msg('copy_edit_prompt')
-  editPrompt.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_edit_prompt'), text: capabilityEditPrompt(capability) })
+  const copyForAi = document.createElement('button')
+  copyForAi.type = 'button'
+  copyForAi.textContent = msg('copy_for_ai')
+  copyForAi.addEventListener('click', () => {
+    copyWithStatus({ label: msg('label_ai_context'), text: capabilityAiContextText(capability) })
   })
 
-  const usePrompt = document.createElement('button')
-  usePrompt.type = 'button'
-  usePrompt.textContent = msg('copy_use_prompt')
-  usePrompt.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_use_prompt'), text: capabilityUsePrompt(capability) })
-  })
-
-  const skillPrompt = document.createElement('button')
-  skillPrompt.type = 'button'
-  skillPrompt.textContent = msg('copy_skill_prompt')
-  skillPrompt.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_skill_prompt'), text: capabilitySkillPrompt(capability) })
-  })
-
-  const runCommand = document.createElement('button')
-  runCommand.type = 'button'
-  runCommand.textContent = msg('copy_run')
-  runCommand.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_run_command'), text: capabilityRunCommand(capability) })
-  })
-
-  actions.replaceChildren(editPrompt, usePrompt, skillPrompt, runCommand)
+  actions.replaceChildren(copyForAi)
   return actions
 }
 
@@ -1434,26 +2179,42 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
 
   const meta = document.createElement('div')
   meta.className = 'detail-meta'
-  meta.textContent = `${capability.id} | ${capability.location} | ${capability.dir}`
+  meta.textContent = capability.id
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
+  const authState =
+    capability.authState?.type === 'cookie' && capability.authState.status !== 'not-required'
+      ? capability.authState
+      : undefined
   badges.replaceChildren(
-    createBadge(capability.status),
-    createBadge(capability.runtime),
-    createBadge(capability.sideEffect),
-    createBadge(capability.routingHint),
-    createBadge(capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked', capability.autonomousInvocation.allowed ? 'ready' : 'blocked'),
-    createBadge(capability.agentSkill.installedExists ? 'skill-installed' : capability.agentSkill.draftExists ? 'skill-draft' : 'skill-missing'),
+    capabilityReadinessBadge(capability),
+    createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
+    agentSkillBadge(capability),
+    ...(authState ? [createBadge(authStatusLabel(authState), authStatusTone(authState))] : []),
   )
 
   header.replaceChildren(title, meta, badges, createCapabilityActions(capability))
 
-  const fields = document.createElement('div')
-  fields.className = 'field-grid'
-  fields.replaceChildren(
+  const primaryFields = document.createElement('div')
+  primaryFields.className = 'field-grid'
+  primaryFields.replaceChildren(
     createField({ title: msg('field_description'), value: capability.description || '-', full: true }),
     createField({ title: msg('field_when_to_use'), value: displayList(capability.whenToUse, '-'), full: true }),
+  )
+
+  const advancedDetails = document.createElement('details')
+  advancedDetails.className = 'advanced-details'
+  const advancedSummary = document.createElement('summary')
+  advancedSummary.textContent = msg('technical_details')
+  const advancedFields = document.createElement('div')
+  advancedFields.className = 'field-grid'
+  advancedFields.replaceChildren(
+    createField({ title: msg('field_runtime'), value: runtimeLabel(capability.runtime) }),
+    createField({ title: msg('field_effect'), value: effectLabel(capability.sideEffect) }),
+    createField({ title: msg('field_routing'), value: routingLabel(capability.routingHint) }),
+    createField({ title: msg('detail_path'), value: capability.dir }),
+    createField({ title: msg('field_location'), value: locationLabel(capability.location) }),
     createField({ title: msg('field_when_not_to_use'), value: displayList(capability.whenNotToUse, '-'), full: true }),
     createField({ title: msg('field_match'), value: displayList(capability.match, '-') }),
     createField({ title: msg('field_permissions'), value: displayList(capability.permissions, '-') }),
@@ -1490,8 +2251,16 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
       full: true,
     }),
   )
+  advancedDetails.replaceChildren(advancedSummary, advancedFields)
 
-  skillDetail.replaceChildren(header, fields)
+  const authCard = createCapabilityAuthCard(capability)
+  skillDetail.replaceChildren(
+    header,
+    ...(authCard ? [authCard] : []),
+    createCapabilityLifecycle(capability),
+    primaryFields,
+    advancedDetails,
+  )
 }
 
 function updateActiveCapability(): void {
@@ -1520,14 +2289,13 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
 
   const meta = document.createElement('div')
   meta.className = 'skill-meta'
-  meta.textContent = [capability.status, capability.runtime, capability.location, capability.sideEffect, capability.id].join(' | ')
+  meta.textContent = capability.description || capability.id
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
   badges.replaceChildren(
-    createBadge(capability.status),
-    createBadge(capability.sideEffect),
-    createBadge(capability.autonomousInvocation.allowed ? 'ai-ready' : 'ai-blocked', capability.autonomousInvocation.allowed ? 'ready' : 'blocked'),
+    capabilityReadinessBadge(capability),
+    createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
   )
 
   item.replaceChildren(title, meta, badges)
@@ -1540,6 +2308,18 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
 function renderCapabilities(): void {
   if (!skillsList) return
   updateMetrics()
+
+  const errorText = loadErrorText(capabilityLoadError)
+  if (errorText && capabilities.length === 0) {
+    const error = document.createElement('div')
+    error.className = 'empty-state empty-state-warning'
+    error.textContent = errorText
+    skillsList.replaceChildren(error)
+    if (skillDetail) {
+      skillDetail.replaceChildren(error.cloneNode(true))
+    }
+    return
+  }
 
   if (capabilities.length === 0) {
     const empty = document.createElement('div')
@@ -1569,10 +2349,12 @@ function renderCapabilities(): void {
       return createCapabilityItem(capability)
     }),
   )
-  const selected = filteredCapabilities.find((capability) => {
-    return capability.id === selectedCapabilityId
-  })
+  const selected =
+    filteredCapabilities.find((capability) => {
+      return capability.id === selectedCapabilityId
+    }) || filteredCapabilities[0]
   if (selected) {
+    selectedCapabilityId = selected.id
     renderCapabilityDetail(selected)
     updateActiveCapability()
     return
@@ -1585,20 +2367,51 @@ function renderCapabilities(): void {
   }
 }
 
-async function loadCapabilities(): Promise<void> {
-  setStatus(msg('status_loading_capabilities'))
-  const response = await fetch(`${RELAY_BASE_URL}/capabilities`)
+async function loadCapabilities(options: { silent?: boolean } = {}): Promise<void> {
+  if (!options.silent) {
+    setStatus(msg('status_loading_capabilities'))
+  }
+  capabilityLoadError = null
+  updateRelayReviewWarning()
+  const response: Response = await (async () => {
+    try {
+      return await fetch(`${RELAY_BASE_URL}/capabilities`)
+    } catch (cause: unknown) {
+      capabilityLoadError = { type: 'relay', issue: 'unavailable' }
+      renderCapabilities()
+      updateRelayReviewWarning()
+      throw new Error(loadErrorText(capabilityLoadError), { cause })
+    }
+  })()
   if (!response.ok) {
-    throw new Error(msg('error_load_capabilities', String(response.status)))
+    capabilityLoadError = { type: 'relay', issue: response.status === 404 ? 'outdated' : 'unavailable' }
+    renderCapabilities()
+    updateRelayReviewWarning()
+    throw new Error(loadErrorText(capabilityLoadError))
   }
-  const data: unknown = await response.json()
-  if (!isCapabilitiesResponse(data)) {
-    throw new Error(msg('error_invalid_capabilities'))
+  const data: unknown = await (async () => {
+    try {
+      return await response.json()
+    } catch (cause: unknown) {
+      capabilityLoadError = { type: 'message', message: msg('error_invalid_capabilities') }
+      renderCapabilities()
+      throw new Error(loadErrorText(capabilityLoadError), { cause })
+    }
+  })()
+  const parsed = parseCapabilitiesResponse(data)
+  if (!parsed) {
+    capabilityLoadError = { type: 'message', message: msg('error_invalid_capabilities') }
+    renderCapabilities()
+    throw new Error(loadErrorText(capabilityLoadError))
   }
-  capabilityCwd = data.cwd
-  capabilities = data.capabilities
+  capabilityCwd = parsed.cwd
+  capabilities = parsed.capabilities
+  capabilityLoadError = null
   renderCapabilities()
-  setStatus(capabilityCountText(data.capabilities.length, capabilityCwd))
+  updateRelayReviewWarning()
+  if (!options.silent) {
+    setStatus(capabilityCountText(parsed.capabilities.length, capabilityCwd))
+  }
 }
 
 refreshButton?.addEventListener('click', () => {
@@ -1661,3 +2474,11 @@ initializeOptionsPage().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
   setStatus(message)
 })
+
+window.setInterval(() => {
+  if (activeTab === 'skills') {
+    void loadCapabilities({ silent: true }).catch((error: unknown) => {
+      console.warn(error)
+    })
+  }
+}, 60_000)

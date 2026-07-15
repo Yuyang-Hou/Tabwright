@@ -1,5 +1,5 @@
 /**
- * Full-bleed hero sections for the Playwriter landing and cloud browsers pages.
+ * Full-bleed hero sections for the Tabwright landing and cloud browsers pages.
  * Breaks out of the Above column constraint via w-screen + negative margin
  * (same pattern as sigillo's hero-section.tsx).
  *
@@ -87,7 +87,7 @@ function StarRating({ rating }: { rating: number }) {
 
   return (
     <a
-      href='https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe'
+      href='https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe'
       target='_blank'
       rel='noopener noreferrer'
       className='flex items-center gap-2 mt-5 no-underline text-foreground/50 hover:text-foreground/70 transition-colors'
@@ -139,8 +139,8 @@ function HeroBackground({ dotColor = 'rgba(255, 106, 0, 0.7)' }: { dotColor?: st
 const HERO_FONT = "'IvarText', serif"
 
 const CHROME_EXTENSION_URL =
-  'https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe'
-const GITHUB_URL = 'https://github.com/remorses/playwriter'
+  'https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe'
+const GITHUB_URL = 'https://github.com/Yuyang-Hou/tabwright'
 
 export function HeroSection() {
   return (
@@ -150,11 +150,10 @@ export function HeroSection() {
       {/* Foreground content */}
       <div className='relative z-[2] flex flex-col items-center justify-center px-6 pt-10 sm:pt-14 pb-4'>
         <div className='flex flex-col items-center text-center'>
-          <img
-            src='/playwriter-logo.svg'
-            alt='Playwriter'
-            className='h-8 mb-5 dark:invert'
-          />
+          <div className='mb-5 flex items-center gap-2.5'>
+            <img src='/logo-square.svg' alt='' className='h-8 w-8 rounded-md' />
+            <span className='text-2xl font-semibold tracking-tight'>Tabwright</span>
+          </div>
           <h1 className='flex flex-col items-center leading-tight'>
             <span
               className='text-[28px] sm:text-[36px] md:text-[44px] text-foreground'
@@ -216,11 +215,10 @@ export function CloudHeroSection() {
       {/* Foreground content */}
       <div className='relative z-[2] flex flex-col items-center justify-center px-6 pt-10 sm:pt-14 pb-4'>
         <div className='flex flex-col items-center text-center'>
-          <img
-            src='/playwriter-logo.svg'
-            alt='Playwriter'
-            className='h-8 mb-5 dark:invert'
-          />
+          <div className='mb-5 flex items-center gap-2.5'>
+            <img src='/logo-square.svg' alt='' className='h-8 w-8 rounded-md' />
+            <span className='text-2xl font-semibold tracking-tight'>Tabwright</span>
+          </div>
           <h1 className='flex flex-col items-center leading-tight'>
             <span
               className='text-[28px] sm:text-[36px] md:text-[44px] text-foreground'

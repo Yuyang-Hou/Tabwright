@@ -1,5 +1,5 @@
 import { record, type eventWithTime, type recordOptions } from 'rrweb'
-import type { RrwebEvent, StartRrwebRecordingParams } from 'playwriter/src/protocol'
+import type { RrwebEvent, StartRrwebRecordingParams } from 'tabwright/src/protocol'
 
 declare global {
   var __playwriterRrwebRecorderInstalled: boolean | undefined
@@ -24,7 +24,7 @@ type RrwebRecorderCancelMessage = {
   action: 'playwriterRrwebCancel'
 }
 
-type PlaywriterAnnotationMessage = {
+type TabwrightAnnotationMessage = {
   source: 'playwriter-toolbar'
   type: 'recording-annotation' | 'recording-annotation-delete'
   annotation: Record<string, unknown>
@@ -86,7 +86,7 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
   }
 
-  function isAnnotationMessage(value: unknown): value is PlaywriterAnnotationMessage {
+  function isAnnotationMessage(value: unknown): value is TabwrightAnnotationMessage {
     if (!isRecord(value)) return false
     return (
       value.source === 'playwriter-toolbar' &&
@@ -103,7 +103,7 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
         activeRecorder.flushTimer = null
       }
       flushEvents({ final: false }).catch((error: unknown) => {
-        console.warn('[Playwriter rrweb] event flush failed', error)
+        console.warn('[Tabwright rrweb] event flush failed', error)
       })
     }, FLUSH_INTERVAL_MS)
   }
@@ -134,7 +134,7 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
         }
         if (pendingEvents.length >= MAX_BATCH_EVENTS) {
           flushEvents({ final: false }).catch((error: unknown) => {
-            console.warn('[Playwriter rrweb] event flush failed', error)
+            console.warn('[Tabwright rrweb] event flush failed', error)
           })
           return
         }
@@ -248,7 +248,7 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
         event.data.type === 'recording-annotation-delete' ? 'playwriter.annotation.delete' : 'playwriter.annotation'
       record.addCustomEvent(tag, event.data.annotation)
     } catch (error: unknown) {
-      console.warn('[Playwriter rrweb] annotation event failed', error)
+      console.warn('[Tabwright rrweb] annotation event failed', error)
     }
   })
 

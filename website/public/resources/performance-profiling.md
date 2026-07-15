@@ -1,6 +1,6 @@
-# Profile Website Performance with Playwriter
+# Profile Website Performance with Tabwright
 
-Playwriter can profile a real website in your own Chrome using **CDP**, **Navigation Timing**,
+Tabwright can profile a real website in your own Chrome using **CDP**, **Navigation Timing**,
 and **PerformanceObserver**.
 
 Use it to answer four practical questions quickly:
@@ -34,14 +34,14 @@ Use it to answer four practical questions quickly:
 Create a session and open a page:
 
 ```bash
-playwriter session new
-playwriter -s 1 -e 'state.page = context.pages().find((p) => p.url() === "about:blank") ?? (await context.newPage()); await state.page.goto("https://example.com", { waitUntil: "domcontentloaded" })'
+tabwright session new
+tabwright -s 1 -e 'state.page = context.pages().find((p) => p.url() === "about:blank") ?? (await context.newPage()); await state.page.goto("https://example.com", { waitUntil: "domcontentloaded" })'
 ```
 
 Collect a concise vitals report:
 
 ```bash
-playwriter -s 1 -e "$(cat <<'EOF'
+tabwright -s 1 -e "$(cat <<'EOF'
 await state.page.evaluate(() => {
   const metrics = { paints: {}, lcp: 0, cls: 0 }
   globalThis.__pwMetrics = metrics
@@ -93,7 +93,7 @@ EOF
 List the heaviest requests with CDP:
 
 ```bash
-playwriter -s 1 -e "$(cat <<'EOF'
+tabwright -s 1 -e "$(cat <<'EOF'
 const cdp = await getCDPSession({ page: state.page })
 await cdp.send('Network.enable')
 await cdp.send('Network.setCacheDisabled', { cacheDisabled: true })
@@ -133,7 +133,7 @@ EOF
 Check interactivity blockers:
 
 ```bash
-playwriter -s 1 -e "$(cat <<'EOF'
+tabwright -s 1 -e "$(cat <<'EOF'
 await state.page.evaluate(() => {
   globalThis.__pwLongTasks = []
   globalThis.__pwEvents = []
@@ -187,7 +187,7 @@ EOF
 
 **Need deeper CPU answers**
 
-- If vitals and request sizes are not enough, record a **`.cpuprofile`** with Playwriter's raw **`Profiler.*`** CDP commands and inspect it with **[profano](https://github.com/remorses/profano)**.
+- If vitals and request sizes are not enough, record a **`.cpuprofile`** with Tabwright's raw **`Profiler.*`** CDP commands and inspect it with **[profano](https://github.com/remorses/profano)**.
 - A good place to keep your reusable profiling snippets is your dots repo, for example **`~/.config/opencode/`**.
 
 **Good load event is not enough**
@@ -227,7 +227,7 @@ EOF
 ## Examples
 
 ```ts
-// Example snippets for profiling website performance with Playwriter and CDP.
+// Example snippets for profiling website performance with Tabwright and CDP.
 
 import { console, getCDPSession, page } from './debugger-examples-types.js'
 

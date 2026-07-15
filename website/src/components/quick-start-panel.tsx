@@ -28,15 +28,15 @@ function CliContent() {
     <div className="flex flex-col gap-5">
       <CodeBlock lang="bash" showLineNumbers={false} bleed="none">
         {`# Interactive login, then start a cloud browser and use it
-playwriter cloud login
-playwriter session new --browser cloud
-playwriter -s 1 -e "await page.goto('https://example.com')"
-playwriter -s 1 -e "console.log(await snapshot({ page }))"
+tabwright cloud login
+tabwright session new --browser cloud
+tabwright -s 1 -e "await page.goto('https://example.com')"
+tabwright -s 1 -e "console.log(await snapshot({ page }))"
 
 # Or just set your API key and run directly
-export PLAYWRITER_API_KEY=pw_xxxxx
-playwriter session new --browser cloud --proxy us
-playwriter -s 1 -e "await page.goto('https://example.com')"`}
+export TABWRIGHT_API_KEY=pw_xxxxx
+tabwright session new --browser cloud --proxy us
+tabwright -s 1 -e "await page.goto('https://example.com')"`}
       </CodeBlock>
     </div>
   )
@@ -48,11 +48,11 @@ function McpContent() {
       <CodeBlock lang="json" showLineNumbers={false} bleed="none">
         {`{
   "mcpServers": {
-    "playwriter": {
+    "tabwright": {
       "command": "npx",
-      "args": ["playwriter@latest", "mcp"],
+      "args": ["tabwright@latest", "mcp"],
       "env": {
-        "PLAYWRITER_API_KEY": "pw_xxxxx"
+        "TABWRIGHT_API_KEY": "pw_xxxxx"
       }
     }
   }

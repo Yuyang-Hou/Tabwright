@@ -1,5 +1,5 @@
 ---
-title: Playwriter vs Playwright MCP
+title: Tabwright vs Playwright MCP
 sidebarTitle: vs Playwright MCP
 description: Why connecting to your existing Chrome beats spawning a fresh one.
 icon: lucide:drama
@@ -9,12 +9,12 @@ Playwright MCP is the official MCP server from the Playwright team. It spawns a 
 Chromium instance** every time it starts. This means a clean browser with no login state,
 no extensions, and no cookies.
 
-Playwriter connects to your **running Chrome** instead. Same browser you're already using,
+Tabwright connects to your **running Chrome** instead. Same browser you're already using,
 with everything already set up.
 
 ## Comparison
 
-|  | Playwright MCP | Playwriter |
+|  | Playwright MCP | Tabwright |
 |---|---|---|
 | Browser | Spawns new Chrome | Uses your Chrome |
 | Extensions | None | Your existing ones |
@@ -36,9 +36,9 @@ When Playwright MCP spawns a new browser, you start from zero:
   fingerprints is trivially detected as a bot. CAPTCHAs appear immediately.
 - **Extra memory.** Running two Chrome instances eats 500MB-1GB of additional RAM.
 
-## How Playwriter is different
+## How Tabwright is different
 
-Playwriter runs in your existing Chrome session. Your cookies, extensions, and browsing
+Tabwright runs in your existing Chrome session. Your cookies, extensions, and browsing
 history are all there. Sites that require login just work. CAPTCHAs are rare because
 your browser looks like a real user's browser; it **is** a real user's browser.
 
@@ -48,9 +48,9 @@ where you left off.
 
 ```bash
 # Playwright MCP: agent is alone in a fresh browser
-# Playwriter: agent works in your browser, you collaborate in real time
+# Tabwright: agent works in your browser, you collaborate in real time
 
-playwriter session new
-playwriter -s 1 -e "page.goto('https://gmail.com')"
+tabwright session new
+tabwright -s 1 -e "page.goto('https://gmail.com')"
 # Already logged in, no credentials needed
 ```

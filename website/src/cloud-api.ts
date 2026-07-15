@@ -299,7 +299,7 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
       ] as const)
       if (!activeSub) {
         throw json(
-          { error: 'No active subscription. Run `playwriter cloud subscribe` to get started.' },
+          { error: 'No active subscription. Run `tabwright cloud subscribe` to get started.' },
           { status: 403 },
         )
       }

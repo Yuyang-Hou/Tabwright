@@ -1,4 +1,4 @@
-// Node.js entrypoint for the Playwriter D1 schema.
+// Node.js entrypoint for the Tabwright D1 schema.
 // Uses drizzle-orm/sqlite-proxy plus Cloudflare's D1 HTTP API so scripts can
 // query the remote D1 database outside Cloudflare Workers through the same
 // `db` package import path.

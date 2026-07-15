@@ -10,25 +10,28 @@ coverage
 *.zip
 *.log
 tmp
+.tabwright/capabilities/*/artifacts/
+.tabwright/capabilities/*/runs.jsonl
+.tabwright/capabilities/*/secrets.json
 .playwriter/capabilities/*/artifacts/
 .playwriter/capabilities/*/runs.jsonl
 .playwriter/capabilities/*/secrets.json
-playwriter/src/assets/*.png
-playwriter/src/assets/framer.html
+tabwright/src/assets/*.png
+tabwright/src/assets/framer.html
 *-snapshot.txt
 claude-extension
 
-# generated skill docs (source of truth: playwriter/src/skill.md)
+# generated skill docs (source of truth: tabwright/src/skill.md)
 website/public/SKILL.md
-website/public/.well-known/skills/playwriter/SKILL.md
+website/public/.well-known/skills/tabwright/SKILL.md
 
 # opensrc - source code for packages
 opensrc/
 
 # aria snapshots
-playwriter/src/aria-snapshots/
-playwriter/src/snapshots/
-playwriter/src/__snapshots__/ax-debug/
+tabwright/src/aria-snapshots/
+tabwright/src/snapshots/
+tabwright/src/__snapshots__/ax-debug/
 gmail-oauth/
 .ck
 dist-release

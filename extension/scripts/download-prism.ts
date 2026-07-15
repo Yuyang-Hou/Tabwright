@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const BASE = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/'
-const outDir = process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
+const outDir = process.env.TABWRIGHT_EXTENSION_DIST || process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
 const DEST = path.join(outDir, 'src')
 
 const files: [string, string][] = [

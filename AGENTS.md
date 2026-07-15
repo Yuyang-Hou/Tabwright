@@ -1,11 +1,11 @@
 <!-- This AGENTS.md file is generated. Look for an agents.md package.json script to see what files to update instead. -->
 
-this is the playwriter codebase
+this is the tabwright codebase
 
 the extension uses chrome.debugger to manage the user browser
 
 read ./README.md for an overview of how this extension and mcp work
-read playwriter/src/skill.md to understand the MCP docs (source of truth)
+read tabwright/src/skill.md to understand the MCP docs (source of truth)
 
 ## backward compatibility
 
@@ -37,9 +37,9 @@ to test the MCP server with local changes, add it to your MCP client config with
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "tabwright": {
       "command": "tsx",
-      "args": ["/path/to/playwriter/playwriter/src/mcp.ts"]
+      "args": ["/path/to/tabwright/tabwright/src/mcp.ts"]
     }
   }
 }
@@ -63,10 +63,10 @@ to test CLI changes without publishing:
  # verify port is free (must print nothing)
  Get-NetTCPConnection -LocalPort 19988 -ErrorAction SilentlyContinue
 
- tsx playwriter/src/cli.ts -s 1 -e "await page.goto('https://example.com')"
- tsx playwriter/src/cli.ts -s 1 -e "console.log(await snapshot({ page }))"
- tsx playwriter/src/cli.ts session new
- tsx playwriter/src/cli.ts -s 1 -e "await page.click('button')"
+ tsx tabwright/src/cli.ts -s 1 -e "await page.goto('https://example.com')"
+ tsx tabwright/src/cli.ts -s 1 -e "console.log(await snapshot({ page }))"
+ tsx tabwright/src/cli.ts session new
+ tsx tabwright/src/cli.ts -s 1 -e "await page.click('button')"
 ```
 
 ### reloading extension during development
@@ -87,14 +87,14 @@ Do not manually edit CHANGELOG.md files for extension changes. If the extension 
 
 ## github releases
 
-after publishing the CLI (`playwriter` npm package), always create GitHub releases for both the CLI and the extension (if extension code changed).
+after publishing the CLI (`tabwright` npm package), always create GitHub releases for both the CLI and the extension (if extension code changed).
 
 **CLI release:**
 
 ```bash
-# after changesets versioned and published the playwriter package
-VERSION=$(node -p "require('./playwriter/package.json').version")
-gh release create "playwriter@$VERSION" --title "playwriter@$VERSION" --latest --notes "$(cat <<'EOF'
+# after changesets versioned and published the tabwright package
+VERSION=$(node -p "require('./tabwright/package.json').version")
+gh release create "tabwright@$VERSION" --title "tabwright@$VERSION" --latest --notes "$(cat <<'EOF'
 paste changelog entries here
 EOF
 )"
@@ -104,12 +104,12 @@ EOF
 
 ```bash
 # build the extension dist for release
-cd extension && PRODUCTION=true PLAYWRITER_EXTENSION_DIST=dist-release pnpm build && cd ..
-rm -f playwriter-*.zip && cd extension/dist-release && zip -r ../../playwriter-$(node -p "require('../manifest.json').version").zip . && cd ../..
+cd extension && PRODUCTION=true TABWRIGHT_EXTENSION_DIST=dist-release pnpm build && cd ..
+rm -f tabwright-*.zip && cd extension/dist-release && zip -r ../../tabwright-$(node -p "require('../manifest.json').version").zip . && cd ../..
 
 # create the release, uploading the zip as an asset
 VERSION=$(node -p "require('./extension/manifest.json').version")
-gh release create "extension@$VERSION" "playwriter-$VERSION.zip" --title "Extension $VERSION" --latest=false --notes "$(cat <<'EOF'
+gh release create "extension@$VERSION" "tabwright-$VERSION.zip" --title "Extension $VERSION" --latest=false --notes "$(cat <<'EOF'
 paste changelog entries here
 EOF
 )"
@@ -169,7 +169,7 @@ const result = await client.callTool({
 
 #### adding tests
 
-tests live in `playwriter/src/*.test.ts`. add new tests to existing describe blocks or create new test files.
+tests live in `tabwright/src/*.test.ts`. add new tests to existing describe blocks or create new test files.
 
 each test should reset the extension connection. NEVER call `browser.close()` in tests.
 
@@ -177,7 +177,7 @@ remember: toggling extension on a tab adds it to available pages. if you toggle 
 
 IMPORTANT: set bash timeout to at least 300000ms (5 minutes) when running `pnpm test`
 
-to debug test failures, inspect the relay server log file. during tests, logs are written to `./relay-server.log` in the playwriter folder (not the system temp directory). contains extension, MCP and WS server logs with all CDP events.
+to debug test failures, inspect the relay server log file. during tests, logs are written to `./relay-server.log` in the tabwright folder (not the system temp directory). contains extension, MCP and WS server logs with all CDP events.
 
 ### project structure
 
@@ -185,13 +185,13 @@ extension/ contains the chrome extension code. you need to run `pnpm build` to m
 
 when I ask you to release extension run package.json release script
 
-playwriter contains the ws server and MCP code. also the tests for the mcp are there. playwriter/src/skill.md is the source of truth for MCP docs - edit that file to update agent instructions. the build script generates playwriter/dist/prompt.md from skill.md, stripping CLI-only sections.
+tabwright contains the ws server and MCP code. also the tests for the mcp are there. tabwright/src/skill.md is the source of truth for MCP docs - edit that file to update agent instructions. the build script generates tabwright/dist/prompt.md from skill.md, stripping CLI-only sections.
 
-playwriter/src/resource.md is for more generic knowledge about playwright that the agent can use when necessary, for things like best practices for selecting locators on the page
+tabwright/src/resource.md is for more generic knowledge about playwright that the agent can use when necessary, for things like best practices for selecting locators on the page
 
-website/public/resources/ and website/public/SKILL.md are auto-generated by `playwriter/scripts/build-resources.ts` during `pnpm build`. DO NOT edit these files manually - edit the source files instead (e.g. `debugger-examples.ts`, `editor-examples.ts`, `styles-examples.ts`, `playwriter/src/skill.md`)
+website/public/resources/ and website/public/SKILL.md are auto-generated by `tabwright/scripts/build-resources.ts` during `pnpm build`. DO NOT edit these files manually - edit the source files instead (e.g. `debugger-examples.ts`, `editor-examples.ts`, `styles-examples.ts`, `tabwright/src/skill.md`)
 
-skills/playwriter/SKILL.md is a lightweight stub that tells agents to run `playwriter skill` for full, up-to-date instructions.
+skills/tabwright/SKILL.md is a lightweight stub that tells agents to run `tabwright skill` for full, up-to-date instructions.
 
 ## CDP docs
 
@@ -232,21 +232,21 @@ For every fix or feature that affects a public package, add one `.changeset/*.md
 
 **Always add a changeset before committing** any fix or feature that touches a public package. The changeset must be included in the same commit as the code change, not added later.
 
-Use `patch` for fixes and `minor` for new features. Include every affected public package in the changeset frontmatter, for example `playwriter` or `@xmorse/playwright-core`. Skip private packages such as `mcp-extension`.
+Use `patch` for fixes and `minor` for new features. Include every affected public package in the changeset frontmatter, for example `tabwright` or `@xmorse/playwright-core`. Skip private packages such as `mcp-extension`.
 
 Before adding a changeset, run `gh issue list --state all --limit 20` and reference a matching issue with `Fixes #123` on its own line when the change fixes one.
 
 If a change touches extension code, still bump `extension/manifest.json` because Chrome extension releases are separate from npm package changesets.
 
-## debugging playwriter mcp issues
+## debugging tabwright mcp issues
 
 sometimes the user will ask you to debug an mcp issue. to do this you may want to add logs to the mcp and server. to do this you will also need to restart the server so we use the latest code. restarting the mcp yourself is not possible. instead you will need to ask the user to do it or write a test case, where the mcp can be reloaded. also making changes in the extension will not work. you will have to write a test case for that to work. you can ask the user to reconnect these too. for reloading the extension you can run the `pnpm build` script and do `osascript -e 'tell application "Google Chrome" to open location "chrome://extensions/?id=pebbngnfojnignonigcnkdilknapkgid"'` to make it easier for the user to reload it
 
 if the problem was in the ws server you can restart that yourself killing process listening on 19988 and sending a new mcp call.
 
-## running playwriter cli locally
+## running tabwright cli locally
 
-to run the cli locally with your current changes call `tsx playwriter/src/cli.ts -e ...`. also make sure you kill process on 19988 first to make sure to use the latest relay executor code.
+to run the cli locally with your current changes call `tsx tabwright/src/cli.ts -e ...`. also make sure you kill process on 19988 first to make sure to use the latest relay executor code.
 
 # playwright fork submodule (@xmorse/playwright-core)
 
@@ -256,7 +256,7 @@ relevant files are located in paths like playwright/packages/playwright-core/src
 
 ignore everything that is outside of playwright/packages/playwright-core in the playwright submodule, it is unused
 
-EVERY update to playwright code that changes its api or behaviour MUST be followed by a changeset for `@xmorse/playwright-core`. on release of the playwriter package then the playwright-core package must be released first, always using `pnpm publish` command. no need to update version in playwriter package.json because we use the :workspace version.
+EVERY update to playwright code that changes its api or behaviour MUST be followed by a changeset for `@xmorse/playwright-core`. on release of the tabwright package then the playwright-core package must be released first, always using `pnpm publish` command. no need to update version in tabwright package.json because we use the :workspace version.
 
 ### adding or updating @xmorse/playwright-core public APIs
 
@@ -272,7 +272,7 @@ playwright/packages/playwright-core/types/types.d.ts   ← generated output
 playwright/packages/playwright-client/types/types.d.ts  ← generated output
 ```
 
-if you add runtime code (a new method, property, or type) to the fork without updating the type generation inputs, the API will work at runtime but TypeScript consumers won't see it — `pnpm typecheck` in playwriter will fail.
+if you add runtime code (a new method, property, or type) to the fork without updating the type generation inputs, the API will work at runtime but TypeScript consumers won't see it — `pnpm typecheck` in tabwright will fail.
 
 **full checklist for adding a new API (in order):**
 
@@ -333,7 +333,7 @@ if you add runtime code (a new method, property, or type) to the fork without up
 
 6. **add a changeset** for `@xmorse/playwright-core` describing the public API or behavior change
 
-7. **verify** — run `pnpm typecheck` in the `playwriter/` package to confirm zero errors
+7. **verify** — run `pnpm typecheck` in the `tabwright/` package to confirm zero errors
 
 ### submodule setup
 
@@ -413,25 +413,25 @@ export const ws = wsLibrary
 
 ignore ./claude-extension. this is the source code of the Claude Chrome extension. used to reverse engineer new methods and tools to extract and control the page
 
-## reading playwriter logs
+## reading tabwright logs
 
-you can find the logfile for playwriter executing `playwriter logfile`. read that then to understand issues happening and debug them
+you can find the logfile for tabwright executing `tabwright logfile`. read that then to understand issues happening and debug them
 
-`playwriter logfile` also logs a jsonl file with all CDP commands and events being sent between extension, cli, mcp and relay. the cdp log is a jsonl file (one json object per line). you can use jq to process and read it efficiently. for example, list direction + method:
+`tabwright logfile` also logs a jsonl file with all CDP commands and events being sent between extension, cli, mcp and relay. the cdp log is a jsonl file (one json object per line). you can use jq to process and read it efficiently. for example, list direction + method:
 
 ```bash
-jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
+jq -r '.direction + "\t" + (.message.method // "response")' ~/.tabwright/cdp.jsonl | uniq -c
 ```
 
 ## testing iframe behaviour with snapshots and out of process frames
 
-iframes are a complex feature in CDP and playwriter. to test a real world scenario follow the document ./docs/framer-iframe-snapshot-guide.md manually. using global playwriter cli. restarting relay killing port 19988 first.
+iframes are a complex feature in CDP and tabwright. to test a real world scenario follow the document ./docs/framer-iframe-snapshot-guide.md manually. using global tabwright cli. restarting relay killing port 19988 first.
 
 do this when user asks to try framer iframes.
 
 # patchright-playwriter fork (@playwriter/patchright-core)
 
-we maintain a separate repo at https://github.com/remorses/patchright-playwriter that produces `@playwriter/patchright-core`. this package combines patchright's stealth patches (undetected Playwright, bypasses Cloudflare/Datadome/etc.) with our playwriter extensions.
+we maintain a separate repo at https://github.com/remorses/patchright-playwriter that produces `@playwriter/patchright-core`. this package combines patchright's stealth patches (undetected Playwright, bypasses Cloudflare/Datadome/etc.) with our tabwright extensions.
 
 the fork lives at `~/Documents/GitHub/patchright-playwriter/`. read its `AGENTS.md` for full build, publish, and sync instructions.
 
@@ -447,11 +447,11 @@ git log --oneline -5
 
 2. in this repo, generate a diff of new changes since that date:
 ```bash
-cd ~/Documents/GitHub/playwriter/playwright
+cd ~/Documents/GitHub/tabwright/playwright
 BASE=$(git merge-base HEAD upstream/main)
 git log --oneline $BASE..HEAD -- packages/playwright-core/src/ | head -20
 # generate the full diff
-git diff $BASE..HEAD -- packages/playwright-core/src/ > /tmp/playwriter-changes.patch
+git diff $BASE..HEAD -- packages/playwright-core/src/ > /tmp/tabwright-changes.patch
 ```
 
 3. in the patchright-playwriter repo, rebuild from scratch then apply:
@@ -459,7 +459,7 @@ git diff $BASE..HEAD -- packages/playwright-core/src/ > /tmp/playwriter-changes.
 cd ~/Documents/GitHub/patchright-playwriter
 bash utils/rebuild_local_package.sh
 cd playwright
-git apply --reject /tmp/playwriter-changes.patch
+git apply --reject /tmp/tabwright-changes.patch
 # resolve .rej files if any, then regenerate playwriter.patch
 ```
 

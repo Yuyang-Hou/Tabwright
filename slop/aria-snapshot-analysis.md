@@ -6,7 +6,7 @@ The aria snapshot feature in playwriter extracts an accessibility tree from the 
 
 ## Main Implementation File
 
-**File:** `playwriter/src/aria-snapshot.ts` (1358 lines)
+**File:** `tabwright/src/aria-snapshot.ts` (1358 lines)
 
 ## How It Works
 
@@ -225,7 +225,7 @@ const INTERACTIVE_ROLES = new Set([
 
 ## Executor Integration
 
-**File:** `playwriter/src/executor.ts` (Lines 533-619)
+**File:** `tabwright/src/executor.ts` (Lines 533-619)
 
 The `accessibilitySnapshot()` function exposed to agents:
 
@@ -267,7 +267,7 @@ Takes a screenshot with Vimium-style labels overlaid on interactive elements:
 
 ## Tests
 
-**File:** `playwriter/src/aria-snapshot.test.ts`
+**File:** `tabwright/src/aria-snapshot.test.ts`
 
 Tests against real websites:
 
@@ -338,10 +338,10 @@ To support iframes properly:
 
 **File Paths:**
 
-- Main implementation: `playwriter/src/aria-snapshot.ts`
-- Executor integration: `playwriter/src/executor.ts` (lines 533-619)
-- CDP session: `playwriter/src/cdp-session.ts`
-- Tests: `playwriter/src/aria-snapshot.test.ts`
+- Main implementation: `tabwright/src/aria-snapshot.ts`
+- Executor integration: `tabwright/src/executor.ts` (lines 533-619)
+- CDP session: `tabwright/src/cdp-session.ts`
+- Tests: `tabwright/src/aria-snapshot.test.ts`
 
 **CDP Commands:**
 

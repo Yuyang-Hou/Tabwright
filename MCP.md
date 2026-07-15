@@ -1,24 +1,18 @@
 # MCP Setup
 
-> **Note:** CLI is the recommended way to use Playwriter. See [README.md](./README.md) for CLI usage.
+> **Note:** CLI is the recommended way to use Tabwright. See [README.md](./README.md) for CLI usage.
 
 Add to your MCP client settings:
 
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "tabwright": {
       "command": "npx",
-      "args": ["-y", "playwriter@latest"]
+      "args": ["-y", "tabwright@latest"]
     }
   }
 }
-```
-
-Or auto-configure:
-
-```sh
-npx -y @playwriter/install-mcp playwriter@latest
 ```
 
 ## Using the MCP
@@ -34,20 +28,20 @@ The MCP exposes:
 
 ## Environment Variables
 
-### `PLAYWRITER_AUTO_ENABLE`
+### `TABWRIGHT_AUTO_ENABLE`
 
 Auto-creates a tab when Playwright connects (no manual extension click needed). **Enabled by default** in both CLI and MCP. The auto-created tab starts at `about:blank`; navigate it to any URL.
 
-Set `PLAYWRITER_AUTO_ENABLE=false` to disable and require manually enabling the extension on a tab before connecting:
+Set `TABWRIGHT_AUTO_ENABLE=false` to disable and require manually enabling the extension on a tab before connecting:
 
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "tabwright": {
       "command": "npx",
-      "args": ["-y", "playwriter@latest"],
+      "args": ["-y", "tabwright@latest"],
       "env": {
-        "PLAYWRITER_AUTO_ENABLE": "false"
+        "TABWRIGHT_AUTO_ENABLE": "false"
       }
     }
   }
@@ -56,16 +50,16 @@ Set `PLAYWRITER_AUTO_ENABLE=false` to disable and require manually enabling the 
 
 ## Direct CDP (no extension needed)
 
-Connect directly to Chrome's DevTools Protocol without the extension. Set `PLAYWRITER_DIRECT` in your MCP config:
+Connect directly to Chrome's DevTools Protocol without the extension. Set `TABWRIGHT_DIRECT` in your MCP config:
 
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "tabwright": {
       "command": "npx",
-      "args": ["-y", "playwriter@latest"],
+      "args": ["-y", "tabwright@latest"],
       "env": {
-        "PLAYWRITER_DIRECT": "1"
+        "TABWRIGHT_DIRECT": "1"
       }
     }
   }
@@ -76,7 +70,7 @@ Enable debugging in Chrome first: open `chrome://inspect/#remote-debugging` or l
 
 Chrome 136+ may show an approval dialog the first time a connection is made.
 
-You can also pass an explicit WebSocket endpoint: `PLAYWRITER_DIRECT=ws://127.0.0.1:9222/devtools/browser/abc`.
+You can also pass an explicit WebSocket endpoint: `TABWRIGHT_DIRECT=ws://127.0.0.1:9222/devtools/browser/abc`.
 
 **Limitation:** screen recording is unavailable in direct mode.
 
@@ -87,7 +81,7 @@ Run agents in isolated environments while controlling Chrome on your host.
 **On host (where Chrome runs):**
 
 ```bash
-npx -y playwriter serve --token <secret>
+npx -y tabwright serve --token <secret>
 ```
 
 **In container/VM (where agent runs):**
@@ -95,9 +89,9 @@ npx -y playwriter serve --token <secret>
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "tabwright": {
       "command": "npx",
-      "args": ["-y", "playwriter@latest", "--host", "host.docker.internal", "--token", "<secret>"]
+      "args": ["-y", "tabwright@latest", "--host", "host.docker.internal", "--token", "<secret>"]
     }
   }
 }
@@ -108,12 +102,12 @@ Or with environment variables:
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "tabwright": {
       "command": "npx",
-      "args": ["-y", "playwriter@latest"],
+      "args": ["-y", "tabwright@latest"],
       "env": {
-        "PLAYWRITER_HOST": "host.docker.internal",
-        "PLAYWRITER_TOKEN": "<secret>"
+        "TABWRIGHT_HOST": "host.docker.internal",
+        "TABWRIGHT_TOKEN": "<secret>"
       }
     }
   }

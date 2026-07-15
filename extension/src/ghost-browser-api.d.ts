@@ -4,7 +4,7 @@
  * Source: Extracted from Ghost Browser.app binary
  * https://ghostbrowser.com/
  *
- * These APIs are available in Playwriter's executor sandbox when running in Ghost Browser.
+ * These APIs are available in Tabwright's executor sandbox when running in Ghost Browser.
  * Use for multi-identity automation: managing multiple accounts, rotating proxies, isolated sessions.
  *
  * ## Quick Start

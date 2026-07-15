@@ -1,10 +1,10 @@
 {
   "$schema": "https://holocron.so/docs.json",
-  "name": "Playwriter",
-  "description": "Docs for Playwriter, the CLI and MCP that lets agents control your real Chrome browser.",
+  "name": "Tabwright",
+  "description": "Docs for Tabwright, the CLI and MCP that lets agents control your real Chrome browser.",
   "logo": {
-    "light": "/playwriter-logo.svg",
-    "dark": "/playwriter-logo.svg",
+    "light": "/logo-square.svg",
+    "dark": "/logo-square.svg",
     "href": "/"
   },
   "favicon": {
@@ -67,13 +67,13 @@
         {
           "anchor": "GitHub",
           "icon": "github",
-          "href": "https://github.com/remorses/playwriter",
+          "href": "https://github.com/Yuyang-Hou/tabwright",
           "placement": "tabs"
         },
         {
           "anchor": "Changelog",
           "icon": "lucide:logs",
-          "href": "https://github.com/remorses/playwriter/releases",
+          "href": "https://github.com/Yuyang-Hou/tabwright/releases",
           "placement": "tabs"
         }
       ]
@@ -91,16 +91,16 @@
         "header": "platform",
         "items": [
           { "label": "Rent Cloud Browsers", "href": "/dashboard" },
-          { "label": "GitHub", "href": "https://github.com/remorses/playwriter" },
+          { "label": "GitHub", "href": "https://github.com/Yuyang-Hou/tabwright" },
           {
             "label": "Chrome Extension",
-            "href": "https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe"
+            "href": "https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe"
           }
         ]
       }
     ],
     "socials": {
-      "github": "https://github.com/remorses/playwriter"
+      "github": "https://github.com/Yuyang-Hou/tabwright"
     }
   }
 }

@@ -1,5 +1,5 @@
-declare const process: { env: { PLAYWRITER_PORT: string } }
-// Injected by vite at build time from playwriter/package.json version.
+declare const process: { env: { TABWRIGHT_PORT: string; PLAYWRITER_PORT: string } }
+// Injected by vite at build time from tabwright/package.json version.
 // CLI/MCP compare this against their own version to warn when the extension is outdated.
 declare const __PLAYWRITER_VERSION__: string
 // Bundled automation builds should not burn a tab on the welcome page, especially
@@ -9,23 +9,26 @@ declare const __PLAYWRITER_OPEN_WELCOME_PAGE__: boolean
 import dedent from 'string-dedent'
 const js = dedent
 import { createStore } from 'zustand/vanilla'
-import type { ExtensionState, ConnectionState, TabState, TabInfo } from './types'
-import { initPlaywriterToolbar, initPlaywriterToolbarBridge } from './toolbar/toolbar'
-import type { CDPEvent, Protocol } from 'playwriter/src/cdp-types'
-import type {
-  ExtensionCommandMessage,
-  ExtensionResponseMessage,
-  ToolbarRecordingAction,
-  ToolbarRecordingResponseMessage,
-  ToolbarRecordingResult,
-} from 'playwriter/src/protocol'
-import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
-import { RelayConnectionProblemError, relayIssueText } from './relay-warning'
-// Inlined at build time via vite ?raw. Source: playwriter/src/ghost-cursor-client.ts
-import ghostCursorBundleCode from '../../playwriter/dist/ghost-cursor-client.js?raw'
+import type { ExtensionState, ConnectionState, RelayReviewState, TabState, TabInfo } from './types'
+import { initTabwrightToolbar, initTabwrightToolbarBridge } from './toolbar/toolbar'
+import type { CDPEvent, Protocol } from 'tabwright/src/cdp-types'
+import {
+  CURRENT_EXTENSION_FEATURES,
+  VERSION as EXTENSION_PROTOCOL_VERSION,
+  type ExtensionCommandMessage,
+  type ExtensionResponseMessage,
+  type ToolbarRecordingAction,
+  type ToolbarRecordingResponseMessage,
+  type ToolbarRecordingResult,
+} from 'tabwright/src/protocol'
+import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'tabwright/src/ghost-browser'
+import { getRelayReviewIssue, RelayConnectionProblemError, relayIssueText, relayReviewIssueText } from './relay-warning'
+import { ConnectionOwnership } from './connection-ownership'
+// Inlined at build time via vite ?raw. Source: tabwright/src/ghost-cursor-client.ts
+import ghostCursorBundleCode from '../../tabwright/dist/ghost-cursor-client.js?raw'
 // Bippy: React fiber introspection library, used for "Copy React Source Path" context menu.
-// Built by playwriter/scripts/build-client-bundles.ts, exposes globalThis.__bippy
-import bippyBundleCode from '../../playwriter/dist/bippy.js?raw'
+// Built by tabwright/scripts/build-client-bundles.ts, exposes globalThis.__bippy
+import bippyBundleCode from '../../tabwright/dist/bippy.js?raw'
 import {
   handleStartRrwebRecording,
   handleStopRrwebRecording,
@@ -38,7 +41,7 @@ import {
 } from './rrweb-recording'
 
 const RELAY_HOST = '127.0.0.1'
-const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
+const RELAY_PORT = Number(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT) || 19988
 
 // CDP commands that should return near-instantly on a healthy tab. If a tab is
 // frozen/hibernated (e.g. Ghost Browser suspended tabs), chrome.debugger.sendCommand
@@ -128,27 +131,29 @@ async function checkRelayCompatibility(): Promise<void> {
   if (!versionResponse.ok) {
     throw new RelayConnectionProblemError({ issue: 'unavailable' })
   }
+}
 
-  const compatibilityResponses = await Promise.all(
-    ['/capabilities', '/rrweb-recordings?limit=1'].map((pathname) => {
-      return fetchRelayHead({ pathname })
-    }),
-  )
-
-  if (
-    compatibilityResponses.some((response) => {
-      return response.status === 404
+async function probeRelayReviewState(): Promise<RelayReviewState> {
+  try {
+    const responses = await Promise.all(
+      ['/capabilities', '/rrweb-recordings?limit=1'].map((pathname) => {
+        return fetchRelayHead({ pathname })
+      }),
+    )
+    const issue = getRelayReviewIssue({
+      statuses: responses.map((response) => {
+        return response.status
+      }),
     })
-  ) {
-    throw new RelayConnectionProblemError({ issue: 'outdated' })
-  }
-
-  if (
-    compatibilityResponses.some((response) => {
-      return !response.ok
-    })
-  ) {
-    throw new RelayConnectionProblemError({ issue: 'unavailable' })
+    if (!issue) {
+      return { status: 'ready' }
+    }
+    return { status: 'degraded', issue, errorText: relayReviewIssueText({ issue }) }
+  } catch (cause: unknown) {
+    const issue = 'unavailable'
+    const errorText = relayReviewIssueText({ issue })
+    logger.debug('Relay review endpoints are unavailable:', cause)
+    return { status: 'degraded', issue, errorText }
   }
 }
 
@@ -184,11 +189,11 @@ async function detectBrowserName(): Promise<string> {
 
   const navigatorWithUaData = navigator as NavigatorWithUaData
   const brands = navigatorWithUaData.userAgentData?.brands
-  const highEntropyValues = await navigatorWithUaData.userAgentData?.getHighEntropyValues?.([
-    'fullVersionList',
-  ]).catch(() => {
-    return null
-  })
+  const highEntropyValues = await navigatorWithUaData.userAgentData
+    ?.getHighEntropyValues?.(['fullVersionList'])
+    .catch(() => {
+      return null
+    })
   const fullVersionList = highEntropyValues?.fullVersionList || []
 
   const highEntropyName = browserNameFromBrands(fullVersionList)
@@ -281,7 +286,7 @@ async function getExtensionIdentity(): Promise<ExtensionIdentity> {
 }
 
 const TAB_GROUP_COLOR: chrome.tabGroups.ColorEnum = 'green'
-const TAB_GROUP_TITLE = 'playwriter'
+const TAB_GROUP_TITLE = 'Tabwright'
 
 let childSessions: Map<string, { tabId: number; targetId?: string }> = new Map()
 let nextSessionId = 1
@@ -315,7 +320,9 @@ let nextToolbarRecordingRequestId = 1
 function isToolbarRecordingMessage(message: unknown): message is ToolbarRecordingMessage {
   if (!message || typeof message !== 'object') return false
   const candidate = message as { action?: unknown }
-  return candidate.action === 'playwriterToolbarRecordingStatus' || candidate.action === 'playwriterToolbarToggleRecording'
+  return (
+    candidate.action === 'playwriterToolbarRecordingStatus' || candidate.action === 'playwriterToolbarToggleRecording'
+  )
 }
 
 function isToolbarRecordingPortMessage(message: unknown): message is ToolbarRecordingPortMessage {
@@ -348,11 +355,11 @@ function requestToolbarRecording(options: {
 }): Promise<ToolbarRecordingResult> {
   const sessionId = getToolbarTabSessionId(options.sender)
   if (!sessionId) {
-    return Promise.resolve({ success: false, isRecording: false, error: 'Playwriter tab is not connected' })
+    return Promise.resolve({ success: false, isRecording: false, error: 'Tabwright tab is not connected' })
   }
 
   if (connectionManager.ws?.readyState !== WebSocket.OPEN) {
-    return Promise.resolve({ success: false, isRecording: false, error: 'Playwriter relay is not connected' })
+    return Promise.resolve({ success: false, isRecording: false, error: 'Tabwright relay is not connected' })
   }
 
   const requestId = `toolbar-recording-${Date.now()}-${nextToolbarRecordingRequestId++}`
@@ -385,7 +392,10 @@ async function toggleToolbarRecording(sender: chrome.runtime.MessageSender): Pro
   return requestToolbarRecording({ sender, action: 'toggle' })
 }
 
-function postToolbarRecordingPortResponse(options: { port: chrome.runtime.Port; response: ToolbarRecordingPortResponse }): void {
+function postToolbarRecordingPortResponse(options: {
+  port: chrome.runtime.Port
+  response: ToolbarRecordingPortResponse
+}): void {
   try {
     options.port.postMessage(options.response)
   } catch (error: unknown) {
@@ -404,7 +414,7 @@ function handleToolbarRecordingPortMessage(options: {
       port: options.port,
       response: {
         requestId: options.message.requestId,
-        result: { success: false, isRecording: false, error: 'Playwriter toolbar port has no sender' },
+        result: { success: false, isRecording: false, error: 'Tabwright toolbar port has no sender' },
       },
     })
     return
@@ -465,7 +475,7 @@ function injectToolbar(tabId: number): void {
     .executeScript({
       target: { tabId, allFrames: false },
       world: 'ISOLATED',
-      func: initPlaywriterToolbarBridge,
+      func: initTabwrightToolbarBridge,
     })
     .catch((err: Error) => {
       logger.debug('Could not inject toolbar bridge (restricted page):', err.message)
@@ -474,7 +484,7 @@ function injectToolbar(tabId: number): void {
       return chrome.scripting.executeScript({
         target: { tabId, allFrames: false },
         world: 'MAIN',
-        func: initPlaywriterToolbar,
+        func: initTabwrightToolbar,
       })
     })
     .catch((err: Error) => {
@@ -483,9 +493,23 @@ function injectToolbar(tabId: number): void {
 }
 
 class ConnectionManager {
-  ws: WebSocket | null = null
+  private readonly connectionOwnership = new ConnectionOwnership<WebSocket>()
   private connectionPromise: Promise<void> | null = null
+  private lastRelayReviewProbeAt = 0
   preserveTabsOnDetach = false
+
+  get ws(): WebSocket | null {
+    return this.connectionOwnership.current
+  }
+
+  private async refreshRelayReviewState(options: { socket: WebSocket }): Promise<void> {
+    this.lastRelayReviewProbeAt = Date.now()
+    const relayReviewState = await probeRelayReviewState()
+    if (!this.connectionOwnership.isCurrentConnection(options.socket)) {
+      return
+    }
+    store.setState({ relayReviewState })
+  }
 
   async ensureConnection(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -493,7 +517,7 @@ class ConnectionManager {
     }
 
     if (store.getState().connectionState === 'extension-replaced') {
-      throw new Error('Another Playwriter extension is already connected')
+      throw new Error('Another Tabwright extension is already connected')
     }
 
     // Reuse in-progress connection attempt - prevents races between user clicks and maintain loop
@@ -505,23 +529,32 @@ class ConnectionManager {
     // This protects against edge cases where individual timeouts don't fire
     // (e.g., DNS resolution hangs, AbortSignal doesn't work, etc.)
     const GLOBAL_TIMEOUT_MS = 15000
-    this.connectionPromise = Promise.race([
-      this.connect(),
+    const generation = this.connectionOwnership.beginAttempt()
+    let globalTimeoutId: ReturnType<typeof setTimeout> | undefined
+    const connectionPromise = Promise.race([
+      this.connect({ generation }),
       new Promise<never>((_, reject) => {
-        setTimeout(() => {
+        globalTimeoutId = setTimeout(() => {
+          this.connectionOwnership.invalidateAttempt(generation)
           reject(new Error('Connection timeout (global)'))
         }, GLOBAL_TIMEOUT_MS)
       }),
     ])
+    this.connectionPromise = connectionPromise
 
     try {
-      await this.connectionPromise
+      await connectionPromise
     } finally {
-      this.connectionPromise = null
+      if (globalTimeoutId) {
+        clearTimeout(globalTimeoutId)
+      }
+      if (this.connectionPromise === connectionPromise) {
+        this.connectionPromise = null
+      }
     }
   }
 
-  private async connect(): Promise<void> {
+  private async connect(options: { generation: number }): Promise<void> {
     logger.debug(`Waiting for server at http://${RELAY_HOST}:${RELAY_PORT}...`)
 
     // Retry for up to 5 seconds with 1s intervals, then give up (maintain loop will retry later)
@@ -544,6 +577,9 @@ class ConnectionManager {
     await checkRelayCompatibility()
 
     const identity = await getExtensionIdentity()
+    if (!this.connectionOwnership.isCurrentAttempt(options.generation)) {
+      throw new Error('Connection attempt superseded')
+    }
     const relayUrl = new URL(`ws://${RELAY_HOST}:${RELAY_PORT}/extension`)
     if (identity.browser) {
       relayUrl.searchParams.set('browser', identity.browser)
@@ -560,6 +596,8 @@ class ConnectionManager {
     if (typeof __PLAYWRITER_VERSION__ !== 'undefined') {
       relayUrl.searchParams.set('v', __PLAYWRITER_VERSION__)
     }
+    relayUrl.searchParams.set('protocolVersion', String(EXTENSION_PROTOCOL_VERSION))
+    relayUrl.searchParams.set('features', CURRENT_EXTENSION_FEATURES.join(','))
     logger.debug('Creating WebSocket connection to:', relayUrl)
     const socket = new WebSocket(relayUrl.toString())
 
@@ -578,25 +616,45 @@ class ConnectionManager {
       socket.onopen = () => {
         if (settled) return
         settled = true
-        logger.debug('WebSocket connected')
         clearTimeout(timeout)
 
+        const claimed = this.connectionOwnership.claimOpenedConnection({
+          generation: options.generation,
+          connection: socket,
+        })
+        if (!claimed) {
+          try {
+            socket.close(1000, 'Connection attempt superseded')
+          } catch {}
+          reject(new Error('Connection attempt superseded'))
+          return
+        }
+
+        logger.debug('WebSocket connected')
         resolve()
       }
 
       socket.onerror = (error) => {
-        logger.debug('WebSocket error during connection:', error)
         if (settled) return
         settled = true
         clearTimeout(timeout)
+        if (!this.connectionOwnership.isCurrentAttempt(options.generation)) {
+          reject(new Error('Connection attempt superseded'))
+          return
+        }
+        logger.debug('WebSocket error during connection:', error)
         reject(new Error('WebSocket connection failed'))
       }
 
       socket.onclose = (event) => {
-        logger.debug('WebSocket closed during connection:', { code: event.code, reason: event.reason })
         if (settled) return
         settled = true
         clearTimeout(timeout)
+        if (!this.connectionOwnership.isCurrentAttempt(options.generation)) {
+          reject(new Error('Connection attempt superseded'))
+          return
+        }
+        logger.debug('WebSocket closed during connection:', { code: event.code, reason: event.reason })
         // Normalize 4002 rejection to consistent error message for callers to detect
         if (event.code === 4002 || event.reason === 'Extension Already In Use') {
           reject(new Error('Extension Already In Use'))
@@ -606,21 +664,33 @@ class ConnectionManager {
       }
     })
 
-    this.ws = socket
+    const isCurrentSocket = (): boolean => {
+      return this.connectionOwnership.isCurrentConnection(socket)
+    }
+    const sendCurrentSocketMessage = (message: unknown): void => {
+      if (!isCurrentSocket()) {
+        return
+      }
+      sendMessage(message)
+    }
 
-    this.ws.onmessage = async (event: MessageEvent) => {
+    socket.onmessage = async (event: MessageEvent) => {
+      if (!isCurrentSocket()) {
+        return
+      }
+
       let message: any
       try {
         message = JSON.parse(event.data)
       } catch (error: any) {
         logger.debug('Error parsing message:', error)
-        sendMessage({ error: { code: -32700, message: `Error parsing message: ${error.message}` } })
+        sendCurrentSocketMessage({ error: { code: -32700, message: `Error parsing message: ${error.message}` } })
         return
       }
 
       // Handle ping from server - respond with pong to keep service worker alive
       if (message.method === 'ping') {
-        sendMessage({ method: 'pong' })
+        sendCurrentSocketMessage({ method: 'pong' })
         return
       }
 
@@ -648,7 +718,7 @@ class ConnectionManager {
             setTabConnecting(tab.id)
             const { targetInfo, sessionId } = await attachTab(tab.id, { skipAttachedEvent: true })
             logger.debug('Initial tab created and connected:', tab.id, 'sessionId:', sessionId)
-            sendMessage({
+            sendCurrentSocketMessage({
               id: message.id,
               result: {
                 success: true,
@@ -662,32 +732,39 @@ class ConnectionManager {
           }
         } catch (error: any) {
           logger.debug('Failed to create initial tab:', error)
-          sendMessage({ id: message.id, error: error.message })
+          sendCurrentSocketMessage({ id: message.id, error: error.message })
         }
         return
       }
 
-      if (message.method === 'startRecording' || message.method === 'stopRecording' || message.method === 'cancelRecording') {
-        sendMessage({
+      if (
+        message.method === 'startRecording' ||
+        message.method === 'stopRecording' ||
+        message.method === 'cancelRecording'
+      ) {
+        sendCurrentSocketMessage({
           id: message.id,
-          result: { success: false, error: 'Legacy video recording has been removed. Use rrweb replay recording instead.' },
+          result: {
+            success: false,
+            error: 'Legacy video recording has been removed. Use rrweb replay recording instead.',
+          },
         })
         return
       }
 
       if (message.method === 'isRecording') {
-        sendMessage({ id: message.id, result: { isRecording: false } })
+        sendCurrentSocketMessage({ id: message.id, result: { isRecording: false } })
         return
       }
 
       if (message.method === 'startRrwebRecording') {
         try {
           const result = await handleStartRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error('Failed to start rrweb recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: errorMessage } })
+          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
         }
         return
       }
@@ -695,11 +772,11 @@ class ConnectionManager {
       if (message.method === 'stopRrwebRecording') {
         try {
           const result = await handleStopRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error('Failed to stop rrweb recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: errorMessage } })
+          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
         }
         return
       }
@@ -707,10 +784,10 @@ class ConnectionManager {
       if (message.method === 'isRrwebRecording') {
         try {
           const result = await handleIsRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           logger.error('Failed to check rrweb recording status:', error)
-          sendMessage({ id: message.id, result: { isRecording: false } })
+          sendCurrentSocketMessage({ id: message.id, result: { isRecording: false } })
         }
         return
       }
@@ -718,18 +795,18 @@ class ConnectionManager {
       if (message.method === 'cancelRrwebRecording') {
         try {
           const result = await handleCancelRrwebRecording(message.params)
-          sendMessage({ id: message.id, result })
+          sendCurrentSocketMessage({ id: message.id, result })
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error('Failed to cancel rrweb recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: errorMessage } })
+          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
         }
         return
       }
 
       // Handle Ghost Browser API commands
       // This allows calling chrome.ghostPublicAPI, chrome.ghostProxies, chrome.projects
-      // from the playwriter executor sandbox when running in Ghost Browser
+      // from the Tabwright executor sandbox when running in Ghost Browser
       if (message.method === 'ghost-browser') {
         const params = message.params as GhostBrowserCommandParams
         const result = await handleGhostBrowserCommand(params, chrome)
@@ -746,7 +823,7 @@ class ConnectionManager {
             await attachTab(tabId)
           }
         }
-        sendMessage({ id: message.id, result })
+        sendCurrentSocketMessage({ id: message.id, result })
         return
       }
 
@@ -758,25 +835,37 @@ class ConnectionManager {
         response.error = error.message
       }
       // logger.debug('Sending response:', response)
-      sendMessage(response)
+      sendCurrentSocketMessage(response)
     }
 
-    this.ws.onclose = (event: CloseEvent) => {
-      this.handleClose(event.reason, event.code)
+    socket.onclose = (event: CloseEvent) => {
+      if (!isCurrentSocket()) {
+        return
+      }
+      this.handleClose({ socket, reason: event.reason, code: event.code })
     }
 
-    this.ws.onerror = (event: Event) => {
+    socket.onerror = (event: Event) => {
+      if (!isCurrentSocket()) {
+        return
+      }
       logger.debug('WebSocket error:', event)
     }
 
     chrome.debugger.onEvent.addListener(onDebuggerEvent)
     chrome.debugger.onDetach.addListener(onDebuggerDetach)
 
+    void this.refreshRelayReviewState({ socket })
     logger.debug('Connection established')
   }
 
-  private handleClose(reason: string, code: number): void {
-    rejectToolbarRecordingRequests(new Error(`Playwriter relay disconnected: ${reason || code}`))
+  private handleClose(options: { socket: WebSocket; reason: string; code: number }): void {
+    if (!this.connectionOwnership.releaseConnection(options.socket)) {
+      return
+    }
+
+    const { reason, code } = options
+    rejectToolbarRecordingRequests(new Error(`Tabwright relay disconnected: ${reason || code}`))
 
     // Log memory at disconnect time to help diagnose memory-related terminations
     try {
@@ -807,27 +896,26 @@ class ConnectionManager {
     }
 
     childSessions.clear()
-    this.ws = null
 
     // Only one extension can connect to the relay server at a time.
     // Code 4001: Another extension replaced this one (this extension was idle)
     // Code 4002: This extension tried to connect but another is actively in use
     if (isExtensionReplaced) {
-      logger.debug('Disconnected: another Playwriter extension connected (this one was idle)')
+      logger.debug('Disconnected: another Tabwright extension connected (this one was idle)')
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Playwriter extension took over the connection',
+        errorText: 'Another Tabwright extension took over the connection',
       })
       return
     }
 
     if (isExtensionInUse) {
-      logger.debug('Rejected: another Playwriter extension is actively in use')
+      logger.debug('Rejected: another Tabwright extension is actively in use')
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Playwriter extension is actively in use',
+        errorText: 'Another Tabwright extension is actively in use',
       })
       return
     }
@@ -844,12 +932,16 @@ class ConnectionManager {
 
   async maintainLoop(): Promise<void> {
     while (true) {
-      if (this.ws?.readyState === WebSocket.OPEN) {
+      const openSocket = this.ws
+      if (openSocket?.readyState === WebSocket.OPEN) {
+        if (Date.now() - this.lastRelayReviewProbeAt >= 30_000) {
+          void this.refreshRelayReviewState({ socket: openSocket })
+        }
         await sleep(1000)
         continue
       }
 
-      // When another Playwriter extension took over, poll until no same-key replacement is
+      // When another Tabwright extension took over, poll until no same-key replacement is
       // connected anymore. Reclaiming while another worker is merely idle is racy: a fresh
       // replacement reports activeTargets=0 before it re-attaches tabs, so the old worker can
       // steal the slot back and disconnect the live browser instance.
@@ -941,7 +1033,7 @@ class ConnectionManager {
         } else if (errorMessage === 'Extension Already In Use') {
           store.setState({
             connectionState: 'extension-replaced',
-            errorText: 'Another Playwriter extension is actively in use',
+            errorText: 'Another Tabwright extension is actively in use',
           })
         } else {
           store.setState({ connectionState: 'idle' })
@@ -958,6 +1050,7 @@ export const connectionManager = new ConnectionManager()
 export const store = createStore<ExtensionState>(() => ({
   tabs: new Map(),
   connectionState: 'idle',
+  relayReviewState: { status: 'unknown' },
   currentTabId: undefined,
   preferredWindowId: undefined,
   errorText: undefined,
@@ -1134,7 +1227,7 @@ async function syncTabGroup(): Promise<void> {
     // Always query by title - no cached ID that can go stale
     const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
 
-    // If no connected tabs, clear any existing playwriter groups
+    // If no connected tabs, clear any existing Tabwright groups
     if (connectedTabIds.length === 0) {
       for (const group of existingGroups) {
         const tabsInGroup = await chrome.tabs.query({ groupId: group.id })
@@ -1142,7 +1235,7 @@ async function syncTabGroup(): Promise<void> {
         if (tabIdsToUngroup.length > 0) {
           await chrome.tabs.ungroup(tabIdsToUngroup)
         }
-        logger.debug('Cleared playwriter group:', group.id)
+        logger.debug('Cleared Tabwright group:', group.id)
       }
       return
     }
@@ -1158,7 +1251,7 @@ async function syncTabGroup(): Promise<void> {
         if (tabIdsToUngroup.length > 0) {
           await chrome.tabs.ungroup(tabIdsToUngroup)
         }
-        logger.debug('Removed duplicate playwriter group:', group.id)
+        logger.debug('Removed duplicate Tabwright group:', group.id)
       }
     }
 
@@ -1794,11 +1887,9 @@ async function connectTab(tabId: number): Promise<void> {
     // Extension in use: set global 'extension-replaced' state to enter polling mode
     const isExtensionInUse =
       errorMessage === 'Extension Already In Use' ||
-      errorMessage === 'Another Playwriter extension is already connected'
+      errorMessage === 'Another Tabwright extension is already connected'
 
-    const isWsError =
-      errorMessage === 'Connection timeout' ||
-      errorMessage.startsWith('WebSocket')
+    const isWsError = errorMessage === 'Connection timeout' || errorMessage.startsWith('WebSocket')
 
     if (isExtensionInUse) {
       logger.debug(`Another extension is in use, entering polling mode`)
@@ -1808,7 +1899,7 @@ async function connectTab(tabId: number): Promise<void> {
         return {
           tabs: newTabs,
           connectionState: 'extension-replaced',
-          errorText: 'Another Playwriter extension is actively in use',
+          errorText: 'Another Tabwright extension is actively in use',
         }
       })
     } else if (error instanceof RelayConnectionProblemError || isWsError) {
@@ -1819,7 +1910,8 @@ async function connectTab(tabId: number): Promise<void> {
         return {
           tabs: newTabs,
           connectionState: 'relay-warning',
-          errorText: error instanceof RelayConnectionProblemError ? error.message : relayIssueText({ issue: 'offline' }),
+          errorText:
+            error instanceof RelayConnectionProblemError ? error.message : relayIssueText({ issue: 'offline' }),
         }
       })
     } else {
@@ -2000,7 +2092,7 @@ const icons = {
       '48': '/icons/icon-gray-48.png',
       '128': '/icons/icon-gray-128.png',
     },
-    title: 'Another Playwriter extension connected - Click to retry',
+    title: 'Another Tabwright extension connected - Click to retry',
     badgeText: '!',
     badgeColor: [220, 38, 38, 255] as [number, number, number, number],
   },
@@ -2012,6 +2104,17 @@ const icons = {
       '128': '/icons/icon-gray-128.png',
     },
     title: relayIssueText({ issue: 'unavailable' }),
+    badgeText: '!',
+    badgeColor: [245, 158, 11, 255] as [number, number, number, number],
+  },
+  relayReviewDegraded: {
+    path: {
+      '16': '/icons/icon-green-16.png',
+      '32': '/icons/icon-green-32.png',
+      '48': '/icons/icon-green-48.png',
+      '128': '/icons/icon-green-128.png',
+    },
+    title: relayReviewIssueText({ issue: 'unavailable' }),
     badgeText: '!',
     badgeColor: [245, 158, 11, 255] as [number, number, number, number],
   },
@@ -2030,7 +2133,7 @@ const icons = {
 
 async function updateIcons(): Promise<void> {
   const state = store.getState()
-  const { connectionState, tabs, errorText } = state
+  const { connectionState, relayReviewState, tabs, errorText } = state
 
   const connectedCount = Array.from(tabs.values()).filter((t) => t.state === 'connected').length
 
@@ -2045,6 +2148,9 @@ async function updateIcons(): Promise<void> {
     const iconConfig = (() => {
       if (connectionState === 'extension-replaced') return icons.extensionReplaced
       if (connectionState === 'relay-warning') return icons.relayWarning
+      if (connectionState === 'connected' && relayReviewState.status === 'degraded') {
+        return icons.relayReviewDegraded
+      }
       if (tabId !== undefined && isRestrictedUrl(tabUrl)) return icons.restricted
       if (tabInfo?.state === 'error') return icons.tabError
       if (tabInfo?.state === 'connecting') return icons.connecting
@@ -2055,6 +2161,9 @@ async function updateIcons(): Promise<void> {
     const title = (() => {
       if (connectionState === 'extension-replaced' && errorText) return errorText
       if (connectionState === 'relay-warning' && errorText) return errorText
+      if (connectionState === 'connected' && relayReviewState.status === 'degraded') {
+        return relayReviewState.errorText
+      }
       if (tabInfo?.errorText) return tabInfo.errorText
       return iconConfig.title
     })()
@@ -2103,7 +2212,7 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   const { tabs, connectionState } = store.getState()
   const tabInfo = tabs.get(tab.id)
 
-  // If another Playwriter extension took over, clear error state and try to reconnect this tab
+  // If another Tabwright extension took over, clear error state and try to reconnect this tab
   if (connectionState === 'extension-replaced') {
     logger.debug('Clearing extension-replaced state, attempting to reconnect')
     store.setState({ connectionState: 'idle', errorText: undefined })
@@ -2145,7 +2254,7 @@ chrome.contextMenus
   .finally(() => {
     chrome.contextMenus?.create({
       id: 'playwriter-pin-element',
-      title: 'Copy Playwriter Element Reference',
+      title: 'Copy Tabwright Element Reference',
       contexts: ['all'],
       visible: false,
     })
@@ -2263,7 +2372,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     // Queue tab group operations to serialize with syncTabGroup and disconnectEverything
     tabGroupQueue = tabGroupQueue
       .then(async () => {
-        // Query for playwriter group by title - no stale cached ID
+        // Query for Tabwright group by title - no stale cached ID
         const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
         const groupId = existingGroups[0]?.id
         if (groupId === undefined) {
@@ -2272,7 +2381,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         const { tabs } = store.getState()
         if (changeInfo.groupId === groupId) {
           if (!tabs.has(tabId) && !isRestrictedUrl(tab.url)) {
-            logger.debug('Tab manually added to playwriter group:', tabId)
+            logger.debug('Tab manually added to Tabwright group:', tabId)
             await connectTab(tabId)
           }
         } else if (tabs.has(tabId)) {
@@ -2281,7 +2390,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             logger.debug('Tab removed from group while connecting, ignoring:', tabId)
             return
           }
-          logger.debug('Tab manually removed from playwriter group:', tabId)
+          logger.debug('Tab manually removed from Tabwright group:', tabId)
           await disconnectTab(tabId)
         }
       })
@@ -2306,11 +2415,11 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
   }, 10000)
 })
 
-// Relocate popup windows opened by a Playwriter-connected tab into the
-// source tab's window as a regular tab, since Playwriter cannot attach
+// Relocate popup windows opened by a Tabwright-connected tab into the
+// source tab's window as a regular tab, since Tabwright cannot attach
 // its debugger to separate popup windows. When the source tab is NOT
 // connected, leave the popup alone so unrelated sites keep normal Chrome
-// popup behavior. After relocation, auto-attach Playwriter to the new
+// popup behavior. After relocation, auto-attach Tabwright to the new
 // tab so it appears in context.pages().
 chrome.windows.onCreated.addListener(async (popupWindow) => {
   if (popupWindow.type !== 'popup' || popupWindow.id === undefined) {
@@ -2349,7 +2458,7 @@ chrome.windows.onCreated.addListener(async (popupWindow) => {
     }
     if (sourceTabId === undefined) {
       logger.debug(
-        `Popup window ${popupWindow.id} not opened by a Playwriter-connected tab, leaving alone (tabs=${JSON.stringify(tabIds)})`,
+        `Popup window ${popupWindow.id} not opened by a Tabwright-connected tab, leaving alone (tabs=${JSON.stringify(tabIds)})`,
       )
       return
     }
@@ -2442,7 +2551,7 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
       }
 
       const code = buildPinnedElementInspectionCode({ pinName: name, url: tab.url || '' })
-      const clipboardText = "playwriter -e '" + code + "'"
+      const clipboardText = "tabwright -e '" + code + "'"
 
       const jsPinFlashAndCopy = js`
         (() => {
@@ -2685,7 +2794,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Re-inject the toolbar after hard navigations in connected tabs.
 // The MAIN-world script is destroyed on every full page load, so we re-run
-// initPlaywriterToolbar once the new document's DOM is ready.
+// initTabwrightToolbar once the new document's DOM is ready.
 // onDOMContentLoaded is used instead of onCommitted because executeScript
 // with world:'MAIN' needs the document to exist before injecting.
 // Note: SPA route changes (pushState/replaceState) don't trigger this because

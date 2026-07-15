@@ -1,7 +1,7 @@
 // Shared auth redirect helpers for login and OAuth flows.
 // Keeps callback URLs as browser document URLs, never internal RSC transport URLs.
 
-const redirectBase = 'https://playwriter.local'
+const redirectBase = 'https://tabwright.local'
 
 export function normalizeAuthRedirectPath(value: string | undefined): string {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return '/dashboard'

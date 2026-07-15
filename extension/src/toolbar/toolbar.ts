@@ -19,7 +19,7 @@ declare global {
   }
 }
 
-export function initPlaywriterToolbarBridge(): void {
+export function initTabwrightToolbarBridge(): void {
   if (window.__playwriterToolbarBridgeInstalled) return
   window.__playwriterToolbarBridgeInstalled = true
 
@@ -78,7 +78,7 @@ export function initPlaywriterToolbarBridge(): void {
       } catch (error: unknown) {
         if (isExtensionContextInvalidated(error)) return null
         const message = getErrorMessage(error)
-        console.warn('[Playwriter toolbar bridge] port connect failed', data.type, requestId, message)
+        console.warn('[Tabwright toolbar bridge] port connect failed', data.type, requestId, message)
         window.postMessage(
           {
             source: 'playwriter-toolbar-bridge',
@@ -95,7 +95,7 @@ export function initPlaywriterToolbarBridge(): void {
     const port = connectedPort
     const timeoutId = window.setTimeout(() => {
       failWithMessage({
-        message: `Playwriter toolbar background did not respond (${data.type}, ${requestId})`,
+        message: `Tabwright toolbar background did not respond (${data.type}, ${requestId})`,
         disconnect: true,
       })
     }, 85000)
@@ -132,7 +132,7 @@ export function initPlaywriterToolbarBridge(): void {
       if (settled) return
       settled = true
       cleanup({ disconnect: options.disconnect })
-      console.warn('[Playwriter toolbar bridge] port request failed', data.type, requestId, options.message)
+      console.warn('[Tabwright toolbar bridge] port request failed', data.type, requestId, options.message)
       postResult({ success: false, error: options.message })
     }
 
@@ -147,7 +147,7 @@ export function initPlaywriterToolbarBridge(): void {
     function onDisconnect(): void {
       const message = (() => {
         try {
-          return chrome.runtime.lastError?.message || 'Playwriter toolbar background port disconnected'
+          return chrome.runtime.lastError?.message || 'Tabwright toolbar background port disconnected'
         } catch (error: unknown) {
           return getErrorMessage(error)
         }
@@ -178,7 +178,7 @@ export function initPlaywriterToolbarBridge(): void {
   })
 }
 
-export function initPlaywriterToolbar(): void {
+export function initTabwrightToolbar(): void {
   if (window.__playwriterToolbarInstalled) return
   window.__playwriterToolbarInstalled = true
 
@@ -422,7 +422,7 @@ export function initPlaywriterToolbar(): void {
   const toolbarEl = document.createElement('div')
   toolbarEl.className = 'toolbar'
   toolbarEl.setAttribute('role', 'toolbar')
-  toolbarEl.setAttribute('aria-label', 'Playwriter tools')
+  toolbarEl.setAttribute('aria-label', 'Tabwright tools')
 
   shadow.appendChild(styleEl)
   shadow.appendChild(toolbarEl)
@@ -514,8 +514,8 @@ export function initPlaywriterToolbar(): void {
     return new Promise<ToolbarBridgeResult>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         window.removeEventListener('message', onResponse)
-        console.warn('[Playwriter toolbar] bridge timeout', type, requestId)
-        reject(new Error(`Playwriter toolbar bridge did not respond (${type}, ${requestId})`))
+        console.warn('[Tabwright toolbar] bridge timeout', type, requestId)
+        reject(new Error(`Tabwright toolbar bridge did not respond (${type}, ${requestId})`))
       }, 90000)
 
       function onResponse(event: MessageEvent<unknown>): void {
@@ -538,7 +538,7 @@ export function initPlaywriterToolbar(): void {
         window.clearTimeout(timeout)
         window.removeEventListener('message', onResponse)
         if (!isToolbarBridgeResult(candidate.result)) {
-          reject(new Error('Invalid Playwriter toolbar bridge response'))
+          reject(new Error('Invalid Tabwright toolbar bridge response'))
           return
         }
         resolve(candidate.result)
@@ -564,7 +564,7 @@ export function initPlaywriterToolbar(): void {
     recordBtn.setAttribute('title', recordingActive ? 'Stop demonstration recording' : 'Start demonstration recording')
     recordBtn.setAttribute(
       'aria-label',
-      recordingActive ? 'Stop Playwriter demonstration recording' : 'Start Playwriter demonstration recording',
+      recordingActive ? 'Stop Tabwright demonstration recording' : 'Start Tabwright demonstration recording',
     )
     recordBtn.innerHTML = recordingActive ? STOP_RECORDING_SVG : RECORD_SVG
     updatePinButton()
@@ -576,7 +576,7 @@ export function initPlaywriterToolbar(): void {
       'aria-label',
       recordingActive
         ? 'Annotate an element in this recording'
-        : 'Pin element — click any element to copy inspection code for a playwriter -e call',
+        : 'Pin element — click any element to copy inspection code for a tabwright -e call',
     )
     pinBtn.setAttribute(
       'title',
@@ -743,7 +743,7 @@ export function initPlaywriterToolbar(): void {
   function replayMakeCommand(replayId: string): string {
     const capabilityId = replayCapabilityId(replayId)
     return [
-      'playwriter replay make',
+      'tabwright replay make',
       shellQuote(replayId),
       shellQuote(capabilityId),
       '--force',
@@ -753,12 +753,17 @@ export function initPlaywriterToolbar(): void {
   }
 
   function replayRunCommand(replayId: string): string {
+    const capabilityId = replayCapabilityId(replayId)
     return [
-      'playwriter capability run',
-      shellQuote(replayCapabilityId(replayId)),
+      'tabwright capability run',
+      shellQuote(capabilityId),
+      '--browser user',
       '--force',
+      '--confirm',
+      shellQuote(capabilityId),
       '--input-json',
       shellQuote('{"value":"..."}'),
+      '--json',
     ].join(' ')
   }
 
@@ -767,7 +772,7 @@ export function initPlaywriterToolbar(): void {
     if (!replayId) return null
     const path = result.replayPath || result.path
     return [
-      `这是 Playwriter replay id：${replayId}`,
+      `这是 Tabwright replay id：${replayId}`,
       `Recorded URL: ${window.location.href}`,
       path ? `Recording path: ${path}` : '',
       result.replayEventCount !== undefined ? `Events: ${result.replayEventCount}` : '',
@@ -777,7 +782,7 @@ export function initPlaywriterToolbar(): void {
       '请先编译成 capability：',
       replayMakeCommand(replayId),
       '',
-      '然后执行：',
+      '这是写操作。先暂停并取得用户明确确认，确认后才可执行：',
       replayRunCommand(replayId),
       '',
       '如果返回 needs_ai，请根据上下文修改脚本后继续跑。',
@@ -1414,12 +1419,12 @@ export function initPlaywriterToolbar(): void {
     else hideOverlay()
   }
 
-  // Build a tiny eval that delegates all logging and React inspection to Playwriter.
+  // Build a tiny eval that delegates all logging and React inspection to Tabwright.
   // JSON.stringify does NOT escape literal ' characters, so "Don't save"
   // stays "Don't save" in the output. That would break the outer bash '…'
   // wrapper. Replace ' with \u0027 — valid JSON, parses back to ' in the
   // JS engine — so the whole code is single-quote-free and slots safely
-  // into the bash 'playwriter -e …' wrapper regardless of element text.
+  // into the bash 'tabwright -e …' wrapper regardless of element text.
   function buildInspectionCode(n: number, url: string): string {
     const URL_LIT = JSON.stringify(url).replace(/'/g, '\\u0027')
     return `inspectPinnedElement(${URL_LIT},"globalThis.playwriterPinnedElem${n}")`
@@ -1449,9 +1454,9 @@ export function initPlaywriterToolbar(): void {
     // Copy only the command so pasting it into a shell or agent prompt stays compact.
     const url = location.href
     const code = buildInspectionCode(n, url)
-    const clipboardText = "playwriter -e '" + code + "'"
+    const clipboardText = "tabwright -e '" + code + "'"
     copyText(clipboardText)
-    showToast('Copied playwriter element reference, use it in your agent prompt', target.getBoundingClientRect())
+    showToast('Copied Tabwright element reference, use it in your agent prompt', target.getBoundingClientRect())
     setPinMode(false)
   }
 
@@ -1485,7 +1490,7 @@ export function initPlaywriterToolbar(): void {
 
   // ── SVG icon strings (defined inside function — required for func injection) ─
 
-  // Playwriter logo-square icon (inlined from website/public/logo-square.svg)
+  // Tabwright logo-square icon (inlined from website/public/logo-square.svg)
   const CLIPBOARD_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 424 424" aria-hidden="true"><path d="M 0 212 C 0 112.063 0 62.095 31.037 31.037 C 62.116 0 112.063 0 212 0 C 311.937 0 361.905 0 392.942 31.037 C 424 62.116 424 112.063 424 212 C 424 311.937 424 361.905 392.942 392.942 C 361.926 424 311.937 424 212 424 C 112.063 424 62.095 424 31.037 392.942 C 0 361.926 0 311.937 0 212" fill="currentColor"/><path class="logo-inner" d="M 225.732 260.521 L 277.905 312.673 C 283.311 318.1 286.003 320.793 289.014 322.043 C 293.042 323.718 297.557 323.718 301.585 322.043 C 304.596 320.793 307.309 318.1 312.694 312.694 C 318.1 307.288 320.793 304.596 322.043 301.585 C 323.722 297.563 323.722 293.036 322.043 289.014 C 320.793 286.003 318.1 283.29 312.694 277.905 L 260.521 225.732 L 276.442 209.789 C 292.766 193.465 300.907 185.325 298.999 176.548 C 297.07 167.792 286.237 163.785 264.591 155.814 L 192.384 129.208 C 149.2 113.308 127.618 105.358 116.488 116.488 C 105.358 127.618 113.308 149.2 129.208 192.384 L 155.814 264.591 C 163.785 286.237 167.792 297.07 176.548 298.999 C 185.303 300.928 193.465 292.766 209.789 276.442 Z" fill="white"/></svg>`
 
   // Lucide circle icon
@@ -1504,7 +1509,7 @@ export function initPlaywriterToolbar(): void {
   pinBtn.className = 'btn'
   pinBtn.setAttribute(
     'aria-label',
-    'Pin element — click any element to copy inspection code for a playwriter -e call',
+    'Pin element — click any element to copy inspection code for a tabwright -e call',
   )
   pinBtn.setAttribute('title', 'Pin element (click to copy inspection code)')
   pinBtn.innerHTML = CLIPBOARD_SVG
@@ -1558,7 +1563,7 @@ export function initPlaywriterToolbar(): void {
   // Close button
   const closeBtn = document.createElement('button')
   closeBtn.className = 'btn'
-  closeBtn.setAttribute('aria-label', 'Close Playwriter toolbar')
+  closeBtn.setAttribute('aria-label', 'Close Tabwright toolbar')
   closeBtn.setAttribute('title', 'Close toolbar')
   closeBtn.innerHTML = CLOSE_SVG
   closeBtn.addEventListener('click', (e: MouseEvent) => {

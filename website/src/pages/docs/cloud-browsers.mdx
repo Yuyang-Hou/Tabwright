@@ -21,7 +21,7 @@ from your other browsers. They come with **residential proxies**, **automatic CA
 **anti-bot fingerprint evasion** built in. No setup, no proxy configuration, no CAPTCHA API keys
 to manage.
 
-Cloud browsers appear alongside your local Chrome in `playwriter session new`, so your existing
+Cloud browsers appear alongside your local Chrome in `tabwright session new`, so your existing
 workflows and scripts work without changes.
 
 <Aside>
@@ -96,7 +96,7 @@ CAPTCHA solving works for **Cloudflare Turnstile**, **reCAPTCHA v2**, **reCAPTCH
 the built-in residential proxies:
 
 ```bash
-playwriter session new --browser cloud --custom-proxy user:pass@host:8080
+tabwright session new --browser cloud --custom-proxy user:pass@host:8080
 ```
 
 ## Getting started
@@ -106,7 +106,7 @@ playwriter session new --browser cloud --custom-proxy user:pass@host:8080
 **Option A: Interactive login** (opens browser for OAuth)
 
 ```bash
-playwriter cloud login
+tabwright cloud login
 ```
 
 This opens a device flow in your browser. Sign in at [playwriter.dev](https://playwriter.dev) and
@@ -117,7 +117,7 @@ the CLI stores your token locally.
 Create an API key at [playwriter.dev/dashboard](https://playwriter.dev/dashboard), then set it as an environment variable:
 
 ```bash
-export PLAYWRITER_API_KEY=pw_xxxxx
+export TABWRIGHT_API_KEY=pw_xxxxx
 ```
 
 API keys work everywhere `cloud login` works but don't require a browser or interactive terminal.
@@ -125,7 +125,7 @@ API keys work everywhere `cloud login` works but don't require a browser or inte
 ### 2. Subscribe
 
 ```bash
-playwriter cloud subscribe
+tabwright cloud subscribe
 ```
 
 Opens the subscription page where you pick monthly or yearly and set the number of concurrent
@@ -135,16 +135,16 @@ browsers.
 
 ```bash
 # New cloud browser (no proxy, cheapest)
-playwriter session new --browser cloud
+tabwright session new --browser cloud
 
 # Enable US residential proxy (for anti-detection / geo-targeting)
-playwriter session new --browser cloud --proxy us
+tabwright session new --browser cloud --proxy us
 
 # German proxy
-playwriter session new --browser cloud --proxy de
+tabwright session new --browser cloud --proxy de
 
 # Japanese proxy
-playwriter session new --browser cloud --proxy jp
+tabwright session new --browser cloud --proxy jp
 ```
 
 Cloud sessions appear in the session table with keys like `cloud-1`, `cloud-2`. Selecting an
@@ -156,14 +156,14 @@ Once connected, the cloud browser works exactly like a local one. All Playwright
 snapshots, screenshots, and MCP tools work the same way:
 
 ```bash
-playwriter -s 1 -e "await page.goto('https://example.com')"
-playwriter -s 1 -e "console.log(await snapshot({ page }))"
+tabwright -s 1 -e "await page.goto('https://example.com')"
+tabwright -s 1 -e "console.log(await snapshot({ page }))"
 ```
 
 ### 5. Check status
 
 ```bash
-playwriter cloud status
+tabwright cloud status
 ```
 
 Lists all active cloud browser VMs with their index, region, and uptime.
@@ -182,7 +182,7 @@ Cloud browsers work with the MCP server too. Set env vars in your MCP client con
 ```json
 {
   "env": {
-    "PLAYWRITER_CLOUD_TOKEN": "your-token"
+    "TABWRIGHT_CLOUD_TOKEN": "your-token"
   }
 }
 ```

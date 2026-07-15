@@ -8,7 +8,7 @@ import type {
   StartRrwebRecordingParams,
   StartRrwebRecordingResult,
   StopRrwebRecordingParams,
-} from 'playwriter/src/protocol'
+} from 'tabwright/src/protocol'
 import { connectionManager, getTabBySessionId, logger, sendMessage, store } from './background'
 
 type RrwebRecordingInfo = {
@@ -255,7 +255,7 @@ export async function handleStartRrwebRecording(params: StartRrwebRecordingParam
   if (!tabId) {
     return {
       success: false,
-      error: 'No connected tab found for rrweb recording. Click the Playwriter extension icon on the tab you want to record.',
+      error: 'No connected tab found for rrweb recording. Click the Tabwright extension icon on the tab you want to record.',
     }
   }
 

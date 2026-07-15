@@ -1,4 +1,4 @@
-// Cloudflare Workers entrypoint for the Playwriter D1 schema.
+// Cloudflare Workers entrypoint for the Tabwright D1 schema.
 // Uses drizzle-orm/d1 with the `workerd` export condition so worker code and
 // local Node.js scripts can share the same `db` package import path.
 

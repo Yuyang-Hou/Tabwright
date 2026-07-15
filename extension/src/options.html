@@ -3,27 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Playwriter</title>
+    <title>Tabwright</title>
     <link rel="stylesheet" href="./options.css" />
     <script type="module" src="./options.ts"></script>
   </head>
   <body>
     <main class="app-shell">
-      <aside class="side-panel">
+      <header class="toolbar">
         <div class="brand-block">
           <div class="brand-mark" aria-hidden="true">
             <img src="../icons/icon-black-32.png" alt="" />
           </div>
           <div>
-            <h1 data-i18n="app_title">Playwriter</h1>
+            <h1 data-i18n="app_title">Tabwright</h1>
             <p data-i18n="app_subtitle">Local browser automation cockpit</p>
           </div>
         </div>
-
-        <section class="status-card" aria-live="polite">
-          <div class="status-label" data-i18n="status_label">Status</div>
-          <p id="status-text" data-i18n="status_loading_recordings">Loading recordings...</p>
-        </section>
 
         <nav class="tabs" role="tablist" aria-label="Options sections" data-i18n-aria-label="sections_aria_label">
           <button class="tab-button active" data-tab="recordings" type="button" role="tab" aria-selected="true">
@@ -36,78 +31,135 @@
           </button>
         </nav>
 
-        <button id="refresh-button" class="primary-action" type="button" data-i18n="refresh_button">Refresh</button>
+        <div class="toolbar-actions">
+          <label class="search-field">
+            <span class="visually-hidden" data-i18n="search_label">Search</span>
+            <input
+              id="search-input"
+              type="search"
+              autocomplete="off"
+              data-i18n-placeholder="search_recordings_placeholder"
+              placeholder="Filter recordings"
+            />
+          </label>
 
-        <div class="language-card">
-          <div class="language-card-header">
-            <span data-i18n="language_label">Language</span>
-            <strong id="locale-text">English</strong>
+          <div class="status-pill" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="status-text" data-i18n="status_loading_recordings">Loading recordings...</span>
           </div>
-          <div class="language-switch" role="group" aria-label="Language switch" data-i18n-aria-label="language_switch_aria_label">
-            <button class="language-button active" data-language="en" type="button" aria-pressed="true" data-i18n="language_en">English</button>
-            <button class="language-button" data-language="zh_CN" type="button" aria-pressed="false" data-i18n="language_zh_cn">中文</button>
+
+          <button
+            id="refresh-button"
+            class="icon-button"
+            type="button"
+            title="Refresh"
+            data-i18n-title="refresh_button"
+            aria-label="Refresh"
+            data-i18n-aria-label="refresh_button"
+          >
+            <span aria-hidden="true">↻</span>
+          </button>
+
+          <div
+            class="language-switch"
+            role="group"
+            aria-label="Language switch"
+            data-i18n-aria-label="language_switch_aria_label"
+          >
+            <button
+              class="language-button active"
+              data-language="en"
+              type="button"
+              aria-pressed="true"
+              data-i18n="language_en"
+            >
+              English
+            </button>
+            <button
+              class="language-button"
+              data-language="zh_CN"
+              type="button"
+              aria-pressed="false"
+              data-i18n="language_zh_cn"
+            >
+              中文
+            </button>
           </div>
         </div>
-      </aside>
+      </header>
 
-      <section class="collection-panel">
-        <header class="collection-header">
-          <div>
+      <section id="relay-review-warning" class="relay-review-warning" role="status" aria-live="polite" hidden>
+        <div>
+          <strong data-i18n="relay_review_warning_title">Saved data is temporarily unavailable</strong>
+          <p id="relay-review-warning-text"></p>
+        </div>
+        <code>npm install -g tabwright@latest<br />tabwright session list</code>
+      </section>
+
+      <section class="workspace">
+        <aside class="collection-panel">
+          <header class="collection-header">
             <p class="eyebrow" id="view-eyebrow" data-i18n="recordings_eyebrow">Replay library</p>
             <h2 id="view-title" data-i18n="recordings_heading">DOM replays</h2>
-            <p id="view-description" data-i18n="recordings_description">Review saved page recordings and turn repeatable flows into capabilities.</p>
-          </div>
-          <label class="search-field">
-            <span data-i18n="search_label">Search</span>
-            <input id="search-input" type="search" autocomplete="off" data-i18n-placeholder="search_recordings_placeholder" placeholder="Filter recordings" />
-          </label>
-        </header>
-
-        <section class="metrics-grid" aria-label="Current view summary" data-i18n-aria-label="metrics_aria_label">
-          <div class="metric">
-            <span id="metric-primary-label" data-i18n="metric_replays">Replays</span>
-            <strong id="metric-primary-value">0</strong>
-          </div>
-          <div class="metric">
-            <span id="metric-secondary-label" data-i18n="metric_total_duration">Total duration</span>
-            <strong id="metric-secondary-value">0:00</strong>
-          </div>
-          <div class="metric">
-            <span id="metric-tertiary-label" data-i18n="metric_events">Events</span>
-            <strong id="metric-tertiary-value">0</strong>
-          </div>
-        </section>
-
-        <section id="recordings-view" class="list-view">
-          <div id="replays-list" class="list-body"></div>
-        </section>
-        <section id="skills-view" class="list-view" hidden>
-          <div id="skills-list" class="list-body"></div>
-        </section>
-      </section>
-
-      <section class="detail-panel">
-        <div id="replay-view" class="replay-view">
-          <header class="detail-header">
-            <div>
-              <p class="eyebrow" data-i18n="detail_eyebrow">Detail</p>
-              <h2 data-i18n="replay_detail_title">Replay preview</h2>
-            </div>
+            <p id="view-description" data-i18n="recordings_description">
+              Review saved page recordings and turn repeatable flows into capabilities.
+            </p>
           </header>
-          <div id="replay-player" class="replay-player">
-            <div class="empty-state" data-i18n="select_replay">Select a DOM replay.</div>
+
+          <section id="recordings-view" class="list-view">
+            <div id="replays-list" class="list-body"></div>
+          </section>
+          <section id="skills-view" class="list-view" hidden>
+            <div id="skills-list" class="list-body"></div>
+          </section>
+        </aside>
+
+        <section class="detail-panel">
+          <div id="replay-view" class="replay-view">
+            <header class="detail-header">
+              <div>
+                <p class="eyebrow" data-i18n="detail_eyebrow">Detail</p>
+                <h2 data-i18n="replay_detail_title">Replay preview</h2>
+              </div>
+            </header>
+            <div id="replay-player" class="replay-player">
+              <div class="empty-state" data-i18n="select_replay">Select a DOM replay.</div>
+            </div>
+            <div id="replay-controls" class="replay-controls" hidden>
+              <button id="replay-play-toggle" type="button" data-i18n="play_button">Play</button>
+              <input
+                id="replay-timeline"
+                type="range"
+                min="0"
+                max="0"
+                value="0"
+                step="100"
+                aria-label="Replay timeline"
+                data-i18n-aria-label="replay_timeline_label"
+              />
+              <span id="replay-time" class="replay-time">0:00 / 0:00</span>
+              <p
+                id="replay-warning"
+                class="replay-warning"
+                role="status"
+                aria-live="polite"
+                aria-label="Replay reconstruction notice"
+                data-i18n-aria-label="replay_warning_aria_label"
+                hidden
+              ></p>
+            </div>
+            <details class="recording-technical">
+              <summary data-i18n="technical_details">Technical details</summary>
+              <div id="replay-details" class="recording-details" data-i18n="select_replay">Select a DOM replay.</div>
+            </details>
           </div>
-          <div id="replay-controls" class="replay-controls" hidden>
-            <button id="replay-play-toggle" type="button" data-i18n="play_button">Play</button>
-            <input id="replay-timeline" type="range" min="0" max="0" value="0" step="100" aria-label="Replay timeline" data-i18n-aria-label="replay_timeline_label" />
-            <span id="replay-time" class="replay-time">0:00 / 0:00</span>
+          <div id="skill-detail" class="skill-detail" hidden>
+            <div class="empty-state" data-i18n="select_capability">Select a capability.</div>
           </div>
-          <div id="replay-details" class="recording-details" data-i18n="select_replay">Select a DOM replay.</div>
-        </div>
-        <div id="skill-detail" class="skill-detail" hidden>
-          <div class="empty-state" data-i18n="select_capability">Select a capability.</div>
-        </div>
+        </section>
       </section>
+
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     </main>
   </body>
 </html>
