@@ -1,4 +1,4 @@
-// Schema for the Playwriter D1 database.
+// Schema for the Tabwright D1 database.
 // Contains BetterAuth core tables for auth (Google social login, device flow),
 // the org/member hierarchy, and cloud browser/session tables for Browser Use
 // cloud browser management.

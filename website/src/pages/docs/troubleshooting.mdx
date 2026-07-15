@@ -7,20 +7,20 @@ icon: lucide:bug
 ## Start with Doctor
 
 ```bash
-playwriter doctor
+tabwright doctor
 ```
 
-This checks the relay, extension version, enabled tabs, sessions, and visible capabilities. Follow the single `Next` action it prints before manually restarting processes. For agent or support automation, use `playwriter doctor --json`.
+This checks the relay, extension version, enabled tabs, sessions, and visible capabilities. Follow the single `Next` action it prints before manually restarting processes. For agent or support automation, use `tabwright doctor --json`.
 
 ## Relay server logs
 
 The relay server logs everything: extension connections, CDP events, MCP messages, and errors. Two log files are created each time the server starts:
 
 ```bash
-playwriter logfile
+tabwright logfile
 # prints paths like:
-#   ~/.playwriter/relay-server.log
-#   ~/.playwriter/cdp.jsonl
+#   ~/.tabwright/relay-server.log
+#   ~/.tabwright/cdp.jsonl
 ```
 
 **`relay-server.log`** contains human-readable logs from the extension, MCP, and WebSocket server.
@@ -29,10 +29,10 @@ playwriter logfile
 
 ```bash
 # Count CDP messages by direction and method
-jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
+jq -r '.direction + "\t" + (.message.method // "response")' ~/.tabwright/cdp.jsonl | uniq -c
 
 # Find errors
-grep -i error ~/.playwriter/relay-server.log | tail -20
+grep -i error ~/.tabwright/relay-server.log | tail -20
 ```
 
 Both files are **recreated** every time the server starts, so they only contain logs from the current session.
@@ -55,9 +55,9 @@ The extension isn't connected to the relay. Check:
 
 1. Is Chrome running?
 2. Did you click the extension icon on at least one tab? (Icon should be green)
-3. Is the relay server running? The CLI starts it automatically, but if you killed it manually, run `playwriter serve` or just use any CLI command to restart it
+3. Is the relay server running? The CLI starts it automatically, but if you killed it manually, run `tabwright serve` or just use any CLI command to restart it
 
-### "No browser tabs have Playwriter enabled"
+### "No browser tabs have Tabwright enabled"
 
 You need to click the extension icon on a tab to make it controllable. The extension only attaches to tabs where you explicitly enable it.
 
@@ -66,7 +66,7 @@ You need to click the extension icon on a tab to make it controllable. The exten
 Reset the session to reconnect:
 
 ```bash
-playwriter session reset <sessionId>
+tabwright session reset <sessionId>
 ```
 
 If that doesn't help, restart the relay by killing the process on port 19988 and running any CLI command:
@@ -85,7 +85,7 @@ Get-NetTCPConnection -LocalPort 19988 -ErrorAction SilentlyContinue | ForEach-Ob
 Increase the timeout for slow operations:
 
 ```bash
-playwriter -s 1 --timeout 30000 -e 'await page.goto("https://slow-site.com")'
+tabwright -s 1 --timeout 30000 -e 'await page.goto("https://slow-site.com")'
 ```
 
 The default timeout is 10 seconds.
@@ -100,5 +100,5 @@ PIDS=$(lsof -ti :19988)
 [ -n "$PIDS" ] && kill $PIDS
 
 # Or use --replace flag
-playwriter serve --token MY_SECRET --replace
+tabwright serve --token MY_SECRET --replace
 ```

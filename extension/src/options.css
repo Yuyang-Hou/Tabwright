@@ -776,6 +776,162 @@ h3 {
   color: var(--accent);
 }
 
+.auth-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  border: 1px solid rgba(0, 122, 255, 0.24);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--accent-soft);
+}
+
+.auth-card[data-status='expired'] {
+  border-color: rgba(255, 69, 58, 0.28);
+  background: var(--red-soft);
+}
+
+.auth-card[data-status='expiring'],
+.auth-card[data-status='missing'],
+.auth-card[data-status='unknown'] {
+  border-color: rgba(255, 159, 10, 0.3);
+  background: var(--amber-soft);
+}
+
+.auth-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.auth-heading,
+.auth-detail,
+.auth-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-heading {
+  justify-content: space-between;
+}
+
+.auth-description,
+.auth-privacy {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.auth-detail {
+  align-items: flex-start;
+  font-size: 11px;
+}
+
+.auth-detail strong {
+  flex: 0 0 auto;
+}
+
+.auth-detail span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.auth-meta {
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.auth-action {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.auth-action:hover {
+  background: var(--accent-hover);
+}
+
+.auth-action:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
+.auth-dialog {
+  width: min(440px, calc(100vw - 32px));
+  border: 1px solid var(--separator-strong);
+  border-radius: 16px;
+  padding: 0;
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: var(--shadow-popover);
+}
+
+.auth-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(3px);
+}
+
+.auth-dialog-content {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+
+.auth-dialog-content > p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-domain-list {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-domain-list code {
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font:
+    11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  overflow-wrap: anywhere;
+}
+
+.auth-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.auth-dialog-actions button {
+  min-height: 34px;
+  padding: 0 13px;
+  background: var(--control);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.auth-dialog-actions button.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
 .lifecycle-card {
   display: grid;
   gap: 14px;

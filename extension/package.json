@@ -1,18 +1,18 @@
 {
   "name": "mcp-extension",
-  "version": "0.0.89",
-  "description": "Playwright MCP Browser Extension",
+  "version": "0.0.90",
+  "description": "Tabwright browser control extension for AI agents",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/remorses/playwriter.git"
+    "url": "git+https://github.com/Yuyang-Hou/tabwright.git"
   },
-  "homepage": "https://github.com/remorses/playwriter",
+  "homepage": "https://github.com/Yuyang-Hou/tabwright",
   "engines": {
     "node": ">=18"
   },
   "author": {
-    "name": "Microsoft Corporation"
+    "name": "Yuyang Hou"
   },
   "license": "Apache-2.0",
   "scripts": {
@@ -32,7 +32,7 @@
     "vite-plugin-static-copy": "^3.1.1"
   },
   "dependencies": {
-    "playwriter": "workspace:^",
+    "tabwright": "workspace:^",
     "rrweb": "^2.1.0",
     "string-dedent": "^3.0.2",
     "zustand": "^5.0.8"

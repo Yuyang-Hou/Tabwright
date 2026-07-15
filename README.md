@@ -1,50 +1,44 @@
 <div align='center'>
     <br/>
-    <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="banner-dark.png" />
-        <source media="(prefers-color-scheme: light)" srcset="banner.png" />
-    <img src="banner.png" alt="Playwriter - For browser automation MCP" width="400" height="278" />
-    </picture>
-    <br/>
+    <img src="website/public/logo-square.svg" alt="Tabwright" width="112" height="112" />
+    <h1>Tabwright</h1>
     <br/>
     <p>Let your agents control your own Chrome, via CLI or MCP. Your logins, extensions, cookies — already there.</p>
     <br/>
 </div>
 
-Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly flagged by bot detectors, double the memory. Playwriter connects to **your running browser** instead. One Chrome extension, full Playwright API, everything you're already logged into.
+Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly flagged by bot detectors, double the memory. Tabwright connects to **your running browser** instead. One Chrome extension, full Playwright API, everything you're already logged into.
 
 ## Installation
 
-1. [**Install Extension**](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) from Chrome Web Store
+1. [**Install Extension**](https://chromewebstore.google.com/detail/tabwright-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) from Chrome Web Store
 
 2. Click extension icon on a tab → turns green when connected
 
 3. Install the CLI and start automating the browser:
 
    ```bash
-   npm i -g playwriter
-   playwriter doctor
-   playwriter session new  # copy the new session ID printed by this command
+   npm i -g tabwright
+   tabwright skill install --target codex
+   tabwright doctor
+   tabwright session new  # copy the new session ID printed by this command
    SESSION_ID=2            # replace 2 with that ID
-   playwriter -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+   tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
    ```
 
-4. Install the skill so your agent knows how to use Playwriter:
-   ```bash
-   npx -y skills add remorses/playwriter
-   ```
+The CLI bundles the matching Tabwright skill, so fork-specific instructions never come from another repository. Run `tabwright skill status --target codex` after upgrades; `tabwright doctor` also reports a missing or outdated skill and prints the exact install command. Updating a different installed copy requires `--force`.
 
 ## Quick Start
 
 ```bash
-playwriter browser start  # starts Chrome for Testing/Chromium with bundled Playwriter extension
-playwriter doctor  # checks relay, extension, enabled tabs, sessions, and capabilities
-playwriter session new  # creates stateful sandbox, outputs session id (e.g. 1)
+tabwright browser start  # starts Chrome for Testing/Chromium with bundled Tabwright extension
+tabwright doctor  # checks relay, extension, enabled tabs, sessions, and capabilities
+tabwright session new  # creates stateful sandbox, outputs session id (e.g. 1)
 SESSION_ID=2  # replace 2 with the ID printed above; never reuse another task's session
-playwriter -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
-playwriter -s "$SESSION_ID" -e 'console.log(await snapshot({ page: state.page }))'
+tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+tabwright -s "$SESSION_ID" -e 'console.log(await snapshot({ page: state.page }))'
 # Copy a locator from the snapshot instead of guessing a fixed aria-ref.
-playwriter -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Learn more" }).click()'
+tabwright -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Learn more" }).click()'
 ```
 
 `session new` stays automatic with one connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one profile has enabled tabs; otherwise it prints the available browser keys so you can retry with `--browser <key>`. If the CLI restarts an older relay, it waits for the current or a newer compatible package version before continuing.
@@ -56,23 +50,23 @@ playwriter -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Lear
 List saved demonstrations, inspect compact evidence, then turn one into a runnable draft capability:
 
 ```bash
-playwriter replay list --limit 10 --json
-playwriter replay index <replay-id> --json
-playwriter replay make <replay-id> <capability-id> --force --goal "add the requested list item" --json
+tabwright replay list --limit 10 --json
+tabwright replay index <replay-id> --json
+tabwright replay make <replay-id> <capability-id> --force --goal "add the requested list item" --json
 # Generated workflows are browser writes. Stop for explicit user approval first.
-playwriter capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '{"value":"test3"}' --json
+tabwright capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '{"value":"test3"}' --json
 ```
 
 `replay index --json` omits bulky page text and interactive-element arrays while preserving actions, fields, annotations, warnings, and selector hints. Add `--full` when an AI needs the complete evidence. `replay make` returns `status: "compiled"` when it writes a draft. If the deterministic compiler does not recognize the workflow, it returns `status: "needs_ai"`, writes no placeholder capability, and provides exact `next.inspectCommand` and `next.createCommand` handoff commands.
 
 ### Replay Workflow Self-Test
 
-Playwriter can evaluate the recording-to-capability product loop locally:
+Tabwright can evaluate the recording-to-capability product loop locally:
 
 ```bash
-playwriter replay eval
-playwriter replay eval --json
-playwriter replay eval --report tmp/replay-eval-report.html --keep-artifacts
+tabwright replay eval
+tabwright replay eval --json
+tabwright replay eval --report tmp/replay-eval-report.html --keep-artifacts
 ```
 
 The suite creates local example pages, writes rrweb recordings, builds AI indexes, compiles draft capabilities, runs the generated scripts in a real browser, and verifies the final page/request result. Use it before changing replay recording, replay indexing, workflow compilation, or generated capability scripts.
@@ -82,18 +76,20 @@ The suite creates local example pages, writes rrweb recordings, builds AI indexe
 Pack a saved capability into a sanitized archive, then send the `.tgz` file or host it at an HTTPS URL:
 
 ```bash
-playwriter capability pack my-capability
-playwriter capability install ./my-capability.tgz
-playwriter capability install https://example.com/my-capability.tgz
+tabwright capability pack my-capability
+tabwright capability install ./my-capability.tgz
+tabwright capability install https://example.com/my-capability.tgz
 ```
 
 Packages include `capability.json`, the entry script, `README.md`, and optional agent skills. They never include `secrets.json`, `runs.jsonl`, or `artifacts/`. Shared capabilities always install as `draft`; inspect and validate them with `--force` before trusting them. Authentication is local to each recipient and must be refreshed separately. Packaged agent skills are not installed by default; review one first, then use `capability skill install`, or opt in during installation with `--with-agent-skill`.
 
+Cookie-authenticated capabilities show their local authentication status in the extension Options page. Users can review the exact cookie domains and explicitly authenticate or refresh from the current Chrome profile there. Cookie values stay in the capability's local `secrets.json`; only non-sensitive status and expiry metadata is shown in the extension.
+
 For repository-scoped sharing, install directly from a capability directory with `--project`. Official suites such as `conan-config` continue to install by name:
 
 ```bash
-playwriter capability install ../shared-capabilities/my-capability --project
-playwriter capability install conan-config
+tabwright capability install ../shared-capabilities/my-capability --project
+tabwright capability install conan-config
 ```
 
 ## CLI Usage
@@ -102,30 +98,30 @@ Each session has **isolated state**. Browser tabs are **shared** across sessions
 
 ```bash
 # Browser management
-playwriter browser start             # auto-finds Chrome for Testing or Chromium
-playwriter browser start /path/to/browser-binary
+tabwright browser start             # auto-finds Chrome for Testing or Chromium
+tabwright browser start /path/to/browser-binary
 
 # Session management
-playwriter session new              # creates stateful sandbox, outputs id (e.g. 1)
-playwriter session list             # show sessions + state keys
-playwriter session reset <id>       # fix connection issues
+tabwright session new              # creates stateful sandbox, outputs id (e.g. 1)
+tabwright session list             # show sessions + state keys
+tabwright session reset <id>       # fix connection issues
 
 # Execute (always use -s)
-playwriter -s 1 -e 'await page.goto("https://example.com")'
-playwriter -s 1 -e 'await page.click("button")'
-playwriter -s 1 -e 'console.log(await page.title())'
+tabwright -s 1 -e 'await page.goto("https://example.com")'
+tabwright -s 1 -e 'await page.click("button")'
+tabwright -s 1 -e 'console.log(await page.title())'
 ```
 
 Create your own page to avoid interference from other agents:
 
 ```bash
-playwriter -s 1 -e 'state.myPage = await context.newPage(); await state.myPage.goto("https://example.com")'
+tabwright -s 1 -e 'state.myPage = await context.newPage(); await state.myPage.goto("https://example.com")'
 ```
 
 Multiline:
 
 ```bash
-playwriter -s 1 -e $'
+tabwright -s 1 -e $'
 const title = await page.title();
 console.log({ title, url: page.url() });
 '
@@ -138,37 +134,37 @@ Variables in scope: `page`, `context`, `state` (persists between calls), `requir
 **Persist data in state:**
 
 ```bash
-playwriter -e "state.users = await page.$$eval('.user', els => els.map(e => e.textContent))"
-playwriter -e "console.log(state.users)"
+tabwright -e "state.users = await page.$$eval('.user', els => els.map(e => e.textContent))"
+tabwright -e "console.log(state.users)"
 ```
 
 **Intercept network requests:**
 
 ```bash
-playwriter -e "state.requests = []; page.on('response', r => { if (r.url().includes('/api/')) state.requests.push(r.url()) })"
-playwriter -e "await Promise.all([page.waitForResponse(r => r.url().includes('/api/')), page.click('button')])"
-playwriter -e "console.log(state.requests)"
+tabwright -e "state.requests = []; page.on('response', r => { if (r.url().includes('/api/')) state.requests.push(r.url()) })"
+tabwright -e "await Promise.all([page.waitForResponse(r => r.url().includes('/api/')), page.click('button')])"
+tabwright -e "console.log(state.requests)"
 ```
 
 **Set breakpoints and debug:**
 
 ```bash
-playwriter -e "state.cdp = await getCDPSession({ page }); state.dbg = createDebugger({ cdp: state.cdp }); await state.dbg.enable()"
-playwriter -e "state.scripts = await state.dbg.listScripts({ search: 'app' }); console.log(state.scripts.map(s => s.url))"
-playwriter -e "await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42 })"
+tabwright -e "state.cdp = await getCDPSession({ page }); state.dbg = createDebugger({ cdp: state.cdp }); await state.dbg.enable()"
+tabwright -e "state.scripts = await state.dbg.listScripts({ search: 'app' }); console.log(state.scripts.map(s => s.url))"
+tabwright -e "await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42 })"
 ```
 
 **Live edit page code:**
 
 ```bash
-playwriter -e "state.cdp = await getCDPSession({ page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable()"
-playwriter -e "await state.editor.edit({ url: 'https://example.com/app.js', oldString: 'const DEBUG = false', newString: 'const DEBUG = true' })"
+tabwright -e "state.cdp = await getCDPSession({ page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable()"
+tabwright -e "await state.editor.edit({ url: 'https://example.com/app.js', oldString: 'const DEBUG = false', newString: 'const DEBUG = true' })"
 ```
 
 **Screenshot with labels:**
 
 ```bash
-playwriter -e "await screenshotWithAccessibilityLabels({ page })"
+tabwright -e "await screenshotWithAccessibilityLabels({ page })"
 ```
 
 ## MCP Setup
@@ -191,7 +187,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Playwright MCP
 
-|               | Playwright MCP    | Playwriter                        |
+|               | Playwright MCP    | Tabwright                        |
 | ------------- | ----------------- | --------------------------------- |
 | Browser       | Spawns new Chrome | **Uses your Chrome**              |
 | Extensions    | None              | Your existing ones                |
@@ -199,7 +195,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | Bot detection | Always detected   | Can bypass (disconnect extension) |
 | Collaboration | Separate window   | Same browser as user              |
 
-|                 | Playwright CLI      | Playwriter                    |
+|                 | Playwright CLI      | Tabwright                    |
 | --------------- | ------------------- | ----------------------------- |
 | Browser         | Spawns new browser  | **Uses your Chrome**          |
 | Login state     | Fresh               | Already logged in             |
@@ -211,7 +207,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs BrowserMCP
 
-|               | BrowserMCP          | Playwriter               |
+|               | BrowserMCP          | Tabwright               |
 | ------------- | ------------------- | ------------------------ |
 | Tools         | 12+ dedicated tools | 1 `execute` tool         |
 | API           | Limited actions     | Full Playwright          |
@@ -220,7 +216,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Antigravity (Jetski)
 
-|          | Jetski                       | Playwriter       |
+|          | Jetski                       | Tabwright       |
 | -------- | ---------------------------- | ---------------- |
 | Tools    | 17+ tools                    | 1 tool           |
 | Subagent | Spawns for each browser task | Direct execution |
@@ -228,7 +224,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Claude Browser Extension
 
-|                      | Claude Extension     | Playwriter              |
+|                      | Claude Extension     | Tabwright              |
 | -------------------- | -------------------- | ----------------------- |
 | Agent support        | Claude only          | Any MCP client          |
 | Windows WSL          | No                   | Yes                     |
@@ -241,7 +237,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Built-in Chrome CDP (`--remote-debugging-port`)
 
-|                       | Built-in CDP                          | Playwriter                   |
+|                       | Built-in CDP                          | Tabwright                   |
 | --------------------- | ------------------------------------- | ---------------------------- |
 | Setup                 | Restart Chrome with special flags     | Click extension icon         |
 | Confirmation dialog   | Shows automation infobar agents can't dismiss | No blocking dialog   |
@@ -249,7 +245,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | User disruption       | Banners appear mid-workflow           | Silent — no interruption     |
 | Existing session      | Must relaunch Chrome (lose state)     | Uses your running browser    |
 
-> Chrome's `--remote-debugging-port` flag shows a persistent "controlled by automated software" banner that agents cannot dismiss. It pops up in the middle of your workflow whenever you're using the browser. Playwriter runs silently — agents work autonomously without any confirmation dialogs, so you're never interrupted.
+> Chrome's `--remote-debugging-port` flag shows a persistent "controlled by automated software" banner that agents cannot dismiss. It pops up in the middle of your workflow whenever you're using the browser. Tabwright runs silently — agents work autonomously without any confirmation dialogs, so you're never interrupted.
 
 ## Architecture
 
@@ -277,18 +273,18 @@ Control Chrome on a remote machine over the internet using [traforo](https://tra
 **On host:**
 
 ```bash
-npx -y traforo -p 19988 -t my-machine -- npx -y playwriter serve --token <secret>
+npx -y traforo -p 19988 -t my-machine -- npx -y tabwright serve --token <secret>
 ```
 
 **From remote:**
 
 ```bash
-export PLAYWRITER_HOST=https://my-machine-tunnel.traforo.dev
-export PLAYWRITER_TOKEN=<secret>
-playwriter -s 1 -e 'await page.goto("https://example.com")'
+export TABWRIGHT_HOST=https://my-machine-tunnel.traforo.dev
+export TABWRIGHT_TOKEN=<secret>
+tabwright -s 1 -e 'await page.goto("https://example.com")'
 ```
 
-Also works on a LAN without traforo (`PLAYWRITER_HOST=192.168.1.10`). Full guide with use cases (remote Mac mini, user support, multi-machine control): [docs/remote-access.md](./docs/remote-access.md)
+Also works on a LAN without traforo (`TABWRIGHT_HOST=192.168.1.10`). Full guide with use cases (remote Mac mini, user support, multi-machine control): [docs/remote-access.md](./docs/remote-access.md)
 
 ## Security
 
@@ -304,9 +300,9 @@ Connect programmatically (without CLI):
 
 ```typescript
 import { chromium } from 'playwright-core'
-import { startPlayWriterCDPRelayServer, getCdpUrl } from 'playwriter'
+import { startTabwrightCDPRelayServer, getCdpUrl } from 'tabwright'
 
-const server = await startPlayWriterCDPRelayServer()
+const server = await startTabwrightCDPRelayServer()
 const browser = await chromium.connectOverCDP(getCdpUrl())
 const page = browser.contexts()[0].pages()[0]
 
@@ -319,7 +315,7 @@ server.close()
 Or connect to a running server:
 
 ```bash
-npx -y playwriter serve --host 127.0.0.1
+npx -y tabwright serve --host 127.0.0.1
 ```
 
 ```typescript
@@ -331,28 +327,28 @@ const browser = await chromium.connectOverCDP('http://127.0.0.1:19988')
 Start with the readiness check. It reports relay, extension, enabled-tab, session, and capability status, then prints the single best next step:
 
 ```bash
-playwriter doctor
-playwriter doctor --json  # machine-readable output for agents and support tools
+tabwright doctor
+tabwright doctor --json  # machine-readable output for agents and support tools
 ```
 
 View relay server logs to debug issues:
 
 ```bash
-playwriter logfile  # prints the log file path
-# typically: ~/.playwriter/relay-server.log
+tabwright logfile  # prints the log file path
+# typically: ~/.tabwright/relay-server.log
 ```
 
-The relay log contains extension, MCP and WebSocket server logs. A separate CDP JSONL log is also created alongside it (see `playwriter logfile`). Both are recreated on each server start.
+The relay log contains extension, MCP and WebSocket server logs. A separate CDP JSONL log is also created alongside it (see `tabwright logfile`). Both are recreated on each server start.
 
 Example: summarize CDP traffic counts by direction + method:
 
 ```bash
-jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
+jq -r '.direction + "\t" + (.message.method // "response")' ~/.tabwright/cdp.jsonl | uniq -c
 ```
 
 ## Support
 
-If Playwriter is useful to you, consider [sponsoring the project](https://github.com/sponsors/remorses).
+If Tabwright is useful to you, consider [sponsoring the project](https://github.com/sponsors/remorses).
 
 ## Known Issues
 

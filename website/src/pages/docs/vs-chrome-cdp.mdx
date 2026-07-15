@@ -1,7 +1,7 @@
 ---
-title: Playwriter vs Chrome Direct CDP
+title: Tabwright vs Chrome Direct CDP
 sidebarTitle: vs Chrome Direct CDP
-description: Why Chrome's built-in CDP remote debugging is impractical for agents, and how Playwriter solves it.
+description: Why Chrome's built-in CDP remote debugging is impractical for agents, and how Tabwright solves it.
 icon: lucide:shield-alert
 ---
 
@@ -28,9 +28,9 @@ on its own. The user must be present, watching, and ready to click every time th
 reconnects. If Chrome restarts, the dialog appears again. If the connection drops, the dialog
 appears again.
 
-## How Playwriter avoids the dialog
+## How Tabwright avoids the dialog
 
-Playwriter uses a Chrome extension with `chrome.debugger` permissions instead of external CDP
+Tabwright uses a Chrome extension with `chrome.debugger` permissions instead of external CDP
 connections. The extension runs **inside Chrome**, so it never triggers the remote debugging
 permission dialog. The user clicks the extension icon once on a tab, and the agent has full
 CDP access from that point forward.
@@ -39,7 +39,7 @@ No flags, no Chrome restart, no recurring permission prompts.
 
 ## Comparison
 
-|  | Chrome Direct CDP | Playwriter |
+|  | Chrome Direct CDP | Tabwright |
 |---|---|---|
 | Permission dialog | Every connection | Never |
 | Autonomous agents | Blocked by dialog | Works unattended |
@@ -59,18 +59,18 @@ To use Chrome's built-in CDP, you need to either:
 Both approaches expose a WebSocket endpoint that automation tools can connect to.
 But the moment any tool connects, Chrome shows the "Allow remote debugging?" dialog.
 
-With Playwriter's `--direct` mode, you can still use Chrome's built-in CDP when you
+With Tabwright's `--direct` mode, you can still use Chrome's built-in CDP when you
 need it (for example, to access all open tabs at once). But for most agent workflows,
 the extension mode is better because it avoids the dialog entirely.
 
 ```bash
 # Extension mode (recommended): no dialog, no flags
-playwriter session new
-playwriter -s 1 -e "page.goto('https://example.com')"
+tabwright session new
+tabwright -s 1 -e "page.goto('https://example.com')"
 
 # Direct mode: uses built-in CDP, dialog appears once
-playwriter session new --direct
-playwriter -s 1 -e "page.goto('https://example.com')"
+tabwright session new --direct
+tabwright -s 1 -e "page.goto('https://example.com')"
 ```
 
 ## Why this matters for agents
@@ -79,7 +79,7 @@ AI agents need to operate **without human babysitting.** A permission dialog tha
 a click defeats the purpose. The agent can't proceed until someone is there to approve it,
 and there's no API to auto-accept the dialog.
 
-With Playwriter, the user enables the extension on the tabs they want controlled, then walks
+With Tabwright, the user enables the extension on the tabs they want controlled, then walks
 away. The agent can reconnect, navigate, and automate freely. If Chrome restarts, the
 extension reconnects automatically when the user opens Chrome again. No dialog, no flags,
 no friction.

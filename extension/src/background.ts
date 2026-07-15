@@ -1,5 +1,5 @@
-declare const process: { env: { PLAYWRITER_PORT: string } }
-// Injected by vite at build time from playwriter/package.json version.
+declare const process: { env: { TABWRIGHT_PORT: string; PLAYWRITER_PORT: string } }
+// Injected by vite at build time from tabwright/package.json version.
 // CLI/MCP compare this against their own version to warn when the extension is outdated.
 declare const __PLAYWRITER_VERSION__: string
 // Bundled automation builds should not burn a tab on the welcome page, especially
@@ -10,8 +10,8 @@ import dedent from 'string-dedent'
 const js = dedent
 import { createStore } from 'zustand/vanilla'
 import type { ExtensionState, ConnectionState, RelayReviewState, TabState, TabInfo } from './types'
-import { initPlaywriterToolbar, initPlaywriterToolbarBridge } from './toolbar/toolbar'
-import type { CDPEvent, Protocol } from 'playwriter/src/cdp-types'
+import { initTabwrightToolbar, initTabwrightToolbarBridge } from './toolbar/toolbar'
+import type { CDPEvent, Protocol } from 'tabwright/src/cdp-types'
 import {
   CURRENT_EXTENSION_FEATURES,
   VERSION as EXTENSION_PROTOCOL_VERSION,
@@ -20,15 +20,15 @@ import {
   type ToolbarRecordingAction,
   type ToolbarRecordingResponseMessage,
   type ToolbarRecordingResult,
-} from 'playwriter/src/protocol'
-import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
+} from 'tabwright/src/protocol'
+import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'tabwright/src/ghost-browser'
 import { getRelayReviewIssue, RelayConnectionProblemError, relayIssueText, relayReviewIssueText } from './relay-warning'
 import { ConnectionOwnership } from './connection-ownership'
-// Inlined at build time via vite ?raw. Source: playwriter/src/ghost-cursor-client.ts
-import ghostCursorBundleCode from '../../playwriter/dist/ghost-cursor-client.js?raw'
+// Inlined at build time via vite ?raw. Source: tabwright/src/ghost-cursor-client.ts
+import ghostCursorBundleCode from '../../tabwright/dist/ghost-cursor-client.js?raw'
 // Bippy: React fiber introspection library, used for "Copy React Source Path" context menu.
-// Built by playwriter/scripts/build-client-bundles.ts, exposes globalThis.__bippy
-import bippyBundleCode from '../../playwriter/dist/bippy.js?raw'
+// Built by tabwright/scripts/build-client-bundles.ts, exposes globalThis.__bippy
+import bippyBundleCode from '../../tabwright/dist/bippy.js?raw'
 import {
   handleStartRrwebRecording,
   handleStopRrwebRecording,
@@ -41,7 +41,7 @@ import {
 } from './rrweb-recording'
 
 const RELAY_HOST = '127.0.0.1'
-const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
+const RELAY_PORT = Number(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT) || 19988
 
 // CDP commands that should return near-instantly on a healthy tab. If a tab is
 // frozen/hibernated (e.g. Ghost Browser suspended tabs), chrome.debugger.sendCommand
@@ -286,7 +286,7 @@ async function getExtensionIdentity(): Promise<ExtensionIdentity> {
 }
 
 const TAB_GROUP_COLOR: chrome.tabGroups.ColorEnum = 'green'
-const TAB_GROUP_TITLE = 'playwriter'
+const TAB_GROUP_TITLE = 'Tabwright'
 
 let childSessions: Map<string, { tabId: number; targetId?: string }> = new Map()
 let nextSessionId = 1
@@ -355,11 +355,11 @@ function requestToolbarRecording(options: {
 }): Promise<ToolbarRecordingResult> {
   const sessionId = getToolbarTabSessionId(options.sender)
   if (!sessionId) {
-    return Promise.resolve({ success: false, isRecording: false, error: 'Playwriter tab is not connected' })
+    return Promise.resolve({ success: false, isRecording: false, error: 'Tabwright tab is not connected' })
   }
 
   if (connectionManager.ws?.readyState !== WebSocket.OPEN) {
-    return Promise.resolve({ success: false, isRecording: false, error: 'Playwriter relay is not connected' })
+    return Promise.resolve({ success: false, isRecording: false, error: 'Tabwright relay is not connected' })
   }
 
   const requestId = `toolbar-recording-${Date.now()}-${nextToolbarRecordingRequestId++}`
@@ -414,7 +414,7 @@ function handleToolbarRecordingPortMessage(options: {
       port: options.port,
       response: {
         requestId: options.message.requestId,
-        result: { success: false, isRecording: false, error: 'Playwriter toolbar port has no sender' },
+        result: { success: false, isRecording: false, error: 'Tabwright toolbar port has no sender' },
       },
     })
     return
@@ -475,7 +475,7 @@ function injectToolbar(tabId: number): void {
     .executeScript({
       target: { tabId, allFrames: false },
       world: 'ISOLATED',
-      func: initPlaywriterToolbarBridge,
+      func: initTabwrightToolbarBridge,
     })
     .catch((err: Error) => {
       logger.debug('Could not inject toolbar bridge (restricted page):', err.message)
@@ -484,7 +484,7 @@ function injectToolbar(tabId: number): void {
       return chrome.scripting.executeScript({
         target: { tabId, allFrames: false },
         world: 'MAIN',
-        func: initPlaywriterToolbar,
+        func: initTabwrightToolbar,
       })
     })
     .catch((err: Error) => {
@@ -517,7 +517,7 @@ class ConnectionManager {
     }
 
     if (store.getState().connectionState === 'extension-replaced') {
-      throw new Error('Another Playwriter extension is already connected')
+      throw new Error('Another Tabwright extension is already connected')
     }
 
     // Reuse in-progress connection attempt - prevents races between user clicks and maintain loop
@@ -806,7 +806,7 @@ class ConnectionManager {
 
       // Handle Ghost Browser API commands
       // This allows calling chrome.ghostPublicAPI, chrome.ghostProxies, chrome.projects
-      // from the playwriter executor sandbox when running in Ghost Browser
+      // from the Tabwright executor sandbox when running in Ghost Browser
       if (message.method === 'ghost-browser') {
         const params = message.params as GhostBrowserCommandParams
         const result = await handleGhostBrowserCommand(params, chrome)
@@ -865,7 +865,7 @@ class ConnectionManager {
     }
 
     const { reason, code } = options
-    rejectToolbarRecordingRequests(new Error(`Playwriter relay disconnected: ${reason || code}`))
+    rejectToolbarRecordingRequests(new Error(`Tabwright relay disconnected: ${reason || code}`))
 
     // Log memory at disconnect time to help diagnose memory-related terminations
     try {
@@ -901,21 +901,21 @@ class ConnectionManager {
     // Code 4001: Another extension replaced this one (this extension was idle)
     // Code 4002: This extension tried to connect but another is actively in use
     if (isExtensionReplaced) {
-      logger.debug('Disconnected: another Playwriter extension connected (this one was idle)')
+      logger.debug('Disconnected: another Tabwright extension connected (this one was idle)')
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Playwriter extension took over the connection',
+        errorText: 'Another Tabwright extension took over the connection',
       })
       return
     }
 
     if (isExtensionInUse) {
-      logger.debug('Rejected: another Playwriter extension is actively in use')
+      logger.debug('Rejected: another Tabwright extension is actively in use')
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Playwriter extension is actively in use',
+        errorText: 'Another Tabwright extension is actively in use',
       })
       return
     }
@@ -941,7 +941,7 @@ class ConnectionManager {
         continue
       }
 
-      // When another Playwriter extension took over, poll until no same-key replacement is
+      // When another Tabwright extension took over, poll until no same-key replacement is
       // connected anymore. Reclaiming while another worker is merely idle is racy: a fresh
       // replacement reports activeTargets=0 before it re-attaches tabs, so the old worker can
       // steal the slot back and disconnect the live browser instance.
@@ -1033,7 +1033,7 @@ class ConnectionManager {
         } else if (errorMessage === 'Extension Already In Use') {
           store.setState({
             connectionState: 'extension-replaced',
-            errorText: 'Another Playwriter extension is actively in use',
+            errorText: 'Another Tabwright extension is actively in use',
           })
         } else {
           store.setState({ connectionState: 'idle' })
@@ -1227,7 +1227,7 @@ async function syncTabGroup(): Promise<void> {
     // Always query by title - no cached ID that can go stale
     const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
 
-    // If no connected tabs, clear any existing playwriter groups
+    // If no connected tabs, clear any existing Tabwright groups
     if (connectedTabIds.length === 0) {
       for (const group of existingGroups) {
         const tabsInGroup = await chrome.tabs.query({ groupId: group.id })
@@ -1235,7 +1235,7 @@ async function syncTabGroup(): Promise<void> {
         if (tabIdsToUngroup.length > 0) {
           await chrome.tabs.ungroup(tabIdsToUngroup)
         }
-        logger.debug('Cleared playwriter group:', group.id)
+        logger.debug('Cleared Tabwright group:', group.id)
       }
       return
     }
@@ -1251,7 +1251,7 @@ async function syncTabGroup(): Promise<void> {
         if (tabIdsToUngroup.length > 0) {
           await chrome.tabs.ungroup(tabIdsToUngroup)
         }
-        logger.debug('Removed duplicate playwriter group:', group.id)
+        logger.debug('Removed duplicate Tabwright group:', group.id)
       }
     }
 
@@ -1887,7 +1887,7 @@ async function connectTab(tabId: number): Promise<void> {
     // Extension in use: set global 'extension-replaced' state to enter polling mode
     const isExtensionInUse =
       errorMessage === 'Extension Already In Use' ||
-      errorMessage === 'Another Playwriter extension is already connected'
+      errorMessage === 'Another Tabwright extension is already connected'
 
     const isWsError = errorMessage === 'Connection timeout' || errorMessage.startsWith('WebSocket')
 
@@ -1899,7 +1899,7 @@ async function connectTab(tabId: number): Promise<void> {
         return {
           tabs: newTabs,
           connectionState: 'extension-replaced',
-          errorText: 'Another Playwriter extension is actively in use',
+          errorText: 'Another Tabwright extension is actively in use',
         }
       })
     } else if (error instanceof RelayConnectionProblemError || isWsError) {
@@ -2092,7 +2092,7 @@ const icons = {
       '48': '/icons/icon-gray-48.png',
       '128': '/icons/icon-gray-128.png',
     },
-    title: 'Another Playwriter extension connected - Click to retry',
+    title: 'Another Tabwright extension connected - Click to retry',
     badgeText: '!',
     badgeColor: [220, 38, 38, 255] as [number, number, number, number],
   },
@@ -2212,7 +2212,7 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   const { tabs, connectionState } = store.getState()
   const tabInfo = tabs.get(tab.id)
 
-  // If another Playwriter extension took over, clear error state and try to reconnect this tab
+  // If another Tabwright extension took over, clear error state and try to reconnect this tab
   if (connectionState === 'extension-replaced') {
     logger.debug('Clearing extension-replaced state, attempting to reconnect')
     store.setState({ connectionState: 'idle', errorText: undefined })
@@ -2254,7 +2254,7 @@ chrome.contextMenus
   .finally(() => {
     chrome.contextMenus?.create({
       id: 'playwriter-pin-element',
-      title: 'Copy Playwriter Element Reference',
+      title: 'Copy Tabwright Element Reference',
       contexts: ['all'],
       visible: false,
     })
@@ -2372,7 +2372,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     // Queue tab group operations to serialize with syncTabGroup and disconnectEverything
     tabGroupQueue = tabGroupQueue
       .then(async () => {
-        // Query for playwriter group by title - no stale cached ID
+        // Query for Tabwright group by title - no stale cached ID
         const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
         const groupId = existingGroups[0]?.id
         if (groupId === undefined) {
@@ -2381,7 +2381,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         const { tabs } = store.getState()
         if (changeInfo.groupId === groupId) {
           if (!tabs.has(tabId) && !isRestrictedUrl(tab.url)) {
-            logger.debug('Tab manually added to playwriter group:', tabId)
+            logger.debug('Tab manually added to Tabwright group:', tabId)
             await connectTab(tabId)
           }
         } else if (tabs.has(tabId)) {
@@ -2390,7 +2390,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             logger.debug('Tab removed from group while connecting, ignoring:', tabId)
             return
           }
-          logger.debug('Tab manually removed from playwriter group:', tabId)
+          logger.debug('Tab manually removed from Tabwright group:', tabId)
           await disconnectTab(tabId)
         }
       })
@@ -2415,11 +2415,11 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
   }, 10000)
 })
 
-// Relocate popup windows opened by a Playwriter-connected tab into the
-// source tab's window as a regular tab, since Playwriter cannot attach
+// Relocate popup windows opened by a Tabwright-connected tab into the
+// source tab's window as a regular tab, since Tabwright cannot attach
 // its debugger to separate popup windows. When the source tab is NOT
 // connected, leave the popup alone so unrelated sites keep normal Chrome
-// popup behavior. After relocation, auto-attach Playwriter to the new
+// popup behavior. After relocation, auto-attach Tabwright to the new
 // tab so it appears in context.pages().
 chrome.windows.onCreated.addListener(async (popupWindow) => {
   if (popupWindow.type !== 'popup' || popupWindow.id === undefined) {
@@ -2458,7 +2458,7 @@ chrome.windows.onCreated.addListener(async (popupWindow) => {
     }
     if (sourceTabId === undefined) {
       logger.debug(
-        `Popup window ${popupWindow.id} not opened by a Playwriter-connected tab, leaving alone (tabs=${JSON.stringify(tabIds)})`,
+        `Popup window ${popupWindow.id} not opened by a Tabwright-connected tab, leaving alone (tabs=${JSON.stringify(tabIds)})`,
       )
       return
     }
@@ -2551,7 +2551,7 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
       }
 
       const code = buildPinnedElementInspectionCode({ pinName: name, url: tab.url || '' })
-      const clipboardText = "playwriter -e '" + code + "'"
+      const clipboardText = "tabwright -e '" + code + "'"
 
       const jsPinFlashAndCopy = js`
         (() => {
@@ -2794,7 +2794,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Re-inject the toolbar after hard navigations in connected tabs.
 // The MAIN-world script is destroyed on every full page load, so we re-run
-// initPlaywriterToolbar once the new document's DOM is ready.
+// initTabwrightToolbar once the new document's DOM is ready.
 // onDOMContentLoaded is used instead of onCommitted because executeScript
 // with world:'MAIN' needs the document to exist before injecting.
 // Note: SPA route changes (pushState/replaceState) don't trigger this because

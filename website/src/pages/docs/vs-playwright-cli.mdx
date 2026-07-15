@@ -1,5 +1,5 @@
 ---
-title: Playwriter vs Playwright CLI
+title: Tabwright vs Playwright CLI
 sidebarTitle: vs Playwright CLI
 description: Full Playwright API in your real browser instead of a fresh instance.
 icon: lucide:terminal
@@ -9,11 +9,11 @@ The Playwright CLI (`npx playwright`) launches a new browser for testing and aut
 It's great for CI/CD pipelines and test suites, but for agent-driven browser control
 it has the same fresh-browser limitations as Playwright MCP.
 
-Playwriter gives you the **full Playwright API** but runs it against your existing Chrome.
+Tabwright gives you the **full Playwright API** but runs it against your existing Chrome.
 
 ## Comparison
 
-|  | Playwright CLI | Playwriter |
+|  | Playwright CLI | Tabwright |
 |---|---|---|
 | Browser | Spawns new browser | Uses your Chrome |
 | Login state | Fresh (logged out) | Already logged in |
@@ -26,35 +26,35 @@ Playwriter gives you the **full Playwright API** but runs it against your existi
 
 ## Same API, different browser
 
-Playwriter uses the same Playwright API you already know. The difference is where it runs.
+Tabwright uses the same Playwright API you already know. The difference is where it runs.
 Instead of spawning a new browser, your code controls the browser you're already using.
 
 ```bash
 # Playwright CLI: fresh browser, no state
 npx playwright screenshot https://example.com shot.png
 
-# Playwriter: your browser, your cookies, your extensions
-playwriter -s 1 -e "page.screenshot({ path: './shot.png', scale: 'css' })"
+# Tabwright: your browser, your cookies, your extensions
+tabwright -s 1 -e "page.screenshot({ path: './shot.png', scale: 'css' })"
 ```
 
 ## Raw CDP access
 
-Playwriter exposes the full Chrome DevTools Protocol through `getCDPSession`. This lets
+Tabwright exposes the full Chrome DevTools Protocol through `getCDPSession`. This lets
 agents set breakpoints, profile performance, intercept network requests, and live-edit
 page scripts. The Playwright CLI doesn't expose CDP at all.
 
 ```bash
-playwriter -s 1 -e "state.cdp = getCDPSession({ page })"
-playwriter -s 1 -e "state.cdp.send('Performance.getMetrics').then(console.log)"
+tabwright -s 1 -e "state.cdp = getCDPSession({ page })"
+tabwright -s 1 -e "state.cdp.send('Performance.getMetrics').then(console.log)"
 ```
 
 ## Video recording
 
-Playwright CLI records via tracing (file-based, low FPS). Playwriter uses
+Playwright CLI records via tracing (file-based, low FPS). Tabwright uses
 `chrome.tabCapture` for native 30-60fps recording that survives page navigation.
 
 ```bash
-playwriter -s 1 -e "recording.start({ page, outputPath: './demo.mp4' })"
-playwriter -s 1 -e "page.click('a'); page.waitForLoadState('domcontentloaded')"
-playwriter -s 1 -e "recording.stop({ page })"
+tabwright -s 1 -e "recording.start({ page, outputPath: './demo.mp4' })"
+tabwright -s 1 -e "page.click('a'); page.waitForLoadState('domcontentloaded')"
+tabwright -s 1 -e "recording.stop({ page })"
 ```

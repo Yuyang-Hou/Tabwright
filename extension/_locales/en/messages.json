@@ -1,5 +1,5 @@
 {
-  "app_title": { "message": "Playwriter" },
+  "app_title": { "message": "Tabwright" },
   "app_subtitle": { "message": "Local browser automation cockpit" },
   "extension_description": {
     "message": "Automate your browser using Cursor, Claude, VS Code. More capable and context efficient than Playwright MCP."
@@ -101,13 +101,13 @@
   "error_invalid_capabilities": { "message": "Invalid capabilities response" },
   "relay_review_warning_title": { "message": "Saved data is temporarily unavailable" },
   "relay_review_outdated": {
-    "message": "Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Playwriter, then refresh."
+    "message": "Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Tabwright, then refresh."
   },
   "relay_review_unavailable": {
-    "message": "Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Playwriter, then refresh."
+    "message": "Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Tabwright, then refresh."
   },
   "lifecycle_unsupported": {
-    "message": "This extension cannot interpret the capability lifecycle. Update Playwriter before running it."
+    "message": "This extension cannot interpret the capability lifecycle. Update Tabwright before running it."
   },
   "empty_no_replays": { "message": "No DOM replays yet." },
   "empty_no_capabilities": { "message": "No capabilities yet." },
@@ -221,5 +221,58 @@
   "open_capability_aria": {
     "message": "Open capability $id$",
     "placeholders": { "id": { "content": "$1" } }
+  },
+  "auth_title": { "message": "Browser authentication" },
+  "auth_status_missing": { "message": "Not authenticated" },
+  "auth_status_authenticated": { "message": "Authenticated" },
+  "auth_status_expiring": { "message": "Expires soon" },
+  "auth_status_expired": { "message": "Authentication expired" },
+  "auth_status_unknown": { "message": "Status unknown" },
+  "auth_description_missing": {
+    "message": "Connect your current Chrome login before validating or running this capability."
+  },
+  "auth_description_authenticated": {
+    "message": "Authentication is saved locally and ready for this capability."
+  },
+  "auth_description_expiring": {
+    "message": "Authentication expires within 24 hours. Refresh it to avoid failed runs."
+  },
+  "auth_description_expired": {
+    "message": "The saved login has expired or the latest run reported an authentication failure."
+  },
+  "auth_description_unknown": { "message": "Refresh the saved login to inspect its current cookie expiry." },
+  "auth_domains": { "message": "Cookie scope" },
+  "auth_last_refreshed": { "message": "Last authenticated" },
+  "auth_expires": { "message": "Cookie expiry" },
+  "auth_expiry_unknown": { "message": "Session or server-managed" },
+  "auth_action_connect": { "message": "Authenticate with current Chrome" },
+  "auth_action_refresh": { "message": "Refresh authentication" },
+  "auth_confirm_title": { "message": "Allow browser authentication?" },
+  "auth_confirm_description": {
+    "message": "Tabwright will read cookies only for the domains below and save them locally for this capability."
+  },
+  "auth_privacy": {
+    "message": "Cookie values stay on this device and are never included when the capability is shared."
+  },
+  "auth_confirm_action": { "message": "Allow and authenticate" },
+  "auth_cancel_action": { "message": "Cancel" },
+  "auth_progress": {
+    "message": "Authenticating $capability$...",
+    "placeholders": { "capability": { "content": "$1" } }
+  },
+  "auth_success": {
+    "message": "$capability$ authentication updated",
+    "placeholders": { "capability": { "content": "$1" } }
+  },
+  "auth_error_generic": {
+    "message": "Authentication failed: $error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "auth_error_browser_not_connected": { "message": "This Chrome profile is not connected to Tabwright." },
+  "auth_error_multiple_profiles": {
+    "message": "Multiple Chrome profiles are connected. Retry from the profile that opened this page."
+  },
+  "auth_error_no_enabled_tab": {
+    "message": "Enable Tabwright on a normal browser tab, then retry authentication."
   }
 }

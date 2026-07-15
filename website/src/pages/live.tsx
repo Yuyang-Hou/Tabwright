@@ -51,7 +51,7 @@ export default function LivePage() {
   return (
     <>
       <Head>
-        <title>Live Browser View | Playwriter</title>
+        <title>Live Browser View | Tabwright</title>
         <meta name="description" content="Watch and interact with a remote browser session in real time." />
       </Head>
 

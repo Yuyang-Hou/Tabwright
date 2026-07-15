@@ -4,15 +4,15 @@ description: All CLI commands, flags, and usage patterns for controlling Chrome 
 icon: lucide:terminal
 ---
 
-The Playwriter CLI sends Playwright code to your browser through a local WebSocket relay. Every command connects to the relay on `localhost:19988`, which the extension also connects to. No servers, no accounts.
+The Tabwright CLI sends Playwright code to your browser through a local WebSocket relay. Every command connects to the relay on `localhost:19988`, which the extension also connects to. No servers, no accounts.
 
 ## Readiness check
 
 When setup state is unclear, start here:
 
 ```bash
-playwriter doctor
-playwriter doctor --json
+tabwright doctor
+tabwright doctor --json
 ```
 
 The check covers the relay, Chrome extension, enabled tabs, active sessions, and capabilities visible from the current directory. It reports startup failures instead of crashing and waits briefly for the extension after starting a relay. It ends with one concrete next action and never tells an agent to reuse a session it may not own.
@@ -20,10 +20,10 @@ The check covers the relay, Chrome extension, enabled tabs, active sessions, and
 ## Execute code
 
 ```bash
-playwriter -s <sessionId> -e "<code>"
+tabwright -s <sessionId> -e "<code>"
 ```
 
-The `-s` flag specifies a **session ID** (required). Get one with `playwriter session new`. The `-e` flag takes JavaScript code that runs in a sandboxed Playwright environment.
+The `-s` flag specifies a **session ID** (required). Get one with `tabwright session new`. The `-e` flag takes JavaScript code that runs in a sandboxed Playwright environment.
 
 <Aside>
 <Note>
@@ -33,19 +33,19 @@ Always use **single quotes** for `-e` to prevent bash from interpreting `$`, bac
 
 ```bash
 # Navigate
-playwriter -s 1 -e 'await page.goto("https://example.com")'
+tabwright -s 1 -e 'await page.goto("https://example.com")'
 
 # Click
-playwriter -s 1 -e 'await page.locator("button").click()'
+tabwright -s 1 -e 'await page.locator("button").click()'
 
 # Get title
-playwriter -s 1 -e 'console.log(await page.title())'
+tabwright -s 1 -e 'console.log(await page.title())'
 
 # Screenshot
-playwriter -s 1 -e 'await page.screenshot({ path: "/tmp/shot.png", scale: "css" })'
+tabwright -s 1 -e 'await page.screenshot({ path: "/tmp/shot.png", scale: "css" })'
 
 # Accessibility snapshot
-playwriter -s 1 -e 'console.log(await snapshot({ page }))'
+tabwright -s 1 -e 'console.log(await snapshot({ page }))'
 ```
 
 ### Multiline code
@@ -53,7 +53,7 @@ playwriter -s 1 -e 'console.log(await snapshot({ page }))'
 Use a **heredoc** for complex scripts:
 
 ```bash
-playwriter -s 1 -e "$(cat <<'EOF'
+tabwright -s 1 -e "$(cat <<'EOF'
 const links = await page.$$eval('a', els => els.map(e => e.href));
 console.log('Found', links.length, 'links');
 const text = await page.locator('body').innerText();
@@ -65,7 +65,7 @@ EOF
 Or `$'...'` syntax for simpler multiline:
 
 ```bash
-playwriter -s 1 -e $'
+tabwright -s 1 -e $'
 const title = await page.title();
 const url = page.url();
 console.log({ title, url });
@@ -77,7 +77,7 @@ console.log({ title, url });
 For longer scripts, use `-f`:
 
 ```bash
-playwriter -s 1 -f script.js
+tabwright -s 1 -f script.js
 ```
 
 The file runs in the same sandbox as `-e` with all context variables available.
@@ -87,20 +87,20 @@ The file runs in the same sandbox as `-e` with all context variables available.
 Each session is an **isolated sandbox** with its own `state` object. Browser tabs are shared across sessions, but state is not.
 
 ```bash
-playwriter session new              # create sandbox, outputs id (e.g. 1)
-playwriter session list             # show sessions + state keys
-playwriter session reset <id>       # reconnect if connection is stale
-playwriter session delete <id>      # remove session and clear state
+tabwright session new              # create sandbox, outputs id (e.g. 1)
+tabwright session list             # show sessions + state keys
+tabwright session reset <id>       # reconnect if connection is stale
+tabwright session delete <id>      # remove session and clear state
 ```
 
-`session new` automatically selects the only connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one profile has enabled tabs; otherwise it reports the available browser keys and you can retry with `playwriter session new --browser <key>`. When replacing an older relay, the CLI waits until the relay reports the current or a newer compatible package version before continuing.
+`session new` automatically selects the only connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one profile has enabled tabs; otherwise it reports the available browser keys and you can retry with `tabwright session new --browser <key>`. When replacing an older relay, the CLI waits until the relay reports the current or a newer compatible package version before continuing.
 
 ### Direct CDP connection
 
 Connect to Chrome's DevTools Protocol without the extension:
 
 ```bash
-playwriter session new --direct
+tabwright session new --direct
 ```
 
 This requires the user to accept a debugging approval dialog in Chrome. Enable debugging first at `chrome://inspect/#remote-debugging` or launch Chrome with `--remote-debugging-port=9222`.
@@ -110,9 +110,9 @@ This requires the user to accept a debugging approval dialog in Chrome. Enable d
 ## Browser management
 
 ```bash
-playwriter browser start              # auto-find and launch Chrome for Testing
-playwriter browser start /path/to/bin # launch specific binary
-playwriter browser list               # list all available browsers
+tabwright browser start              # auto-find and launch Chrome for Testing
+tabwright browser start /path/to/bin # launch specific binary
+tabwright browser list               # list all available browsers
 ```
 
 `browser start` launches Chrome with recording flags enabled and the bundled extension pre-loaded.
@@ -122,17 +122,17 @@ playwriter browser list               # list all available browsers
 Connect to a relay running on another machine:
 
 ```bash
-playwriter --host https://my-machine-tunnel.traforo.dev --token SECRET session new
-playwriter --host https://my-machine-tunnel.traforo.dev --token SECRET -s 1 -e "..."
+tabwright --host https://my-machine-tunnel.traforo.dev --token SECRET session new
+tabwright --host https://my-machine-tunnel.traforo.dev --token SECRET -s 1 -e "..."
 ```
 
 Or with environment variables:
 
 ```bash
-export PLAYWRITER_HOST=https://my-machine-tunnel.traforo.dev
-export PLAYWRITER_TOKEN=SECRET
-playwriter session new
-playwriter -s 1 -e 'await page.goto("https://example.com")'
+export TABWRIGHT_HOST=https://my-machine-tunnel.traforo.dev
+export TABWRIGHT_TOKEN=SECRET
+tabwright session new
+tabwright -s 1 -e 'await page.goto("https://example.com")'
 ```
 
 See [Remote Access](./remote-access.mdx) for the full guide.
@@ -142,9 +142,9 @@ See [Remote Access](./remote-access.mdx) for the full guide.
 Start the relay server explicitly (useful for remote access and Docker):
 
 ```bash
-playwriter serve --token MY_SECRET        # binds to 0.0.0.0, requires --token
-playwriter serve --host localhost         # binds to 127.0.0.1, no token needed
-playwriter serve --token MY_SECRET --replace  # kill existing server first
+tabwright serve --token MY_SECRET        # binds to 0.0.0.0, requires --token
+tabwright serve --host localhost         # binds to 127.0.0.1, no token needed
+tabwright serve --token MY_SECRET --replace  # kill existing server first
 ```
 
 The relay starts automatically when you use the CLI locally. Use `serve` explicitly when you need it running persistently for remote clients.
@@ -154,8 +154,8 @@ The relay starts automatically when you use the CLI locally. Use `serve` explici
 Inspect a capability contract before running it. If `requiresConfirmation` is true, stop and obtain explicit user approval for the concrete input and side effect. Only then repeat the exact capability id with `--confirm`:
 
 ```bash
-playwriter capability describe update-user --json
-playwriter capability run update-user --browser user --input-json '{"email":"a@example.com"}' --confirm update-user --json
+tabwright capability describe update-user --json
+tabwright capability run update-user --browser user --input-json '{"email":"a@example.com"}' --confirm update-user --json
 ```
 
 `--force` only allows draft execution or bypasses a browser URL match. It never bypasses confirmation. Browser capabilities that depend on the user's login must use `--browser user` or an explicit browser key; the default is headless.
@@ -165,9 +165,9 @@ playwriter capability run update-user --browser user --input-json '{"email":"a@e
 List saved demonstrations and inspect one before compiling it:
 
 ```bash
-playwriter replay list --limit 10 --json
-playwriter replay index <replay-id> --json
-playwriter replay make <replay-id> <capability-id> --force --goal 'repeat this workflow' --json
+tabwright replay list --limit 10 --json
+tabwright replay index <replay-id> --json
+tabwright replay make <replay-id> <capability-id> --force --goal 'repeat this workflow' --json
 ```
 
 `replay index --json` returns compact evidence: actions, fields, annotations, warnings, and selector hints remain, while bulky page text and interactive-element arrays become counts. Add `--full` when the complete evidence is required.
@@ -177,24 +177,24 @@ playwriter replay make <replay-id> <capability-id> --force --goal 'repeat this w
 Generated workflows are draft browser writes. Inspect the result, obtain explicit approval, then use the returned run command:
 
 ```bash
-playwriter capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '<json-input>' --json
+tabwright capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '<json-input>' --json
 ```
 
 ## Other commands
 
 ```bash
-playwriter doctor                         # check readiness and print the next step
-playwriter logfile                        # print log file path
-playwriter skill                          # print agent instructions
-playwriter completions install            # install shell completions (zsh/bash)
+tabwright doctor                         # check readiness and print the next step
+tabwright logfile                        # print log file path
+tabwright skill                          # print agent instructions
+tabwright completions install            # install shell completions (zsh/bash)
 ```
 
 ## Global flags
 
 | Flag | Description |
 |---|---|
-| `--host <host>` | Remote relay host (or `PLAYWRITER_HOST` env var) |
-| `--token <token>` | Auth token (or `PLAYWRITER_TOKEN` env var) |
+| `--host <host>` | Remote relay host (or `TABWRIGHT_HOST` env var) |
+| `--token <token>` | Auth token (or `TABWRIGHT_TOKEN` env var) |
 | `-s, --session <id>` | Session ID (required for `-e` and `-f`) |
 | `-e, --eval <code>` | Execute JavaScript and exit |
 | `-f, --file <path>` | Execute JavaScript from file |

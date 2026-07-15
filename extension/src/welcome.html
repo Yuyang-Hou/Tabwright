@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Welcome to Playwriter</title>
+    <title>Welcome to Tabwright</title>
     <style>
       :root {
         --color-bg: #ffffff;
@@ -275,7 +275,7 @@
   <body>
     <main>
       <section>
-        <h2>Getting Started with Playwriter</h2>
+        <h2>Getting Started with Tabwright</h2>
 
         <p>Control your browser via Playwright API. Uses extension + CLI. No context bloat.</p>
 
@@ -285,7 +285,7 @@
           <span class="step-number">1</span>
           <div class="step-content">
             <strong>Pin the extension</strong>
-            <p>Click the puzzle icon in Chrome's toolbar, then pin Playwriter so it's always visible.</p>
+            <p>Click the puzzle icon in Chrome's toolbar, then pin Tabwright so it's always visible.</p>
           </div>
         </div>
 
@@ -302,9 +302,9 @@
           <div class="step-content">
             <strong>Install the CLI and run a command</strong>
             <pre><code class="language-bash"># install the CLI globally
-npm i -g playwriter
+npm i -g tabwright
 # navigate to a URL in the active tab
-playwriter -s 1 -e "await page.goto('https://example.com')"</code></pre>
+tabwright -s 1 -e "await page.goto('https://example.com')"</code></pre>
           </div>
         </div>
 
@@ -312,22 +312,22 @@ playwriter -s 1 -e "await page.goto('https://example.com')"</code></pre>
           <span class="step-number">4</span>
           <div class="step-content">
             <strong>Add the skill to your agent</strong>
-            <p>Install the Playwriter skill so your agent can call the CLI:</p>
-            <pre><code class="language-bash"># add playwriter skill to your coding agent
-npx -y skills add remorses/playwriter</code></pre>
+            <p>Install the Tabwright skill so your agent can call the CLI:</p>
+            <pre><code class="language-bash"># install the skill bundled with this exact CLI build
+tabwright skill install --target codex</code></pre>
           </div>
         </div>
 
         <h3>CLI Examples</h3>
 
         <pre><code class="language-bash"># create a stateful sandbox, outputs session id (e.g. 1)
-playwriter session new
+tabwright session new
 # navigate to a URL
-playwriter -s 1 -e "await page.goto('https://example.com')"
+tabwright -s 1 -e "await page.goto('https://example.com')"
 # get the accessibility tree of the page
-playwriter -s 1 -e "console.log(await snapshot({ page }))"
+tabwright -s 1 -e "console.log(await snapshot({ page }))"
 # click an element by its accessibility reference
-playwriter -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
+tabwright -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
       </section>
 
       <section>
@@ -356,7 +356,7 @@ playwriter -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
         <h2>Privacy &amp; Security</h2>
 
         <p>
-          Playwriter MCP runs locally in your browser and does not send any data to external servers. All browser
+          Tabwright MCP runs locally in your browser and does not send any data to external servers. All browser
           control happens through the standard Chrome DevTools Protocol on your machine.
         </p>
       </section>
@@ -364,14 +364,11 @@ playwriter -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
       <section>
         <h2>MCP Setup (Optional)</h2>
 
-        <p>The CLI is the recommended way to use Playwriter. If you need MCP server setup, auto-configure it with:</p>
-
-        <pre><code class="language-bash"># auto-configure MCP server for your editor
-npx -y @playwriter/install-mcp playwriter@latest</code></pre>
+        <p>The CLI is the recommended way to use Tabwright. If you need MCP server setup, add <code>npx -y tabwright@latest</code> as an MCP server command.</p>
 
         <p>
           For full MCP instructions, see
-          <a href="https://github.com/remorses/playwriter/blob/main/MCP.md" target="_blank" rel="noopener noreferrer"
+          <a href="https://github.com/Yuyang-Hou/tabwright/blob/main/MCP.md" target="_blank" rel="noopener noreferrer"
             >MCP.md</a
           >.
         </p>
@@ -382,7 +379,7 @@ npx -y @playwriter/install-mcp playwriter@latest</code></pre>
 
         <p>
           For issues, feature requests, or contributions, visit the
-          <a href="https://github.com/remorses/playwriter" target="_blank" rel="noopener noreferrer">
+          <a href="https://github.com/Yuyang-Hou/tabwright" target="_blank" rel="noopener noreferrer">
             GitHub repository
           </a>
           .
@@ -390,7 +387,7 @@ npx -y @playwriter/install-mcp playwriter@latest</code></pre>
       </section>
 
       <footer>
-        <p>Playwriter &copy; Microsoft Corporation &middot; Licensed under Apache-2.0</p>
+        <p>Tabwright &copy; 2026 Yuyang Hou &middot; Licensed under Apache-2.0</p>
       </footer>
     </main>
     <script src="prism.min.js"></script>

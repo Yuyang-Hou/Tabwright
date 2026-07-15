@@ -1,10 +1,10 @@
-# Playwriter Capability CLI System
+# Tabwright Capability CLI System
 
 This document records the product and technical design for turning browser work into reusable CLI capabilities that agents can discover, understand, and call.
 
 ## Goal
 
-Playwriter capabilities are local tools generated from real browser context. A capability should not stop at a saved script. It needs three durable parts:
+Tabwright capabilities are local tools generated from real browser context. A capability should not stop at a saved script. It needs three durable parts:
 
 - Executable logic: `script.js`, runnable by the CLI or MCP.
 - Semantic contract: AI-readable intent, schemas, safety level, auth plan, and examples.
@@ -57,7 +57,7 @@ The lifecycle must preserve these invariants:
 Capabilities currently support:
 
 - `node`: runs without opening Chrome. Use this for HTTP/API abilities such as querying the current Bilibili account from saved cookies.
-- `browser`: runs in a Playwriter browser session. Use this for workflows that require DOM interaction, page JavaScript, or user-visible browser state.
+- `browser`: runs in a Tabwright browser session. Use this for workflows that require DOM interaction, page JavaScript, or user-visible browser state.
 
 Auth refresh is modeled separately from the main runtime. A `node` capability can declare cookie auth that is refreshed from the current browser only when the user explicitly allows it.
 
@@ -66,8 +66,8 @@ Auth refresh is modeled separately from the main runtime. A `node` capability ca
 Capabilities live under either:
 
 ```text
-.playwriter/capabilities/<id>/
-~/.playwriter/capabilities/<id>/
+.tabwright/capabilities/<id>/
+~/.tabwright/capabilities/<id>/
 ```
 
 Each capability directory contains:
@@ -169,7 +169,7 @@ Agents must ask for user confirmation before:
 After the user approves a concrete confirmation-required run, the CLI acknowledgement is explicit and capability-specific:
 
 ```bash
-playwriter capability run update-user --input-json '{"email":"a@example.com"}' --browser user --confirm update-user --json
+tabwright capability run update-user --input-json '{"email":"a@example.com"}' --browser user --confirm update-user --json
 ```
 
 `--confirm update-user` is an acknowledgement, not an unforgeable identity proof. A future stronger approval boundary should bind a one-time token to the capability id, input hash, and script/manifest digest, or use a native client approval UI.
@@ -179,27 +179,27 @@ playwriter capability run update-user --input-json '{"email":"a@example.com"}' -
 Human and agent-facing commands:
 
 ```bash
-playwriter capability list
-playwriter capability route "当前 Bilibili 登录账号" --json
-playwriter capability search "当前 Bilibili 登录账号"
-playwriter capability describe bilibili-current-user --json
-playwriter capability show bilibili-current-user --script
-playwriter capability run bilibili-current-user --json
-playwriter capability refresh-auth bilibili-current-user --browser user --json
-playwriter capability refresh-auth bilibili-current-user --browser install:Chrome:qculboi03pt0 --json
+tabwright capability list
+tabwright capability route "当前 Bilibili 登录账号" --json
+tabwright capability search "当前 Bilibili 登录账号"
+tabwright capability describe bilibili-current-user --json
+tabwright capability show bilibili-current-user --script
+tabwright capability run bilibili-current-user --json
+tabwright capability refresh-auth bilibili-current-user --browser user --json
+tabwright capability refresh-auth bilibili-current-user --browser install:Chrome:qculboi03pt0 --json
 ```
 
-Use `playwriter browser list` to pick a concrete browser key when more than one Chrome extension connection is available.
+Use `tabwright browser list` to pick a concrete browser key when more than one Chrome extension connection is available.
 
 Editing commands:
 
 ```bash
-playwriter capability create bilibili-current-user --runtime node
-playwriter capability update bilibili-current-user --from-file script.js
-playwriter capability update bilibili-current-user --contract-file contract.json
-playwriter capability trust bilibili-current-user
-playwriter capability draft bilibili-current-user
-playwriter capability disable bilibili-current-user
+tabwright capability create bilibili-current-user --runtime node
+tabwright capability update bilibili-current-user --from-file script.js
+tabwright capability update bilibili-current-user --contract-file contract.json
+tabwright capability trust bilibili-current-user
+tabwright capability draft bilibili-current-user
+tabwright capability disable bilibili-current-user
 ```
 
 ## MCP Tool Gateway
@@ -216,7 +216,7 @@ Supported actions:
 - `run`
 - `refresh_auth`
 
-`playwriter://capabilities` exposes the AI-readable contracts as a JSON resource.
+`tabwright://capabilities` exposes the AI-readable contracts as a JSON resource.
 
 ## Bilibili Example
 

@@ -1,4 +1,4 @@
-declare const process: { env: { PLAYWRITER_PORT: string } }
+declare const process: { env: { TABWRIGHT_PORT: string; PLAYWRITER_PORT: string } }
 
 import { EventType, Replayer, ReplayerEvents, type eventWithTime } from 'rrweb'
 import 'rrweb/dist/style.css'
@@ -6,7 +6,7 @@ import { createReplayLogger, type ReplayLoggerController } from './replay-logger
 import type { RelayReviewIssue } from './relay-warning'
 
 const RELAY_HOST = '127.0.0.1'
-const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
+const RELAY_PORT = Number(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT) || 19988
 const RELAY_BASE_URL = `http://${RELAY_HOST}:${RELAY_PORT}`
 const LANGUAGE_STORAGE_KEY = 'playwriterOptionsLanguage'
 
@@ -74,6 +74,22 @@ interface CapabilityLifecycle {
   }
 }
 
+type CapabilityAuthStatus = 'not-required' | 'missing' | 'authenticated' | 'expiring' | 'expired' | 'unknown'
+
+interface CapabilityAuthState {
+  type: string
+  status: CapabilityAuthStatus
+  canRefresh: boolean
+  browserUrls: string[]
+  requiredCookieNames: string[]
+  cookieNames: string[]
+  refreshedAt?: string
+  expiresAt?: string
+  browserKey?: string
+  reason?: string
+  refreshCommand?: string
+}
+
 interface CapabilityContract {
   id: string
   title: string
@@ -98,6 +114,7 @@ interface CapabilityContract {
   }
   recentRuns: CapabilityRunRecord[]
   agentSkill: CapabilityAgentSkillStatus
+  authState?: CapabilityAuthState
   lifecycle?: CapabilityLifecycle
 }
 
@@ -110,10 +127,11 @@ type LoadError = { type: 'relay'; issue: RelayReviewIssue } | { type: 'message';
 type CapabilityContractPayload = Omit<CapabilityContract, 'recentRuns' | 'lifecycle'> & {
   recentRuns: unknown[]
   lifecycle?: unknown
+  authState?: unknown
 }
 
 const messageFallbacks = {
-  app_title: 'Playwriter',
+  app_title: 'Tabwright',
   app_subtitle: 'Local browser automation cockpit',
   status_label: 'Status',
   status_loading_recordings: 'Loading recordings...',
@@ -170,11 +188,11 @@ const messageFallbacks = {
   error_invalid_capabilities: 'Invalid capabilities response',
   relay_review_warning_title: 'Saved data is temporarily unavailable',
   relay_review_outdated:
-    'Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Playwriter, then refresh.',
+    'Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Tabwright, then refresh.',
   relay_review_unavailable:
-    'Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Playwriter, then refresh.',
+    'Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Tabwright, then refresh.',
   lifecycle_unsupported:
-    'This extension cannot interpret the capability lifecycle. Update Playwriter before running it.',
+    'This extension cannot interpret the capability lifecycle. Update Tabwright before running it.',
   empty_no_replays: 'No DOM replays yet.',
   empty_no_capabilities: 'No capabilities yet.',
   empty_no_matches: 'No matches for this search.',
@@ -257,6 +275,35 @@ const messageFallbacks = {
   agent_skill_missing: 'not created',
   open_replay_aria: 'Open replay $1',
   open_capability_aria: 'Open capability $1',
+  auth_title: 'Browser authentication',
+  auth_status_missing: 'Not authenticated',
+  auth_status_authenticated: 'Authenticated',
+  auth_status_expiring: 'Expires soon',
+  auth_status_expired: 'Authentication expired',
+  auth_status_unknown: 'Status unknown',
+  auth_description_missing: 'Connect your current Chrome login before validating or running this capability.',
+  auth_description_authenticated: 'Authentication is saved locally and ready for this capability.',
+  auth_description_expiring: 'Authentication expires within 24 hours. Refresh it to avoid failed runs.',
+  auth_description_expired: 'The saved login has expired or the latest run reported an authentication failure.',
+  auth_description_unknown: 'Refresh the saved login to inspect its current cookie expiry.',
+  auth_domains: 'Cookie scope',
+  auth_last_refreshed: 'Last authenticated',
+  auth_expires: 'Cookie expiry',
+  auth_expiry_unknown: 'Session or server-managed',
+  auth_action_connect: 'Authenticate with current Chrome',
+  auth_action_refresh: 'Refresh authentication',
+  auth_confirm_title: 'Allow browser authentication?',
+  auth_confirm_description:
+    'Tabwright will read cookies only for the domains below and save them locally for this capability.',
+  auth_privacy: 'Cookie values stay on this device and are never included when the capability is shared.',
+  auth_confirm_action: 'Allow and authenticate',
+  auth_cancel_action: 'Cancel',
+  auth_progress: 'Authenticating $1...',
+  auth_success: '$1 authentication updated',
+  auth_error_generic: 'Authentication failed: $1',
+  auth_error_browser_not_connected: 'This Chrome profile is not connected to Tabwright.',
+  auth_error_multiple_profiles: 'Multiple Chrome profiles are connected. Retry from the profile that opened this page.',
+  auth_error_no_enabled_tab: 'Enable Tabwright on a normal browser tab, then retry authentication.',
 } as const
 
 type MessageKey = keyof typeof messageFallbacks
@@ -587,6 +634,34 @@ function isAutonomousInvocation(value: unknown): value is CapabilityContract['au
   return isRecord(value) && typeof value.allowed === 'boolean' && isStringArray(value.reasons)
 }
 
+function isCapabilityAuthStatus(value: unknown): value is CapabilityAuthStatus {
+  return (
+    value === 'not-required' ||
+    value === 'missing' ||
+    value === 'authenticated' ||
+    value === 'expiring' ||
+    value === 'expired' ||
+    value === 'unknown'
+  )
+}
+
+function isCapabilityAuthState(value: unknown): value is CapabilityAuthState {
+  return (
+    isRecord(value) &&
+    typeof value.type === 'string' &&
+    isCapabilityAuthStatus(value.status) &&
+    typeof value.canRefresh === 'boolean' &&
+    isStringArray(value.browserUrls) &&
+    isStringArray(value.requiredCookieNames) &&
+    isStringArray(value.cookieNames) &&
+    isStringOrUndefined(value.refreshedAt) &&
+    isStringOrUndefined(value.expiresAt) &&
+    isStringOrUndefined(value.browserKey) &&
+    isStringOrUndefined(value.reason) &&
+    isStringOrUndefined(value.refreshCommand)
+  )
+}
+
 function isLifecycleStage(value: unknown): value is CapabilityLifecycle['stage'] {
   return (
     value === 'drafted' || value === 'validated' || value === 'trusted' || value === 'drifted' || value === 'disabled'
@@ -671,11 +746,12 @@ function normalizeCapabilityContract(value: unknown): CapabilityContract | null 
       ? { allowed: false, reasons: [unsupportedReason] }
       : value.autonomousInvocation,
     recentRuns: value.recentRuns.filter(isCapabilityRunRecord),
+    authState: isCapabilityAuthState(value.authState) ? value.authState : undefined,
     lifecycle: hasUnsupportedLifecycle
       ? {
           stage: 'drifted',
           nextAction: 'repair',
-          nextCommand: `playwriter capability describe ${shellQuote(value.id)} --json`,
+          nextCommand: `tabwright capability describe ${shellQuote(value.id)} --json`,
           contractHealth: { state: 'drifted', reasons: [unsupportedReason] },
         }
       : isCapabilityLifecycle(value.lifecycle)
@@ -1016,6 +1092,259 @@ function createBadge(text: string, tone = text): HTMLSpanElement {
   return badge
 }
 
+function effectiveAuthStatus(authState: CapabilityAuthState): CapabilityAuthStatus {
+  if (!authState.expiresAt || (authState.status !== 'authenticated' && authState.status !== 'expiring')) {
+    return authState.status
+  }
+  const expiresAt = Date.parse(authState.expiresAt)
+  if (Number.isNaN(expiresAt)) {
+    return authState.status
+  }
+  if (expiresAt <= Date.now()) {
+    return 'expired'
+  }
+  if (expiresAt - Date.now() <= 24 * 60 * 60 * 1000) {
+    return 'expiring'
+  }
+  return 'authenticated'
+}
+
+function authStatusLabel(authState: CapabilityAuthState): string {
+  const status = effectiveAuthStatus(authState)
+  if (status === 'missing') return msg('auth_status_missing')
+  if (status === 'authenticated') return msg('auth_status_authenticated')
+  if (status === 'expiring') return msg('auth_status_expiring')
+  if (status === 'expired') return msg('auth_status_expired')
+  return msg('auth_status_unknown')
+}
+
+function authStatusDescription(authState: CapabilityAuthState): string {
+  const status = effectiveAuthStatus(authState)
+  if (status === 'missing') return msg('auth_description_missing')
+  if (status === 'authenticated') return msg('auth_description_authenticated')
+  if (status === 'expiring') return msg('auth_description_expiring')
+  if (status === 'expired') return msg('auth_description_expired')
+  return msg('auth_description_unknown')
+}
+
+function authStatusTone(authState: CapabilityAuthState): string {
+  const status = effectiveAuthStatus(authState)
+  if (status === 'authenticated') return 'ready'
+  if (status === 'expired') return 'blocked'
+  return 'draft'
+}
+
+function authDomain(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+function formatAuthDate(options: { value?: string; fallback: string }): string {
+  if (!options.value) {
+    return options.fallback
+  }
+  const timestamp = Date.parse(options.value)
+  if (Number.isNaN(timestamp)) {
+    return options.value
+  }
+  return new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
+}
+
+async function readCurrentInstallId(): Promise<string | undefined> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+    return undefined
+  }
+  const result = await chrome.storage.local.get('playwriterInstallId')
+  return typeof result.playwriterInstallId === 'string' ? result.playwriterInstallId : undefined
+}
+
+function authRefreshErrorMessage(options: { code?: string; error: string }): string {
+  if (options.code === 'browser_not_connected') return msg('auth_error_browser_not_connected')
+  if (options.code === 'multiple_browser_profiles') return msg('auth_error_multiple_profiles')
+  if (options.code === 'no_enabled_tab') return msg('auth_error_no_enabled_tab')
+  return msg('auth_error_generic', options.error)
+}
+
+async function refreshCapabilityAuth(options: {
+  capability: CapabilityContract
+  button: HTMLButtonElement
+  errorMessage: HTMLElement
+}): Promise<void> {
+  const approved = await confirmCapabilityAuth(options.capability)
+  if (!approved) {
+    return
+  }
+  const originalText = options.button.textContent || ''
+  options.button.disabled = true
+  options.button.textContent = msg('auth_progress', options.capability.title)
+  options.errorMessage.hidden = true
+  options.errorMessage.textContent = ''
+  setStatus(msg('auth_progress', options.capability.title))
+  try {
+    const installId = await readCurrentInstallId()
+    const response = await fetch(
+      `${RELAY_BASE_URL}/capabilities/${encodeURIComponent(options.capability.id)}/auth/refresh`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ installId }),
+      },
+    )
+    const data: unknown = await response.json().catch(() => null)
+    if (!response.ok) {
+      const code = isRecord(data) && typeof data.code === 'string' ? data.code : undefined
+      const error = isRecord(data) && typeof data.error === 'string' ? data.error : String(response.status)
+      const message = authRefreshErrorMessage({ code, error })
+      options.errorMessage.textContent = message
+      options.errorMessage.hidden = false
+      setStatus(message)
+      return
+    }
+    await loadCapabilities()
+    setStatus(msg('auth_success', options.capability.title))
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    const displayMessage = msg('auth_error_generic', message)
+    options.errorMessage.textContent = displayMessage
+    options.errorMessage.hidden = false
+    setStatus(displayMessage)
+  } finally {
+    options.button.disabled = false
+    options.button.textContent = originalText
+  }
+}
+
+function confirmCapabilityAuth(capability: CapabilityContract): Promise<boolean> {
+  const authState = capability.authState
+  if (!authState) {
+    return Promise.resolve(false)
+  }
+  const dialog = document.createElement('dialog')
+  dialog.className = 'auth-dialog'
+
+  const content = document.createElement('div')
+  content.className = 'auth-dialog-content'
+  const title = document.createElement('h2')
+  title.textContent = msg('auth_confirm_title')
+  const description = document.createElement('p')
+  description.textContent = msg('auth_confirm_description')
+  const domains = document.createElement('div')
+  domains.className = 'auth-domain-list'
+  domains.replaceChildren(
+    ...authState.browserUrls.map((url) => {
+      const item = document.createElement('code')
+      item.textContent = authDomain(url)
+      return item
+    }),
+  )
+  const privacy = document.createElement('p')
+  privacy.className = 'auth-privacy'
+  privacy.textContent = msg('auth_privacy')
+
+  const actions = document.createElement('div')
+  actions.className = 'auth-dialog-actions'
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.textContent = msg('auth_cancel_action')
+  const confirm = document.createElement('button')
+  confirm.type = 'button'
+  confirm.className = 'primary'
+  confirm.textContent = msg('auth_confirm_action')
+  actions.replaceChildren(cancel, confirm)
+  content.replaceChildren(title, description, domains, privacy, actions)
+  dialog.replaceChildren(content)
+  document.body.append(dialog)
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false
+    const finish = (approved: boolean) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      dialog.close()
+      dialog.remove()
+      resolve(approved)
+    }
+    cancel.addEventListener('click', () => {
+      finish(false)
+    })
+    confirm.addEventListener('click', () => {
+      finish(true)
+    })
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault()
+      finish(false)
+    })
+    dialog.showModal()
+  })
+}
+
+function createCapabilityAuthCard(capability: CapabilityContract): HTMLElement | null {
+  const authState = capability.authState
+  if (!authState || authState.type !== 'cookie' || authState.status === 'not-required') {
+    return null
+  }
+  const status = effectiveAuthStatus(authState)
+  const card = document.createElement('section')
+  card.className = 'auth-card'
+  card.dataset.status = status
+
+  const heading = document.createElement('div')
+  heading.className = 'auth-heading'
+  const title = document.createElement('h3')
+  title.textContent = msg('auth_title')
+  heading.replaceChildren(title, createBadge(authStatusLabel(authState), authStatusTone(authState)))
+
+  const description = document.createElement('p')
+  description.className = 'auth-description'
+  description.textContent = authStatusDescription(authState)
+
+  const scope = document.createElement('div')
+  scope.className = 'auth-detail'
+  const scopeLabel = document.createElement('strong')
+  scopeLabel.textContent = msg('auth_domains')
+  const scopeValue = document.createElement('span')
+  scopeValue.textContent = authState.browserUrls.map(authDomain).join(', ')
+  scope.replaceChildren(scopeLabel, scopeValue)
+
+  const timestamps = document.createElement('div')
+  timestamps.className = 'auth-meta'
+  const refreshed = document.createElement('span')
+  refreshed.textContent = `${msg('auth_last_refreshed')}: ${formatAuthDate({ value: authState.refreshedAt, fallback: '-' })}`
+  const expires = document.createElement('span')
+  expires.textContent = `${msg('auth_expires')}: ${formatAuthDate({
+    value: authState.expiresAt,
+    fallback: msg('auth_expiry_unknown'),
+  })}`
+  timestamps.replaceChildren(refreshed, expires)
+
+  const privacy = document.createElement('p')
+  privacy.className = 'auth-privacy'
+  privacy.textContent = msg('auth_privacy')
+
+  const errorMessage = document.createElement('p')
+  errorMessage.className = 'auth-error'
+  errorMessage.setAttribute('role', 'alert')
+  errorMessage.hidden = true
+
+  const action = document.createElement('button')
+  action.type = 'button'
+  action.className = 'auth-action'
+  action.dataset.authAction = capability.id
+  action.textContent = status === 'missing' ? msg('auth_action_connect') : msg('auth_action_refresh')
+  action.hidden = !authState.canRefresh
+  action.addEventListener('click', () => {
+    void refreshCapabilityAuth({ capability, button: action, errorMessage })
+  })
+
+  card.replaceChildren(heading, description, scope, timestamps, privacy, errorMessage, action)
+  return card
+}
+
 async function copyTextToClipboard(options: { label: string; text: string }): Promise<void> {
   await navigator.clipboard.writeText(options.text)
   if (!toast) {
@@ -1096,7 +1425,7 @@ function setActiveTab(tab: ActiveTab): void {
 function replayAiContextText(recording: SavedReplayRecording): string {
   if (isChineseLocale()) {
     return [
-      '这是一个 Playwriter DOM replay 录制。',
+      '这是一个 Tabwright DOM replay 录制。',
       `Replay ID：${recording.id}`,
       `文件路径：${recording.path}`,
       recording.url ? `录制 URL：${recording.url}` : '',
@@ -1108,7 +1437,7 @@ function replayAiContextText(recording: SavedReplayRecording): string {
   }
 
   return [
-    'This is a Playwriter DOM replay recording.',
+    'This is a Tabwright DOM replay recording.',
     `Replay ID: ${recording.id}`,
     `File path: ${recording.path}`,
     recording.url ? `Recorded URL: ${recording.url}` : '',
@@ -1595,7 +1924,7 @@ function schemaSummary(schema: Record<string, unknown>): string {
 function capabilityRunCommand(capability: CapabilityContract): string {
   const input = JSON.stringify(buildExampleInput(capability.inputSchema))
   return [
-    'playwriter capability run',
+    'tabwright capability run',
     shellQuote(capability.id),
     capability.runtime === 'browser' ? '--browser user' : '',
     '--input-json',
@@ -1619,7 +1948,7 @@ function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityL
     return {
       stage: 'disabled',
       nextAction: 'enable',
-      nextCommand: `playwriter capability draft ${shellQuote(capability.id)}`,
+      nextCommand: `tabwright capability draft ${shellQuote(capability.id)}`,
       contractHealth: { state: 'unknown', reasons: [] },
     }
   }
@@ -1627,7 +1956,7 @@ function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityL
     return {
       stage: 'drifted',
       nextAction: 'repair',
-      nextCommand: `playwriter capability show ${shellQuote(capability.id)}`,
+      nextCommand: `tabwright capability show ${shellQuote(capability.id)}`,
       contractHealth: { state: 'drifted', reasons: [] },
     }
   }
@@ -1666,7 +1995,7 @@ function lifecycleActionMessage(action: CapabilityLifecycle['nextAction']): stri
 function capabilityAiContextText(capability: CapabilityContract): string {
   if (isChineseLocale()) {
     return [
-      '这是一个 Playwriter capability。',
+      '这是一个 Tabwright capability。',
       `Capability ID：${capability.id}`,
       `标题：${capability.title}`,
       `描述：${capability.description}`,
@@ -1675,7 +2004,7 @@ function capabilityAiContextText(capability: CapabilityContract): string {
   }
 
   return [
-    'This is a Playwriter capability.',
+    'This is a Tabwright capability.',
     `Capability ID: ${capability.id}`,
     `Title: ${capability.title}`,
     `Description: ${capability.description}`,
@@ -1854,10 +2183,15 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
+  const authState =
+    capability.authState?.type === 'cookie' && capability.authState.status !== 'not-required'
+      ? capability.authState
+      : undefined
   badges.replaceChildren(
     capabilityReadinessBadge(capability),
     createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
     agentSkillBadge(capability),
+    ...(authState ? [createBadge(authStatusLabel(authState), authStatusTone(authState))] : []),
   )
 
   header.replaceChildren(title, meta, badges, createCapabilityActions(capability))
@@ -1919,7 +2253,14 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   )
   advancedDetails.replaceChildren(advancedSummary, advancedFields)
 
-  skillDetail.replaceChildren(header, createCapabilityLifecycle(capability), primaryFields, advancedDetails)
+  const authCard = createCapabilityAuthCard(capability)
+  skillDetail.replaceChildren(
+    header,
+    ...(authCard ? [authCard] : []),
+    createCapabilityLifecycle(capability),
+    primaryFields,
+    advancedDetails,
+  )
 }
 
 function updateActiveCapability(): void {
@@ -2026,8 +2367,10 @@ function renderCapabilities(): void {
   }
 }
 
-async function loadCapabilities(): Promise<void> {
-  setStatus(msg('status_loading_capabilities'))
+async function loadCapabilities(options: { silent?: boolean } = {}): Promise<void> {
+  if (!options.silent) {
+    setStatus(msg('status_loading_capabilities'))
+  }
   capabilityLoadError = null
   updateRelayReviewWarning()
   const response: Response = await (async () => {
@@ -2066,7 +2409,9 @@ async function loadCapabilities(): Promise<void> {
   capabilityLoadError = null
   renderCapabilities()
   updateRelayReviewWarning()
-  setStatus(capabilityCountText(parsed.capabilities.length, capabilityCwd))
+  if (!options.silent) {
+    setStatus(capabilityCountText(parsed.capabilities.length, capabilityCwd))
+  }
 }
 
 refreshButton?.addEventListener('click', () => {
@@ -2129,3 +2474,11 @@ initializeOptionsPage().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
   setStatus(message)
 })
+
+window.setInterval(() => {
+  if (activeTab === 'skills') {
+    void loadCapabilities({ silent: true }).catch((error: unknown) => {
+      console.warn(error)
+    })
+  }
+}, 60_000)

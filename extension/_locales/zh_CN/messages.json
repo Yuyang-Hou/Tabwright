@@ -1,5 +1,5 @@
 {
-  "app_title": { "message": "Playwriter" },
+  "app_title": { "message": "Tabwright" },
   "app_subtitle": { "message": "本地浏览器自动化工作台" },
   "extension_description": {
     "message": "用 Cursor、Claude、VS Code 自动化你的浏览器。比 Playwright MCP 更强，也更省上下文。"
@@ -99,13 +99,13 @@
   "error_invalid_capabilities": { "message": "能力响应无效" },
   "relay_review_warning_title": { "message": "保存的数据暂时不可用" },
   "relay_review_outdated": {
-    "message": "浏览器控制仍已连接，但当前本地服务无法列出保存的录制和能力。文件没有被删除；请重启或更新 Playwriter 后刷新。"
+    "message": "浏览器控制仍已连接，但当前本地服务无法列出保存的录制和能力。文件没有被删除；请重启或更新 Tabwright 后刷新。"
   },
   "relay_review_unavailable": {
-    "message": "浏览器控制仍已连接，但保存的录制和能力暂时不可读取。文件没有被删除；请重启 Playwriter 后刷新。"
+    "message": "浏览器控制仍已连接，但保存的录制和能力暂时不可读取。文件没有被删除；请重启 Tabwright 后刷新。"
   },
   "lifecycle_unsupported": {
-    "message": "当前扩展无法识别这个能力的生命周期。更新 Playwriter 后再运行。"
+    "message": "当前扩展无法识别这个能力的生命周期。更新 Tabwright 后再运行。"
   },
   "empty_no_replays": { "message": "还没有 DOM 回放。" },
   "empty_no_capabilities": { "message": "还没有能力。" },
@@ -215,5 +215,42 @@
   "open_capability_aria": {
     "message": "打开能力 $id$",
     "placeholders": { "id": { "content": "$1" } }
-  }
+  },
+  "auth_title": { "message": "浏览器认证" },
+  "auth_status_missing": { "message": "未认证" },
+  "auth_status_authenticated": { "message": "已认证" },
+  "auth_status_expiring": { "message": "即将过期" },
+  "auth_status_expired": { "message": "认证已过期" },
+  "auth_status_unknown": { "message": "状态未知" },
+  "auth_description_missing": { "message": "请先连接当前 Chrome 登录态，再检查或运行这项能力。" },
+  "auth_description_authenticated": { "message": "认证已保存在本机，可供这项能力使用。" },
+  "auth_description_expiring": { "message": "认证将在 24 小时内过期，建议现在刷新，避免运行失败。" },
+  "auth_description_expired": { "message": "保存的登录态已经到期，或最近运行报告了认证失败。" },
+  "auth_description_unknown": { "message": "请刷新登录态，以便识别当前 Cookie 的过期情况。" },
+  "auth_domains": { "message": "Cookie 范围" },
+  "auth_last_refreshed": { "message": "最近认证" },
+  "auth_expires": { "message": "Cookie 到期" },
+  "auth_expiry_unknown": { "message": "会话或服务端管理" },
+  "auth_action_connect": { "message": "使用当前 Chrome 认证" },
+  "auth_action_refresh": { "message": "刷新认证" },
+  "auth_confirm_title": { "message": "允许读取浏览器登录态？" },
+  "auth_confirm_description": { "message": "Tabwright 只会读取以下域名的 Cookie，并保存在本机供这项能力使用。" },
+  "auth_privacy": { "message": "Cookie 值不会离开本机，也不会在分享能力时被打包。" },
+  "auth_confirm_action": { "message": "允许并认证" },
+  "auth_cancel_action": { "message": "取消" },
+  "auth_progress": {
+    "message": "正在认证 $capability$...",
+    "placeholders": { "capability": { "content": "$1" } }
+  },
+  "auth_success": {
+    "message": "$capability$ 认证已更新",
+    "placeholders": { "capability": { "content": "$1" } }
+  },
+  "auth_error_generic": {
+    "message": "认证失败：$error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "auth_error_browser_not_connected": { "message": "当前 Chrome Profile 尚未连接 Tabwright。" },
+  "auth_error_multiple_profiles": { "message": "当前连接了多个 Chrome Profile，请在打开此页面的 Profile 中重试。" },
+  "auth_error_no_enabled_tab": { "message": "请先在普通网页标签上启用 Tabwright，再重试认证。" }
 }

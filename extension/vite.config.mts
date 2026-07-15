@@ -8,22 +8,25 @@ import { viteStaticCopy } from 'vite-plugin-static-copy'
 const __filename = url.fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Bundle the playwriter package version into the extension so it can report
-// which playwriter version it was built against. CLI/MCP use this to warn
+// Bundle the Tabwright package version into the extension so it can report
+// which Tabwright version it was built against. CLI/MCP use this to warn
 // when the extension is outdated.
-const playwriterPkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../playwriter/package.json'), 'utf-8'))
+const tabwrightPkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../tabwright/package.json'), 'utf-8'))
 
 const defineEnv: Record<string, string> = {
-  'process.env.PLAYWRITER_PORT': JSON.stringify(process.env.PLAYWRITER_PORT || '19988'),
-  __PLAYWRITER_VERSION__: JSON.stringify(playwriterPkg.version),
-  __PLAYWRITER_OPEN_WELCOME_PAGE__: JSON.stringify(process.env.PLAYWRITER_OPEN_WELCOME_PAGE !== '0'),
+  'process.env.TABWRIGHT_PORT': JSON.stringify(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT || '19988'),
+  'process.env.PLAYWRITER_PORT': JSON.stringify(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT || '19988'),
+  __PLAYWRITER_VERSION__: JSON.stringify(tabwrightPkg.version),
+  __PLAYWRITER_OPEN_WELCOME_PAGE__: JSON.stringify(
+    (process.env.TABWRIGHT_OPEN_WELCOME_PAGE || process.env.PLAYWRITER_OPEN_WELCOME_PAGE) !== '0',
+  ),
 }
 if (process.env.TESTING) {
   defineEnv['import.meta.env.TESTING'] = 'true'
 }
 
 // Allow tests to build per-port extension outputs to avoid parallel run conflicts.
-const outDir = process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
+const outDir = process.env.TABWRIGHT_EXTENSION_DIST || process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
 
 function escapeNonAscii(value: string): string {
   return value.replace(/[^\x00-\x7F]/g, (character) => {
@@ -51,7 +54,7 @@ function buildRrwebRecorderContentScript(): Plugin {
         bundle: true,
         charset: 'ascii',
         format: 'iife',
-        globalName: 'PlaywriterRrwebRecorder',
+        globalName: 'TabwrightRrwebRecorder',
         outfile,
         platform: 'browser',
         target: 'chrome110',

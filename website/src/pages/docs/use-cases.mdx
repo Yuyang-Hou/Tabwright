@@ -1,19 +1,19 @@
 ---
 title: Use Cases
-description: Practical examples of what you can do with Playwriter, from QA testing to task automation.
+description: Practical examples of what you can do with Tabwright, from QA testing to task automation.
 icon: lucide:lightbulb
 ---
 
-Playwriter gives agents and scripts access to your **real Chrome browser** with all your logins, extensions, and cookies. Here are some things people use it for.
+Tabwright gives agents and scripts access to your **real Chrome browser** with all your logins, extensions, and cookies. Here are some things people use it for.
 
 ## Web development
 
-Let your coding agent **verify its own work** in a real browser. The agent writes code, then uses Playwriter to navigate to the dev server, check the rendered page, take screenshots, and fix issues, all in one loop.
+Let your coding agent **verify its own work** in a real browser. The agent writes code, then uses Tabwright to navigate to the dev server, check the rendered page, take screenshots, and fix issues, all in one loop.
 
 ```bash
 # Agent writes React component, then verifies
-playwriter -s 1 -e 'await page.goto("http://localhost:3000/new-feature")'
-playwriter -s 1 -e 'console.log(await snapshot({ page }))'
+tabwright -s 1 -e 'await page.goto("http://localhost:3000/new-feature")'
+tabwright -s 1 -e 'console.log(await snapshot({ page }))'
 # Agent sees broken layout, fixes the code, checks again
 ```
 
@@ -23,7 +23,7 @@ The agent works in **your browser**, so it sees the same thing you do. No headle
 </Note>
 </Aside>
 
-Because Playwriter exposes the **full Playwright API**, agents can also set breakpoints with `createDebugger`, inspect CSS with `getStylesForLocator`, live-edit source with `createEditor`, and intercept network requests. All from the same session.
+Because Tabwright exposes the **full Playwright API**, agents can also set breakpoints with `createDebugger`, inspect CSS with `getStylesForLocator`, live-edit source with `createEditor`, and intercept network requests. All from the same session.
 
 ## QA testing
 
@@ -31,12 +31,12 @@ Run tests against your **real Chrome profile** with real login state. No need to
 
 ```bash
 # Test authenticated flows without login setup
-playwriter -s 1 -e 'await page.goto("https://myapp.com/dashboard")'
-playwriter -s 1 -e 'console.log(await snapshot({ page, search: /error|warning/i }))'
+tabwright -s 1 -e 'await page.goto("https://myapp.com/dashboard")'
+tabwright -s 1 -e 'console.log(await snapshot({ page, search: /error|warning/i }))'
 
 # Verify forms, buttons, navigation
-playwriter -s 1 -e 'await page.locator("button:has-text(\"Save\")").click()'
-playwriter -s 1 -e 'console.log(await snapshot({ page, search: /success|saved/i }))'
+tabwright -s 1 -e 'await page.locator("button:has-text(\"Save\")").click()'
+tabwright -s 1 -e 'console.log(await snapshot({ page, search: /success|saved/i }))'
 ```
 
 Great for manual QA workflows that agents can now automate: fill forms, click through flows, verify results, and report back.
@@ -48,7 +48,7 @@ Automate repetitive browser tasks that need your logged-in session.
 **Download a YouTube playlist:**
 
 ```bash
-playwriter -s 1 -e $'
+tabwright -s 1 -e $'
 state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
 await state.page.goto("https://www.youtube.com/playlist?list=PLxxxxxx")
 await waitForPageLoad({ page: state.page, timeout: 5000 })
@@ -61,13 +61,13 @@ console.log(JSON.stringify(videos, null, 2))
 
 ```bash
 # Read CSV data and fill a form for each row
-playwriter -s 1 -f fill-forms.js
+tabwright -s 1 -f fill-forms.js
 ```
 
 **Export data from authenticated dashboards:**
 
 ```bash
-playwriter -s 1 -e $'
+tabwright -s 1 -e $'
 state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
 await state.page.goto("https://analytics.example.com/export")
 const [download] = await Promise.all([
@@ -85,7 +85,7 @@ Use **network interception** to discover undocumented APIs behind JavaScript-ren
 
 ```bash
 # Start intercepting API calls
-playwriter -s 1 -e $'
+tabwright -s 1 -e $'
 state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
 state.responses = []
 state.page.on("response", async res => {
@@ -96,11 +96,11 @@ state.page.on("response", async res => {
 '
 
 # Navigate and interact — API calls are captured
-playwriter -s 1 -e 'await state.page.click("button.load-more")'
+tabwright -s 1 -e 'await state.page.click("button.load-more")'
 
 # Inspect captured API schemas
-playwriter -s 1 -e 'state.responses.forEach(r => console.log(r.status, r.url.slice(0, 100)))'
-playwriter -s 1 -e 'console.log(JSON.stringify(state.responses[0].body, null, 2).slice(0, 2000))'
+tabwright -s 1 -e 'state.responses.forEach(r => console.log(r.status, r.url.slice(0, 100)))'
+tabwright -s 1 -e 'console.log(JSON.stringify(state.responses[0].body, null, 2).slice(0, 2000))'
 ```
 
 This is much faster than scraping the DOM. The agent captures the real API calls, inspects their schemas, and can replay them with different parameters.
@@ -111,13 +111,13 @@ Control a user's browser to **fix issues remotely**. The user starts a tunnel, s
 
 ```bash
 # User runs on their machine
-npx -y traforo -p 19988 -- npx -y playwriter serve --token SHARED_SECRET
+npx -y traforo -p 19988 -- npx -y tabwright serve --token SHARED_SECRET
 
 # You connect from anywhere
-export PLAYWRITER_HOST=https://user-machine-tunnel.traforo.dev
-export PLAYWRITER_TOKEN=SHARED_SECRET
-playwriter session new
-playwriter -s 1 -e 'console.log(await snapshot({ page }))'
+export TABWRIGHT_HOST=https://user-machine-tunnel.traforo.dev
+export TABWRIGHT_TOKEN=SHARED_SECRET
+tabwright session new
+tabwright -s 1 -e 'console.log(await snapshot({ page }))'
 ```
 
 The user sees Chrome's automation banner so they always know when their browser is being controlled. They can revoke access by closing the terminal. See [Remote Access](./remote-access.mdx) for the full guide.
@@ -128,24 +128,24 @@ Have the agent **record what it's doing** as an MP4 video. The recording uses `c
 
 ```bash
 # Start recording
-playwriter -s 1 -e 'await recording.start({ page, outputPath: "/tmp/demo.mp4" })'
+tabwright -s 1 -e 'await recording.start({ page, outputPath: "/tmp/demo.mp4" })'
 
 # Do things — recording continues through navigation
-playwriter -s 1 -e 'await page.goto("https://example.com")'
-playwriter -s 1 -e 'await page.click("a")'
+tabwright -s 1 -e 'await page.goto("https://example.com")'
+tabwright -s 1 -e 'await page.click("a")'
 
 # Stop and save
-playwriter -s 1 -e 'await recording.stop({ page })'
+tabwright -s 1 -e 'await recording.stop({ page })'
 ```
 
 Useful for creating **demo videos**, recording bug reproductions, or documenting workflows. The agent can also speed up idle sections with `createDemoVideo` to produce polished demos.
 
 ## Scraping JS-heavy sites
 
-Sites like Instagram, Twitter, and Facebook return empty HTML shells to `curl` and `fetch`. Playwriter renders them in a **real browser** with your logged-in session.
+Sites like Instagram, Twitter, and Facebook return empty HTML shells to `curl` and `fetch`. Tabwright renders them in a **real browser** with your logged-in session.
 
 ```bash
-playwriter -s 1 -e $'
+tabwright -s 1 -e $'
 state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
 await state.page.goto("https://www.instagram.com/p/ABC123/", { waitUntil: "domcontentloaded" })
 await waitForPageLoad({ page: state.page, timeout: 8000 })

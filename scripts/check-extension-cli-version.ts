@@ -46,7 +46,7 @@ async function getPublishedVersion({ packageName }: { packageName: string }): Pr
 
 async function main(): Promise<void> {
   const cliPackage = readPackageJson({
-    fileUrl: new URL('../playwriter/package.json', import.meta.url),
+    fileUrl: new URL('../tabwright/package.json', import.meta.url),
   })
   const publishedVersion = await getPublishedVersion({ packageName: cliPackage.name })
 
