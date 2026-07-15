@@ -85,11 +85,11 @@ Packages include `capability.json`, the entry script, `README.md`, and optional 
 
 Cookie-authenticated capabilities show their local authentication status in the extension Options page. Users can review the exact cookie domains and explicitly authenticate or refresh from the current Chrome profile there. Cookie values stay in the capability's local `secrets.json`; only non-sensitive status and expiry metadata is shown in the extension.
 
-For repository-scoped sharing, install directly from a capability directory with `--project`. Official suites such as `conan-config` continue to install by name:
+For repository-scoped sharing, install directly from a capability directory with `--project`. Public capabilities can be distributed as `.tgz` files or hosted at HTTPS URLs:
 
 ```bash
 tabwright capability install ../shared-capabilities/my-capability --project
-tabwright capability install conan-config
+tabwright capability install https://example.com/capabilities/my-capability.tgz
 ```
 
 ## CLI Usage

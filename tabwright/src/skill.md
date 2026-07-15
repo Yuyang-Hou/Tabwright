@@ -313,7 +313,7 @@ tabwright capability install ../shared-capabilities/query-user --project
 tabwright capability install https://example.com/query-user.tgz
 ```
 
-Capability packages contain only `capability.json`, the configured entry script, optional `README.md`, and optional `agent-skills/`. The pack command excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. A shared capability always installs as `draft`, even if its author trusted it locally. Inspect its contract and script, refresh auth with the recipient's own browser session when needed, validate it with `capability run --force`, and only then trust it. Packaged agent skills are not installed by default because they influence agent behavior; review one and run `capability skill install <id>`, or explicitly pass `--with-agent-skill`. Bundled suites such as `conan-config` remain installable by name and may be trusted by the publisher; use `--skip-agent-skills` for built-in suites.
+Capability packages contain only `capability.json`, the configured entry script, optional `README.md`, and optional `agent-skills/`. The pack command excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. A shared capability always installs as `draft`, even if its author trusted it locally. Inspect its contract and script, refresh auth with the recipient's own browser session when needed, validate it with `capability run --force`, and only then trust it. Packaged agent skills are not installed by default because they influence agent behavior; review one and run `capability skill install <id>`, or explicitly pass `--with-agent-skill`.
 
 When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
 

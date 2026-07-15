@@ -60,7 +60,6 @@ import {
   readCapabilityExecutionObservation,
   runNodeCapability,
 } from './capability-runner.js'
-import { installBuiltinCapabilitySuite, isBuiltinCapabilitySuite } from './builtin-capabilities.js'
 import { createReplayAiIndexFromRecording, saveReplayAiIndex } from './replay-ai-index.js'
 import { listSavedRrwebRecordings } from './rrweb-recording-relay.js'
 import {
@@ -472,8 +471,6 @@ interface CapabilityRefreshAuthOptions {
 interface CapabilityInstallOptions {
   project?: boolean
   force?: boolean
-  draft?: boolean
-  skipAgentSkills?: boolean
   withAgentSkill?: boolean
   json?: boolean
 }
@@ -1513,66 +1510,13 @@ cli
   })
 
 cli
-  .command('capability install <source>', 'Install a built-in suite, capability directory, local .tgz, or .tgz URL')
+  .command('capability install <source>', 'Install a capability directory, local .tgz, or .tgz URL')
   .option('--project', 'Install under .tabwright/capabilities in the current project')
   .option('--force', 'Overwrite existing installed capabilities')
-  .option('--draft', 'Install a built-in suite as draft instead of trusted')
-  .option('--skip-agent-skills', 'Do not install bundled agent skills such as Codex skills')
   .option('--with-agent-skill', 'Install a shared package agent skill after reviewing the source')
   .option('--json', 'Print JSON')
   .action(async (source: string, options: CapabilityInstallOptions) => {
     try {
-      if (isBuiltinCapabilitySuite(source)) {
-        const installed = installBuiltinCapabilitySuite({
-          suite: source,
-          cwd: process.cwd(),
-          location: options.project ? 'project' : 'user',
-          overwrite: options.force,
-          trust: options.draft ? false : true,
-          installAgentSkills: options.skipAgentSkills ? false : true,
-        })
-        const summary = {
-          type: 'builtin',
-          suite: installed.suite,
-          capabilities: installed.capabilities.map((capability) => {
-            return toCapabilitySummary(capability)
-          }),
-          agentSkills: installed.agentSkills,
-          next: installed.capabilities.flatMap((capability) => {
-            if (capability.manifest.auth.refresh !== 'from-browser') {
-              return []
-            }
-            return [`tabwright capability refresh-auth ${capability.manifest.id} --browser user --json`]
-          }),
-        }
-        if (options.json) {
-          console.log(JSON.stringify(summary, null, 2))
-          return
-        }
-        console.log(`Installed ${installed.suite}:`)
-        installed.capabilities.map((capability) => {
-          console.log(`- ${capability.manifest.id} (${capability.location}, ${capability.manifest.status})`)
-          return capability.manifest.id
-        })
-        if (installed.agentSkills.length > 0) {
-          console.log('')
-          console.log('Installed agent skills:')
-          installed.agentSkills.map((agentSkill) => {
-            console.log(`- ${agentSkill.target}:${agentSkill.name} at ${agentSkill.dir}`)
-            return agentSkill.name
-          })
-        }
-        if (summary.next.length > 0) {
-          console.log('')
-          console.log('Refresh auth with:')
-          summary.next.map((command) => {
-            console.log(`  ${command}`)
-            return command
-          })
-        }
-        return
-      }
-
       const installed = await installCapabilityPackage({
         source,
         cwd: process.cwd(),

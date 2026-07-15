@@ -96,6 +96,17 @@ describe('tabwright cli help', () => {
     expect(stderr).toBe('')
   }, 30000)
 
+  test('installs capabilities only from shareable package sources', async () => {
+    const { stdout, stderr } = await runCli(['capability', 'install', '--help'])
+
+    expect(stdout).toContain('capability directory, local .tgz, or .tgz URL')
+    expect(stdout).toContain('--with-agent-skill')
+    expect(stdout).not.toContain('built-in suite')
+    expect(stdout).not.toContain('--draft')
+    expect(stdout).not.toContain('--skip-agent-skills')
+    expect(stderr).toBe('')
+  }, 30000)
+
   test('exposes bundled Tabwright skill installation and status commands', async () => {
     const installHelp = await runCli(['skill', 'install', '--help'])
     const statusHelp = await runCli(['skill', 'status', '--help'])
