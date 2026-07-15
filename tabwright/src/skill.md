@@ -304,14 +304,17 @@ tabwright capability update bilibili-current-user --contract-file contract.json
 tabwright capability trust query-user
 ```
 
-Share a user-authored capability as a sanitized `.tgz`, or install it directly from a directory or HTTPS `.tgz` URL:
+Share a user-authored capability as a sanitized `.tgz`, or install it directly from a directory, HTTPS `.tgz` URL, or one directory in a Git repository:
 
 ```bash
 tabwright capability pack query-user
 tabwright capability install ./query-user.tgz
 tabwright capability install ../shared-capabilities/query-user --project
 tabwright capability install https://example.com/query-user.tgz
+tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/query-user'
 ```
+
+Git sources use `<remote>#<ref>:<capability-path>`. Tabwright runs `git archive` against that ref and reads only the selected capability directory, so private SSH repositories can be installed in one command without cloning. Pin a release tag instead of a moving branch for reproducible installs.
 
 Capability packages contain only `capability.json`, the configured entry script, optional `README.md`, and optional `agent-skills/`. The pack command excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. A shared capability always installs as `draft`, even if its author trusted it locally. Inspect its contract and script, refresh auth with the recipient's own browser session when needed, validate it with `capability run --force`, and only then trust it. Packaged agent skills are not installed by default because they influence agent behavior; review one and run `capability skill install <id>`, or explicitly pass `--with-agent-skill`.
 

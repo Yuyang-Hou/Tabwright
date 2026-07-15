@@ -32,4 +32,12 @@ Use the published package without installing it globally:
 npx tabwright@latest session new
 ```
 
+Install one capability directly from a tagged private Git repository without cloning it:
+
+```bash
+tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/query-user'
+```
+
+Git and access to the repository are required. Add `--with-agent-skill` only after reviewing a packaged agent skill.
+
 Run `tabwright skill` for the complete CLI and browser automation reference. See the [GitHub repository](https://github.com/Yuyang-Hou/tabwright) for architecture, development, remote access, and release documentation.

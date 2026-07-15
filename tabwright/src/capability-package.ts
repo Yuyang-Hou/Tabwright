@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import childProcess from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -39,6 +40,12 @@ const CapabilityPackageMetadataSchema = z.object({
 interface CapabilityPackageFile {
   path: string
   content: Buffer
+}
+
+interface GitCapabilitySource {
+  remote: string
+  ref: string
+  capabilityPath: string
 }
 
 export interface PackedCapability {
@@ -253,10 +260,7 @@ async function writeArchive(options: { outputPath: string; files: CapabilityPack
   await output
 }
 
-async function readPackageSource(options: {
-  source: string
-  cwd: string
-}): Promise<{
+async function readPackageSource(options: { source: string; cwd: string }): Promise<{
   label: string
   files: CapabilityPackageFile[]
   metadataFile?: CapabilityPackageFile
@@ -288,6 +292,11 @@ async function readPackageSource(options: {
     }
   }
 
+  const gitSource = parseGitCapabilitySource(options.source)
+  if (gitSource) {
+    return readGitCapabilitySource({ source: options.source, gitSource })
+  }
+
   if (!/^https?:\/\//.test(options.source)) {
     throw new Error(`Capability source not found: ${options.source}`)
   }
@@ -304,6 +313,59 @@ async function readPackageSource(options: {
     label: options.source,
     files: extracted.files,
     metadataFile: extracted.metadataFile,
+    integrity: bufferIntegrity(archive),
+  }
+}
+
+function parseGitCapabilitySource(source: string): GitCapabilitySource | null {
+  const fragmentIndex = source.indexOf('#')
+  if (fragmentIndex <= 0) {
+    return null
+  }
+  const remote = source.slice(0, fragmentIndex)
+  const isSupportedRemote =
+    /^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:.+/.test(remote) || remote.startsWith('ssh://') || remote.startsWith('file://')
+  if (!isSupportedRemote) {
+    return null
+  }
+  const selector = source.slice(fragmentIndex + 1)
+  const pathSeparatorIndex = selector.indexOf(':')
+  if (pathSeparatorIndex <= 0 || pathSeparatorIndex === selector.length - 1) {
+    throw new Error('Git capability source must use <remote>#<ref>:<capability-path>')
+  }
+  const ref = selector.slice(0, pathSeparatorIndex)
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/@-]*$/.test(ref)) {
+    throw new Error(`Git capability source has an invalid ref: ${ref}`)
+  }
+  const capabilityPath = normalizeRelativePath(selector.slice(pathSeparatorIndex + 1))
+  return { remote, ref, capabilityPath }
+}
+
+async function readGitCapabilitySource(options: { source: string; gitSource: GitCapabilitySource }): Promise<{
+  label: string
+  files: CapabilityPackageFile[]
+  integrity: string
+}> {
+  const treeish = `${options.gitSource.ref}:${options.gitSource.capabilityPath}`
+  const archive = await new Promise<Buffer>((resolve, reject) => {
+    childProcess.execFile(
+      'git',
+      ['archive', '--format=tar.gz', '--prefix=package/', `--remote=${options.gitSource.remote}`, treeish],
+      { encoding: 'buffer', maxBuffer: MAX_ARCHIVE_BYTES },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr.toString('utf-8').trim()
+          reject(new Error(detail || `Failed to read Git capability source: ${options.source}`, { cause: error }))
+          return
+        }
+        resolve(stdout)
+      },
+    )
+  })
+  assertArchiveSize({ size: archive.length, label: options.source })
+  return {
+    label: options.source,
+    files: await extractArchiveFiles(archive),
     integrity: bufferIntegrity(archive),
   }
 }
@@ -329,12 +391,12 @@ async function extractArchiveFiles(archive: Buffer): Promise<CapabilityPackageFi
   let totalBytes = 0
   const extraction = new Promise<void>((resolve, reject) => {
     extractor.on('entry', (header, stream, next) => {
-      const relativePath = normalizeArchiveEntryPath(header.name)
       if (header.type === 'directory') {
         stream.resume()
         next()
         return
       }
+      const relativePath = normalizeArchiveEntryPath(header.name)
       if (header.type !== 'file' && header.type !== null && header.type !== undefined) {
         stream.resume()
         next(new Error(`Capability archives cannot contain ${header.type} entries: ${header.name}`))
@@ -455,10 +517,7 @@ function validatePackageMetadata(options: {
   }
 }
 
-function requirePackageFile(options: {
-  files: CapabilityPackageFile[]
-  filePath: string
-}): CapabilityPackageFile {
+function requirePackageFile(options: { files: CapabilityPackageFile[]; filePath: string }): CapabilityPackageFile {
   const file = options.files.find((candidate) => {
     return candidate.path === options.filePath
   })

@@ -90,6 +90,7 @@ describe('tabwright cli help', () => {
 
     expect(stdout).toContain('tabwright capability pack query-user')
     expect(stdout).toContain('tabwright capability install ./query-user.tgz')
+    expect(stdout).toContain('git@example.com:team/capabilities.git#v1.0.0:capabilities/query-user')
     expect(stdout).toContain('A shared capability always installs as `draft`')
     expect(discoverySkill).toContain('tabwright capability pack <capability-id>')
     expect(discoverySkill).toContain('tabwright capability install ./<capability-id>.tgz')
@@ -99,7 +100,7 @@ describe('tabwright cli help', () => {
   test('installs capabilities only from shareable package sources', async () => {
     const { stdout, stderr } = await runCli(['capability', 'install', '--help'])
 
-    expect(stdout).toContain('capability directory, local .tgz, or .tgz URL')
+    expect(stdout).toContain('capability directory, Git source, local .tgz, or .tgz URL')
     expect(stdout).toContain('--with-agent-skill')
     expect(stdout).not.toContain('built-in suite')
     expect(stdout).not.toContain('--draft')

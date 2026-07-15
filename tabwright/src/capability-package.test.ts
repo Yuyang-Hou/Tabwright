@@ -1,8 +1,15 @@
+import childProcess from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import url from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installCapabilityPackage, packCapability } from './capability-package.js'
-import { createCapability, updateCapabilityManifest, updateCapabilityScript, writeCapabilitySecrets } from './capability-registry.js'
+import {
+  createCapability,
+  updateCapabilityManifest,
+  updateCapabilityScript,
+  writeCapabilitySecrets,
+} from './capability-registry.js'
 
 describe('capability package sharing', () => {
   let testRoot: string
@@ -108,6 +115,53 @@ describe('capability package sharing', () => {
     expect(installed.capability.manifest.status).toBe('draft')
     expect(fs.existsSync(path.join(installed.capability.dir, 'secrets.json'))).toBe(false)
     expect(installed.files).toEqual(['README.md', 'capability.json', 'script.js'])
+  })
+
+  it('installs one capability directly from a Git repository ref', async () => {
+    const source = createCapability({
+      id: 'git-query',
+      location: 'project',
+      cwd: sourceCwd,
+      runtime: 'node',
+    })
+    updateCapabilityScript({ id: source.manifest.id, cwd: sourceCwd, source: 'return { source: "git" }\n' })
+    childProcess.execFileSync('git', ['init'], { cwd: sourceCwd })
+    childProcess.execFileSync('git', ['add', '-f', '.tabwright'], { cwd: sourceCwd })
+    childProcess.execFileSync(
+      'git',
+      ['-c', 'user.name=Tabwright Test', '-c', 'user.email=tabwright@example.com', 'commit', '-m', 'add capability'],
+      { cwd: sourceCwd },
+    )
+
+    const repositoryUrl = url.pathToFileURL(sourceCwd).toString()
+    const installed = await installCapabilityPackage({
+      source: `${repositoryUrl}#HEAD:.tabwright/capabilities/${source.manifest.id}`,
+      cwd: recipientCwd,
+      location: 'project',
+    })
+
+    expect(installed.source).toContain('#HEAD:.tabwright/capabilities/git-query')
+    expect(installed.capability.manifest.status).toBe('draft')
+    expect(fs.readFileSync(installed.capability.scriptPath, 'utf-8')).toBe('return { source: "git" }\n')
+    expect(installed.files).toEqual(['README.md', 'capability.json', 'script.js'])
+  })
+
+  it('rejects unsafe Git refs and capability paths before running Git', async () => {
+    await expect(
+      installCapabilityPackage({
+        source: 'git@example.com:team/capabilities.git#--upload-pack=evil:capabilities/query-user',
+        cwd: recipientCwd,
+        location: 'project',
+      }),
+    ).rejects.toThrow('invalid ref')
+
+    await expect(
+      installCapabilityPackage({
+        source: 'git@example.com:team/capabilities.git#v1.0.0:../query-user',
+        cwd: recipientCwd,
+        location: 'project',
+      }),
+    ).rejects.toThrow('stay inside the package')
   })
 
   it('requires force before replacing package files and clears recipient authentication', async () => {

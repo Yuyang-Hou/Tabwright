@@ -1510,7 +1510,7 @@ cli
   })
 
 cli
-  .command('capability install <source>', 'Install a capability directory, local .tgz, or .tgz URL')
+  .command('capability install <source>', 'Install a capability directory, Git source, local .tgz, or .tgz URL')
   .option('--project', 'Install under .tabwright/capabilities in the current project')
   .option('--force', 'Overwrite existing installed capabilities')
   .option('--with-agent-skill', 'Install a shared package agent skill after reviewing the source')

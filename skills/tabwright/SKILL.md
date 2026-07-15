@@ -53,7 +53,10 @@ When the user asks to package, share, export, or install a saved capability, use
 tabwright capability pack <capability-id>
 tabwright capability install ./<capability-id>.tgz
 tabwright capability install https://example.com/<capability-id>.tgz
+tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/<capability-id>'
 ```
+
+Git sources use `<remote>#<ref>:<capability-path>` and read only that directory with `git archive`, so private SSH repositories do not need to be cloned. Prefer a release tag over a moving branch.
 
 `capability pack` includes only the manifest, entry script, optional README, and optional agent skills. It excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. Shared capabilities always install as `draft`. Do not trust one until its contract and script have been inspected and it has passed a `capability run --force` validation. Authentication must be refreshed from the recipient's own browser. Packaged agent skills are not installed unless the user explicitly passes `--with-agent-skill` or later runs `capability skill install <capability-id>`.
 

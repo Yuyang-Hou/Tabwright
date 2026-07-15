@@ -79,7 +79,10 @@ Pack a saved capability into a sanitized archive, then send the `.tgz` file or h
 tabwright capability pack my-capability
 tabwright capability install ./my-capability.tgz
 tabwright capability install https://example.com/my-capability.tgz
+tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/my-capability'
 ```
+
+The Git form reads only the selected capability directory from the selected ref through `git archive`; it does not clone the repository. This is the recommended one-line install path for private repositories when users already have SSH access.
 
 Packages include `capability.json`, the entry script, `README.md`, and optional agent skills. They never include `secrets.json`, `runs.jsonl`, or `artifacts/`. Shared capabilities always install as `draft`; inspect and validate them with `--force` before trusting them. Authentication is local to each recipient and must be refreshed separately. Packaged agent skills are not installed by default; review one first, then use `capability skill install`, or opt in during installation with `--with-agent-skill`.
 
@@ -90,6 +93,7 @@ For repository-scoped sharing, install directly from a capability directory with
 ```bash
 tabwright capability install ../shared-capabilities/my-capability --project
 tabwright capability install https://example.com/capabilities/my-capability.tgz
+tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/my-capability' --project
 ```
 
 ## CLI Usage
