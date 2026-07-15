@@ -1,9 +1,11 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
 import {
   createCapability,
   appendCapabilityRun,
+  getCapabilityRoots,
   getProjectCapabilitiesDir,
   listCapabilities,
   readCapabilityRuns,
@@ -42,6 +44,17 @@ function updateCapabilityManifest(
 }
 
 describe('capability registry', () => {
+  test('deduplicates the capability root when the project cwd is the home directory', () => {
+    const roots = getCapabilityRoots({ cwd: os.homedir() })
+
+    expect(roots).toEqual([
+      {
+        dir: getProjectCapabilitiesDir({ cwd: os.homedir() }),
+        location: 'project',
+      },
+    ])
+  })
+
   test('creates and lists project capabilities', () => {
     const cwd = createTempDir('capability-registry-')
     try {

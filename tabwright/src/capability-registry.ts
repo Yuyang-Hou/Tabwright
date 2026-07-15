@@ -289,10 +289,17 @@ export function getProjectCapabilitiesDir(options: { cwd?: string } = {}): strin
 export function getCapabilityRoots(
   options: { cwd?: string } = {},
 ): Array<{ dir: string; location: CapabilityLocation }> {
-  return [
+  const roots: Array<{ dir: string; location: CapabilityLocation }> = [
     { dir: getProjectCapabilitiesDir({ cwd: options.cwd }), location: 'project' },
     { dir: getUserCapabilitiesDir(), location: 'user' },
   ]
+  return roots.filter((root, index) => {
+    return (
+      roots.findIndex((candidate) => {
+        return path.resolve(candidate.dir) === path.resolve(root.dir)
+      }) === index
+    )
+  })
 }
 
 export function validateCapabilityId(id: string): void {
