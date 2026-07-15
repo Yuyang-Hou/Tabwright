@@ -90,10 +90,14 @@
 
       <section id="relay-review-warning" class="relay-review-warning" role="status" aria-live="polite" hidden>
         <div>
-          <strong data-i18n="relay_review_warning_title">Saved data is temporarily unavailable</strong>
+          <strong id="relay-review-warning-title" data-i18n="relay_review_warning_title"
+            >Saved data is temporarily unavailable</strong
+          >
           <p id="relay-review-warning-text"></p>
         </div>
-        <code>npm install -g tabwright@latest<br />tabwright session list</code>
+        <code id="relay-review-warning-command"
+          >npm install -g tabwright@latest<br />tabwright session list</code
+        >
       </section>
 
       <section class="workspace">

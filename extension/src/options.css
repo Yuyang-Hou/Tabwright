@@ -543,7 +543,7 @@ h3 {
 .recording-actions button,
 .skill-actions button,
 .replay-controls button,
-.lifecycle-command button {
+.technical-command button {
   min-height: 28px;
   padding: 0 10px;
   background: var(--control);
@@ -555,7 +555,7 @@ h3 {
 .recording-actions button:hover,
 .skill-actions button:hover,
 .replay-controls button:hover,
-.lifecycle-command button:hover {
+.technical-command button:hover {
   background: var(--control-hover);
 }
 
@@ -791,6 +791,41 @@ h3 {
   background: var(--red-soft);
 }
 
+.auth-card[data-status='authenticated'] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  background: var(--green-soft);
+  border-color: rgba(52, 199, 89, 0.24);
+}
+
+.auth-card[data-status='authenticated'] .auth-heading {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+}
+
+.auth-card[data-status='authenticated'] .auth-meta {
+  margin-left: auto;
+}
+
+.auth-card[data-status='authenticated'] .auth-error {
+  flex: 0 0 100%;
+  order: 1;
+}
+
+.auth-card[data-status='authenticated'] .auth-action {
+  min-height: 28px;
+  padding: 0 10px;
+  background: var(--control);
+  color: var(--text);
+}
+
+.auth-card[data-status='authenticated'] .auth-action:hover {
+  background: var(--control-hover);
+}
+
 .auth-card[data-status='expiring'],
 .auth-card[data-status='missing'],
 .auth-card[data-status='unknown'] {
@@ -951,17 +986,11 @@ h3 {
   background: var(--red-soft);
 }
 
-.lifecycle-heading,
-.lifecycle-summary,
-.lifecycle-command {
+.lifecycle-heading {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-}
-
-.lifecycle-heading,
-.lifecycle-summary {
   justify-content: space-between;
 }
 
@@ -1028,36 +1057,6 @@ h3 {
   background: var(--red);
 }
 
-.lifecycle-summary {
-  flex-wrap: wrap;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.lifecycle-summary strong {
-  color: var(--text);
-  font-size: 12px;
-}
-
-.lifecycle-command code {
-  width: 0;
-  min-width: 0;
-  max-width: 100%;
-  flex: 1 1 0;
-  overflow: hidden;
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: var(--surface-muted);
-  color: var(--text-secondary);
-  font:
-    10px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .lifecycle-warning {
   border-radius: 8px;
   padding: 9px 10px;
@@ -1113,6 +1112,29 @@ h3 {
 
 .advanced-details .field-grid {
   margin-top: 0;
+}
+
+.technical-command {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 5px;
+}
+
+.technical-command code {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font:
+    10px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
 }
 
 .empty-state {

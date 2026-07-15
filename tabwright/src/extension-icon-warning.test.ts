@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getRelayReviewIssue,
+  isRelayVersionOutdated,
   RELAY_RECOVERY_COMMAND,
   RelayConnectionProblemError,
   relayIssueText,
@@ -8,6 +9,13 @@ import {
 } from 'mcp-extension/src/relay-warning.js'
 
 describe('extension relay warning copy', () => {
+  it('detects an older local service version', () => {
+    expect(isRelayVersionOutdated({ currentVersion: '1.0.1', requiredVersion: '1.0.2' })).toBe(true)
+    expect(isRelayVersionOutdated({ currentVersion: '1.0.2', requiredVersion: '1.0.2' })).toBe(false)
+    expect(isRelayVersionOutdated({ currentVersion: '1.1.0', requiredVersion: '1.0.2' })).toBe(false)
+    expect(isRelayVersionOutdated({ currentVersion: '2.0.0', requiredVersion: '1.9.0' })).toBe(false)
+  })
+
   it('tells users how to recover when the relay is outdated', () => {
     const text = relayIssueText({ issue: 'outdated' })
 

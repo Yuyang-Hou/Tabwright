@@ -507,6 +507,15 @@ describe('extension options page', () => {
         return await clipboardNavigator.clipboard.readText()
       })
     }
+    async function copyTechnicalCommand(): Promise<string> {
+      const details = page.locator('.advanced-details')
+      const copy = details.getByRole('button', { name: /Copy command|复制命令/ })
+      if (!(await copy.isVisible())) {
+        await details.locator('summary').click()
+      }
+      await copy.click()
+      return await readClipboard()
+    }
     try {
       await testCtx.browserContext.grantPermissions(['clipboard-read', 'clipboard-write'], {
         origin: staticServer.baseUrl,
@@ -612,10 +621,11 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('Contract healthy')
-      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
-      const runCommand = await readClipboard()
-      expect(runCommand).toBe(trustedNextCommand)
+        .not.toContain('Next step')
+      expect(await page.locator('.lifecycle-card button').count()).toBe(0)
+      expect(await copyTechnicalCommand()).toBe(trustedNextCommand)
+      expect(await page.locator('.advanced-details').textContent()).toContain('Validation status')
+      expect(await page.locator('.advanced-details').textContent()).toContain('Contract healthy')
       await page.getByRole('button', { name: 'Copy for AI' }).click()
       const aiContext = await readClipboard()
       expect(aiContext).toContain('Capability ID: query-user')
@@ -649,47 +659,45 @@ describe('extension options page', () => {
           return await page.locator('.auth-card').textContent()
         })
         .toContain('Authenticated')
+      expect(await page.locator('.auth-card .auth-description').count()).toBe(0)
+      expect(await page.locator('.auth-card .auth-detail').count()).toBe(0)
+      expect(await page.locator('.auth-card .auth-privacy').count()).toBe(0)
+      expect(await page.locator('.auth-card .auth-meta').textContent()).toContain('Last authenticated')
+      expect(
+        await page.locator('.auth-card').getByRole('button', { name: 'Refresh authentication' }).isVisible(),
+      ).toBe(true)
+      const authenticatedCardBox = await page.locator('.auth-card').boundingBox()
+      expect(authenticatedCardBox).not.toBeNull()
+      expect(authenticatedCardBox?.height).toBeLessThan(80)
 
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await expect
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('Repair contract drift')
+        .not.toContain('Next step')
       await expect
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
         .toContain('output.userId must be string')
-      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
-      expect(await readClipboard()).toBe(driftedNextCommand)
+      expect(await copyTechnicalCommand()).toBe(driftedNextCommand)
 
       await page.locator('.skill-item').filter({ hasText: 'Legacy Disabled' }).click()
       await expect
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('Enable as draft')
-      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
-      expect(await readClipboard()).toBe("tabwright capability draft 'legacy-disabled'")
+        .toContain('Disabled')
+      expect(await copyTechnicalCommand()).toBe("tabwright capability draft 'legacy-disabled'")
 
       await page.locator('.skill-item').filter({ hasText: 'Legacy Trusted' }).click()
-      await expect
-        .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
-        })
-        .toContain('Not yet checked for usability')
-      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
-      expect(await readClipboard()).toContain("tabwright capability run 'legacy-trusted'")
+      expect(await copyTechnicalCommand()).toContain("tabwright capability run 'legacy-trusted'")
+      expect(await page.locator('.advanced-details').textContent()).toContain('Not yet checked for usability')
 
       await page.locator('.skill-item').filter({ hasText: 'Historical Trusted' }).click()
-      await expect
-        .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
-        })
-        .toContain('Not yet checked for usability')
-      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
-      expect(await readClipboard()).toBe(historicalTrustedNextCommand)
+      expect(await copyTechnicalCommand()).toBe(historicalTrustedNextCommand)
+      expect(await page.locator('.advanced-details').textContent()).toContain('Not yet checked for usability')
 
       await page.locator('.skill-item').filter({ hasText: 'Future Lifecycle' }).click()
       await expect
@@ -702,8 +710,7 @@ describe('extension options page', () => {
           return await page.locator('#skill-detail').textContent()
         })
         .not.toContain('future-run-format')
-      await page.locator('.lifecycle-card').getByRole('button', { name: 'Copy next step' }).click()
-      expect(await readClipboard()).toBe("tabwright capability describe 'future-lifecycle' --json")
+      expect(await copyTechnicalCommand()).toBe("tabwright capability describe 'future-lifecycle' --json")
 
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await page.locator('.language-button[data-language="zh_CN"]').click()
@@ -711,13 +718,10 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()
         })
-        .toContain('下一步：重新检查')
-      await expect
-        .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
-        })
-        .toContain('配置发生变化 · 检查于')
-      expect(await page.locator('.lifecycle-card').textContent()).not.toContain('$action$')
+        .not.toContain('下一步')
+      expect(await copyTechnicalCommand()).toBe(driftedNextCommand)
+      expect(await page.locator('.advanced-details').textContent()).toContain('配置发生变化 · 检查于')
+      expect(await page.locator('.advanced-details').textContent()).toContain('CLI 命令')
     } finally {
       await testCtx.browserContext.clearPermissions()
       await page.close()
@@ -831,6 +835,52 @@ describe('extension options page', () => {
           return await page.locator('#relay-review-warning').isVisible()
         })
         .toBe(false)
+    } finally {
+      await page.close()
+      await staticServer.close()
+    }
+  }, 30000)
+
+  test('shows the running and required versions when the local service is outdated', async () => {
+    if (!testCtx) {
+      throw new Error('Test context is not initialized')
+    }
+
+    const distRoot = getExtensionDistRoot()
+    const staticServer = await createStaticServer(distRoot)
+    const page = await testCtx.browserContext.newPage()
+    try {
+      await page.route(`http://127.0.0.1:${TEST_PORT}/**`, async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        const headers = {
+          'access-control-allow-origin': '*',
+          'content-type': 'application/json',
+        }
+
+        if (url.pathname === '/version') {
+          await route.fulfill({ status: 200, headers, body: JSON.stringify({ version: '1.0.0' }) })
+          return
+        }
+        if (url.pathname === '/rrweb-recordings') {
+          await route.fulfill({ status: 200, headers, body: JSON.stringify({ recordings: [] }) })
+          return
+        }
+        await route.fulfill({ status: 404, headers, body: '{}' })
+      })
+
+      await page.goto(`${staticServer.baseUrl}/src/options.html`, { waitUntil: 'domcontentloaded' })
+      await page.locator('.language-button[data-language="zh_CN"]').click()
+      await expect
+        .poll(async () => {
+          return await page.locator('#relay-review-warning-title').textContent()
+        })
+        .toMatch(/^本地服务需要更新，当前版本 1\.0\.0，需要 \d+\.\d+\.\d+。$/)
+      expect(await page.locator('#relay-review-warning-text').textContent()).toBe('在终端运行以下命令，完成后刷新页面。')
+      expect(await page.locator('#relay-review-warning-command').textContent()).toContain(
+        'npm install -g tabwright@latest',
+      )
+      expect(await page.locator('#relay-review-warning-command').textContent()).toContain('tabwright session list')
     } finally {
       await page.close()
       await staticServer.close()

@@ -1,9 +1,10 @@
 declare const process: { env: { TABWRIGHT_PORT: string; PLAYWRITER_PORT: string } }
+declare const __PLAYWRITER_VERSION__: string
 
 import { EventType, Replayer, ReplayerEvents, type eventWithTime } from 'rrweb'
 import 'rrweb/dist/style.css'
 import { createReplayLogger, type ReplayLoggerController } from './replay-logger'
-import type { RelayReviewIssue } from './relay-warning'
+import { isRelayVersionOutdated, type RelayReviewIssue } from './relay-warning'
 
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT) || 19988
@@ -123,6 +124,11 @@ interface CapabilitiesResponse {
   capabilities: CapabilityContract[]
 }
 
+interface RelayVersionUpdate {
+  currentVersion: string
+  requiredVersion: string
+}
+
 type LoadError = { type: 'relay'; issue: RelayReviewIssue } | { type: 'message'; message: string }
 type CapabilityContractPayload = Omit<CapabilityContract, 'recentRuns' | 'lifecycle'> & {
   recentRuns: unknown[]
@@ -187,6 +193,8 @@ const messageFallbacks = {
   error_load_capabilities: 'Failed to load capabilities: $1',
   error_invalid_capabilities: 'Invalid capabilities response',
   relay_review_warning_title: 'Saved data is temporarily unavailable',
+  relay_version_outdated: 'Local service update required. Current version $1, required version $2.',
+  relay_version_update_instructions: 'Run these commands in a terminal, then refresh this page.',
   relay_review_outdated:
     'Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Tabwright, then refresh.',
   relay_review_unavailable:
@@ -197,9 +205,9 @@ const messageFallbacks = {
   empty_no_capabilities: 'No capabilities yet.',
   empty_no_matches: 'No matches for this search.',
   copy_for_ai: 'Copy for AI',
-  copy_next_step: 'Copy next step',
+  copy_command: 'Copy command',
   label_ai_context: 'AI context',
-  label_next_command: 'Next-step command',
+  label_next_command: 'CLI command',
   detail_id: 'ID',
   detail_path: 'Path',
   detail_saved: 'Saved',
@@ -226,6 +234,7 @@ const messageFallbacks = {
   field_effect: 'Side effect',
   field_routing: 'Routing',
   field_location: 'Location',
+  field_contract_health: 'Validation status',
   technical_details: 'Technical details',
   badge_auto_ready: 'Can run automatically',
   badge_needs_confirmation: 'Needs your confirmation',
@@ -256,12 +265,6 @@ const messageFallbacks = {
   lifecycle_stage_trusted: 'Trusted',
   lifecycle_stage_drifted: 'Validation expired',
   lifecycle_stage_disabled: 'Disabled',
-  lifecycle_next_step: 'Next step: $1',
-  lifecycle_action_validate: 'Validate contract',
-  lifecycle_action_trust: 'Mark trusted',
-  lifecycle_action_run: 'Run capability',
-  lifecycle_action_repair: 'Repair contract drift',
-  lifecycle_action_enable: 'Enable as draft',
   lifecycle_health_checked: '$1 · checked $2',
   lifecycle_health_not_checked: 'Not yet checked for usability',
   lifecycle_health_healthy: 'Contract healthy',
@@ -485,7 +488,9 @@ function localizeDocument(): void {
 
 const statusText = document.querySelector<HTMLParagraphElement>('#status-text')
 const relayReviewWarning = document.querySelector<HTMLElement>('#relay-review-warning')
+const relayReviewWarningTitle = document.querySelector<HTMLElement>('#relay-review-warning-title')
 const relayReviewWarningText = document.querySelector<HTMLParagraphElement>('#relay-review-warning-text')
+const relayReviewWarningCommand = document.querySelector<HTMLElement>('#relay-review-warning-command')
 const refreshButton = document.querySelector<HTMLButtonElement>('#refresh-button')
 const searchInput = document.querySelector<HTMLInputElement>('#search-input')
 const viewEyebrow = document.querySelector<HTMLParagraphElement>('#view-eyebrow')
@@ -524,6 +529,7 @@ let capabilities: CapabilityContract[] = []
 let capabilityCwd = ''
 let replayLoadError: LoadError | null = null
 let capabilityLoadError: LoadError | null = null
+let relayVersionUpdate: RelayVersionUpdate | null = null
 let searchQuery = ''
 let replayFitCleanup: (() => void) | null = null
 let activeReplayer: Replayer | null = null
@@ -800,12 +806,48 @@ function currentRelayReviewIssue(): RelayReviewIssue | null {
 }
 
 function updateRelayReviewWarning(): void {
-  if (!relayReviewWarning || !relayReviewWarningText) {
+  if (!relayReviewWarning || !relayReviewWarningTitle || !relayReviewWarningText || !relayReviewWarningCommand) {
     return
   }
   const issue = currentRelayReviewIssue()
-  relayReviewWarning.hidden = !issue
+  relayReviewWarning.hidden = !issue && !relayVersionUpdate
+  if (relayVersionUpdate) {
+    relayReviewWarningTitle.textContent = msg('relay_version_outdated', [
+      relayVersionUpdate.currentVersion,
+      relayVersionUpdate.requiredVersion,
+    ])
+    relayReviewWarningText.hidden = false
+    relayReviewWarningText.textContent = msg('relay_version_update_instructions')
+    relayReviewWarningCommand.hidden = false
+    return
+  }
+  relayReviewWarningTitle.textContent = msg('relay_review_warning_title')
+  relayReviewWarningText.hidden = false
   relayReviewWarningText.textContent = issue ? relayReviewMessage(issue) : ''
+  relayReviewWarningCommand.hidden = false
+}
+
+async function loadRelayVersion(): Promise<void> {
+  try {
+    const response = await fetch(`${RELAY_BASE_URL}/version`)
+    if (!response.ok) {
+      relayVersionUpdate = null
+      updateRelayReviewWarning()
+      return
+    }
+    const data: unknown = await response.json()
+    const currentVersion = isRecord(data) && typeof data.version === 'string' ? data.version : null
+    relayVersionUpdate =
+      currentVersion &&
+      isRelayVersionOutdated({ currentVersion, requiredVersion: __PLAYWRITER_VERSION__ })
+        ? { currentVersion, requiredVersion: __PLAYWRITER_VERSION__ }
+        : null
+    updateRelayReviewWarning()
+  } catch (error: unknown) {
+    relayVersionUpdate = null
+    updateRelayReviewWarning()
+    console.warn(error)
+  }
 }
 
 function formatDate(timestamp: number): string {
@@ -1340,6 +1382,11 @@ function createCapabilityAuthCard(capability: CapabilityContract): HTMLElement |
   action.addEventListener('click', () => {
     void refreshCapabilityAuth({ capability, button: action, errorMessage })
   })
+
+  if (status === 'authenticated') {
+    card.replaceChildren(heading, timestamps, errorMessage, action)
+    return card
+  }
 
   card.replaceChildren(heading, description, scope, timestamps, privacy, errorMessage, action)
   return card
@@ -1984,14 +2031,6 @@ function lifecycleStageMessage(stage: CapabilityLifecycle['stage']): string {
   return msg('lifecycle_stage_drafted')
 }
 
-function lifecycleActionMessage(action: CapabilityLifecycle['nextAction']): string {
-  if (action === 'trust') return msg('lifecycle_action_trust')
-  if (action === 'run') return msg('lifecycle_action_run')
-  if (action === 'repair') return msg('lifecycle_action_repair')
-  if (action === 'enable') return msg('lifecycle_action_enable')
-  return msg('lifecycle_action_validate')
-}
-
 function capabilityAiContextText(capability: CapabilityContract): string {
   if (isChineseLocale()) {
     return [
@@ -2024,6 +2063,29 @@ function createField(options: { title: string; value: string; full?: boolean }):
   value.textContent = options.value
 
   field.replaceChildren(title, value)
+  return field
+}
+
+function createCapabilityCommandField(options: { command: string }): HTMLDivElement {
+  const field = document.createElement('div')
+  field.className = 'field full'
+
+  const title = document.createElement('h3')
+  title.textContent = msg('label_next_command')
+
+  const command = document.createElement('div')
+  command.className = 'technical-command'
+  const code = document.createElement('code')
+  code.textContent = options.command
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.textContent = msg('copy_command')
+  copy.addEventListener('click', () => {
+    copyWithStatus({ label: msg('label_next_command'), text: options.command })
+  })
+  command.replaceChildren(code, copy)
+
+  field.replaceChildren(title, command)
   return field
 }
 
@@ -2084,8 +2146,8 @@ function lifecycleHealthMessage(lifecycle: CapabilityLifecycle): string {
   return msg('lifecycle_health_checked', [healthLabel, checkedAt])
 }
 
-function createCapabilityLifecycle(capability: CapabilityContract): HTMLElement {
-  const lifecycle = resolveCapabilityLifecycle(capability)
+function createCapabilityLifecycle(options: { lifecycle: CapabilityLifecycle }): HTMLElement {
+  const lifecycle = options.lifecycle
   const card = document.createElement('section')
   card.className = 'lifecycle-card'
   card.dataset.stage = lifecycle.stage
@@ -2114,27 +2176,6 @@ function createCapabilityLifecycle(capability: CapabilityContract): HTMLElement 
     }),
   )
 
-  const summary = document.createElement('div')
-  summary.className = 'lifecycle-summary'
-  const nextStep = document.createElement('strong')
-  nextStep.textContent = msg('lifecycle_next_step', lifecycleActionMessage(lifecycle.nextAction))
-  const health = document.createElement('span')
-  health.textContent = lifecycleHealthMessage(lifecycle)
-  summary.replaceChildren(nextStep, health)
-
-  const command = document.createElement('div')
-  command.className = 'lifecycle-command'
-  const code = document.createElement('code')
-  code.textContent = lifecycle.nextCommand
-  code.title = lifecycle.nextCommand
-  const copy = document.createElement('button')
-  copy.type = 'button'
-  copy.textContent = msg('copy_next_step')
-  copy.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_next_command'), text: lifecycle.nextCommand })
-  })
-  command.replaceChildren(code, copy)
-
   const warningText = (() => {
     if (lifecycle.stage === 'drifted') {
       return [msg('lifecycle_drift_warning'), ...lifecycle.contractHealth.reasons].join('\n')
@@ -2149,7 +2190,7 @@ function createCapabilityLifecycle(capability: CapabilityContract): HTMLElement 
   warning.textContent = warningText
   warning.hidden = warningText.length === 0
 
-  card.replaceChildren(heading, steps, summary, command, warning)
+  card.replaceChildren(heading, steps, warning)
   return card
 }
 
@@ -2170,6 +2211,7 @@ function createCapabilityActions(capability: CapabilityContract): HTMLDivElement
 
 function renderCapabilityDetail(capability: CapabilityContract): void {
   if (!skillDetail) return
+  const lifecycle = resolveCapabilityLifecycle(capability)
 
   const header = document.createElement('div')
   header.className = 'skill-header'
@@ -2210,6 +2252,8 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   const advancedFields = document.createElement('div')
   advancedFields.className = 'field-grid'
   advancedFields.replaceChildren(
+    createCapabilityCommandField({ command: lifecycle.nextCommand }),
+    createField({ title: msg('field_contract_health'), value: lifecycleHealthMessage(lifecycle), full: true }),
     createField({ title: msg('field_runtime'), value: runtimeLabel(capability.runtime) }),
     createField({ title: msg('field_effect'), value: effectLabel(capability.sideEffect) }),
     createField({ title: msg('field_routing'), value: routingLabel(capability.routingHint) }),
@@ -2257,7 +2301,7 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   skillDetail.replaceChildren(
     header,
     ...(authCard ? [authCard] : []),
-    createCapabilityLifecycle(capability),
+    createCapabilityLifecycle({ lifecycle }),
     primaryFields,
     advancedDetails,
   )
@@ -2416,7 +2460,7 @@ async function loadCapabilities(options: { silent?: boolean } = {}): Promise<voi
 
 refreshButton?.addEventListener('click', () => {
   const loader = activeTab === 'recordings' ? loadReplays : loadCapabilities
-  loader().catch((error: unknown) => {
+  Promise.all([loadRelayVersion(), loader()]).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     setStatus(message)
   })
@@ -2467,6 +2511,7 @@ document.querySelectorAll<HTMLButtonElement>('.tab-button').forEach((button) => 
 async function initializeOptionsPage(): Promise<void> {
   await initializeLanguage()
   setActiveTab('recordings')
+  await loadRelayVersion()
   await loadReplays()
 }
 
@@ -2476,6 +2521,7 @@ initializeOptionsPage().catch((error: unknown) => {
 })
 
 window.setInterval(() => {
+  void loadRelayVersion()
   if (activeTab === 'skills') {
     void loadCapabilities({ silent: true }).catch((error: unknown) => {
       console.warn(error)

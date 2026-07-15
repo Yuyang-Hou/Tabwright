@@ -3,6 +3,19 @@ export const RELAY_RECOVERY_COMMAND = 'npm install -g tabwright@latest\ntabwrigh
 export type RelayConnectionIssue = 'offline' | 'outdated' | 'unavailable'
 export type RelayReviewIssue = 'outdated' | 'unavailable'
 
+export function isRelayVersionOutdated(options: { currentVersion: string; requiredVersion: string }): boolean {
+  const currentParts = options.currentVersion.split('.').map(Number)
+  const requiredParts = options.requiredVersion.split('.').map(Number)
+  const length = Math.max(currentParts.length, requiredParts.length)
+  const firstDifferentIndex = Array.from({ length }).findIndex((_, index) => {
+    return (currentParts[index] || 0) !== (requiredParts[index] || 0)
+  })
+  if (firstDifferentIndex === -1) {
+    return false
+  }
+  return (currentParts[firstDifferentIndex] || 0) < (requiredParts[firstDifferentIndex] || 0)
+}
+
 export function getRelayReviewIssue(options: { statuses: number[] }): RelayReviewIssue | undefined {
   if (options.statuses.some((status) => status === 404)) {
     return 'outdated'

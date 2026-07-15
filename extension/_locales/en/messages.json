@@ -100,6 +100,12 @@
   },
   "error_invalid_capabilities": { "message": "Invalid capabilities response" },
   "relay_review_warning_title": { "message": "Saved data is temporarily unavailable" },
+  "relay_version_outdated": {
+    "message": "Local service update required. Current version $1, required version $2."
+  },
+  "relay_version_update_instructions": {
+    "message": "Run these commands in a terminal, then refresh this page."
+  },
   "relay_review_outdated": {
     "message": "Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Tabwright, then refresh."
   },
@@ -113,9 +119,9 @@
   "empty_no_capabilities": { "message": "No capabilities yet." },
   "empty_no_matches": { "message": "No matches for this search." },
   "copy_for_ai": { "message": "Copy for AI" },
-  "copy_next_step": { "message": "Copy next step" },
+  "copy_command": { "message": "Copy command" },
   "label_ai_context": { "message": "AI context" },
-  "label_next_command": { "message": "Next-step command" },
+  "label_next_command": { "message": "CLI command" },
   "detail_id": { "message": "ID" },
   "detail_path": { "message": "Path" },
   "detail_saved": { "message": "Saved" },
@@ -148,6 +154,7 @@
   "field_effect": { "message": "Side effect" },
   "field_routing": { "message": "Routing" },
   "field_location": { "message": "Location" },
+  "field_contract_health": { "message": "Validation status" },
   "technical_details": { "message": "Technical details" },
   "badge_auto_ready": { "message": "Can run automatically" },
   "badge_needs_confirmation": { "message": "Needs your confirmation" },
@@ -178,15 +185,6 @@
   "lifecycle_stage_trusted": { "message": "Trusted" },
   "lifecycle_stage_drifted": { "message": "Validation expired" },
   "lifecycle_stage_disabled": { "message": "Disabled" },
-  "lifecycle_next_step": {
-    "message": "Next step: $action$",
-    "placeholders": { "action": { "content": "$1" } }
-  },
-  "lifecycle_action_validate": { "message": "Validate contract" },
-  "lifecycle_action_trust": { "message": "Mark trusted" },
-  "lifecycle_action_run": { "message": "Run capability" },
-  "lifecycle_action_repair": { "message": "Repair contract drift" },
-  "lifecycle_action_enable": { "message": "Enable as draft" },
   "lifecycle_health_checked": {
     "message": "$health$ · checked $time$",
     "placeholders": {

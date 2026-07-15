@@ -98,6 +98,12 @@
   },
   "error_invalid_capabilities": { "message": "能力响应无效" },
   "relay_review_warning_title": { "message": "保存的数据暂时不可用" },
+  "relay_version_outdated": {
+    "message": "本地服务需要更新，当前版本 $1，需要 $2。"
+  },
+  "relay_version_update_instructions": {
+    "message": "在终端运行以下命令，完成后刷新页面。"
+  },
   "relay_review_outdated": {
     "message": "浏览器控制仍已连接，但当前本地服务无法列出保存的录制和能力。文件没有被删除；请重启或更新 Tabwright 后刷新。"
   },
@@ -111,9 +117,9 @@
   "empty_no_capabilities": { "message": "还没有能力。" },
   "empty_no_matches": { "message": "没有匹配的结果。" },
   "copy_for_ai": { "message": "复制给 AI" },
-  "copy_next_step": { "message": "复制下一步" },
+  "copy_command": { "message": "复制命令" },
   "label_ai_context": { "message": "AI 上下文" },
-  "label_next_command": { "message": "下一步命令" },
+  "label_next_command": { "message": "CLI 命令" },
   "detail_id": { "message": "ID" },
   "detail_path": { "message": "路径" },
   "detail_saved": { "message": "保存时间" },
@@ -146,6 +152,7 @@
   "field_effect": { "message": "数据影响" },
   "field_routing": { "message": "匹配方式" },
   "field_location": { "message": "来源" },
+  "field_contract_health": { "message": "可用性检查" },
   "technical_details": { "message": "技术详情" },
   "badge_auto_ready": { "message": "可自动执行" },
   "badge_needs_confirmation": { "message": "需你确认" },
@@ -176,15 +183,6 @@
   "lifecycle_stage_trusted": { "message": "已授权使用" },
   "lifecycle_stage_drifted": { "message": "需重新检查" },
   "lifecycle_stage_disabled": { "message": "已停用" },
-  "lifecycle_next_step": {
-    "message": "下一步：$action$",
-    "placeholders": { "action": { "content": "$1" } }
-  },
-  "lifecycle_action_validate": { "message": "检查是否可用" },
-  "lifecycle_action_trust": { "message": "授权使用" },
-  "lifecycle_action_run": { "message": "运行自动化" },
-  "lifecycle_action_repair": { "message": "重新检查" },
-  "lifecycle_action_enable": { "message": "重新启用" },
   "lifecycle_health_checked": {
     "message": "$health$ · 检查于 $time$",
     "placeholders": {
