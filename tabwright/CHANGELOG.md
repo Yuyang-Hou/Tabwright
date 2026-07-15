@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- d1054c9: Remove built-in capability suites and require capabilities to be installed from a local directory, a `.tgz` package, or an HTTPS package URL.
+
+### Minor Changes
+
+- cac05a5: Install a capability directly from one directory at a tagged Git or private SSH repository ref without cloning the repository.
+
 ## 1.0.1
 
 ### Patch Changes

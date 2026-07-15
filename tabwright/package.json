@@ -1,7 +1,7 @@
 {
   "name": "tabwright",
   "description": "Let AI agents control your existing Chrome through a local CLI and MCP server.",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
