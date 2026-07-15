@@ -87,7 +87,7 @@ function StarRating({ rating }: { rating: number }) {
 
   return (
     <a
-      href='https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe'
+      href='https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep'
       target='_blank'
       rel='noopener noreferrer'
       className='flex items-center gap-2 mt-5 no-underline text-foreground/50 hover:text-foreground/70 transition-colors'
@@ -139,7 +139,7 @@ function HeroBackground({ dotColor = 'rgba(255, 106, 0, 0.7)' }: { dotColor?: st
 const HERO_FONT = "'IvarText', serif"
 
 const CHROME_EXTENSION_URL =
-  'https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe'
+  'https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep'
 const GITHUB_URL = 'https://github.com/Yuyang-Hou/tabwright'
 
 export function HeroSection() {

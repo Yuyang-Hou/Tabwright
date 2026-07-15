@@ -2015,7 +2015,8 @@ async function resetDebugger(): Promise<void> {
 
 // Our extension IDs - allow attaching to our own extension pages for debugging
 const OUR_EXTENSION_IDS = [
-  'jfeammnjpkecdekppnclgkkffahnhfhe', // Production extension (Chrome Web Store)
+  'dkfhphbajbkplddmchbdgdddioonngep', // Tabwright production extension (Chrome Web Store)
+  'jfeammnjpkecdekppnclgkkffahnhfhe', // Legacy Playwriter production extension
   'pebbngnfojnignonigcnkdilknapkgid', // Dev extension (stable ID from manifest key)
 ]
 

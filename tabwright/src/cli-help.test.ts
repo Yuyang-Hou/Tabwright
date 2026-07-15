@@ -24,12 +24,22 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string 
 }
 
 describe('tabwright cli help', () => {
+  test('prints only one version line', async () => {
+    const { stdout, stderr } = await runCli(['--version'])
+
+    expect(stdout.trim().split('\n')).toHaveLength(1)
+    expect(stdout).toMatch(/^tabwright\/\d+\.\d+\.\d+ /)
+    expect(stderr).toBe('')
+  }, 30000)
+
   test('renders root help without crashing', async () => {
     const { stdout, stderr } = await runCli(['--help'])
 
     expect(stdout).toContain('tabwright')
     expect(stdout).toContain('doctor')
     expect(stdout).toContain('serve')
+    expect(stdout).toContain('-e, --eval <code>')
+    expect(stdout).not.toContain('tabwright  Start the MCP server')
     expect(stderr).toBe('')
   }, 30000)
 

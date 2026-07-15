@@ -1,13 +1,13 @@
 {
   "name": "tabwright",
   "description": "Let AI agents control your existing Chrome through a local CLI and MCP server.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "repository": "https://github.com/Yuyang-Hou/tabwright",
   "scripts": {
-    "build": "rm -rf dist *.tsbuildinfo && mkdir dist && bun scripts/build-client-bundles.ts && tsc && bun scripts/build-extension-bundle.ts && bun scripts/build-resources.ts",
+    "build": "rm -rf dist *.tsbuildinfo && mkdir dist && bun scripts/build-client-bundles.ts && tsc -p tsconfig-build.json && bun scripts/build-extension-bundle.ts && bun scripts/build-resources.ts",
     "prepublishOnly": "pnpm build",
     "watch": "tsc -w",
     "cli": "vite-node src/cli.ts",
@@ -22,9 +22,14 @@
   },
   "files": [
     "dist",
-    "src",
-    "bin.js"
+    "src/agent-skills",
+    "src/skill.md",
+    "bin.js",
+    "readme.md"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [
     "browser-automation",
     "chrome",

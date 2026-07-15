@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+### Patch Changes
+
+- Improve first-run guidance, CLI version output, doctor readiness, package size, and accessibility snapshots for npm users.
+- Recognize the independent Tabwright Chrome Web Store extension and direct installation links to its new listing while retaining compatibility with the legacy Playwriter extension.
+
 ## 1.0.0
 
 ### Major Changes

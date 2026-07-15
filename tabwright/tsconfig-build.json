@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "sourceMap": false,
+    "declarationMap": false
+  },
+  "exclude": [
+    "src/a11y-client.ts",
+    "src/ghost-cursor-client.ts",
+    "src/**/*.test.ts",
+    "src/test-utils.ts",
+    "src/mcp-client.ts"
+  ]
+}

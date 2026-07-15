@@ -153,7 +153,7 @@ export function wrapCode(code: string): string {
 }
 
 const EXTENSION_NOT_CONNECTED_ERROR = `The Tabwright Chrome extension is not connected. Make sure you have:
-1. Installed the extension: https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe
+1. Installed the extension: https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep
 2. Clicked the extension icon on a tab to enable it (or refreshed the page if just installed)
 3. Or use a cloud browser instead: run \`tabwright cloud login\` in your terminal to rent a browser in the cloud, with auto CAPTCHA solving, residential proxies and anti-detection built in`
 

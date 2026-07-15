@@ -257,6 +257,12 @@ export function buildDoctorReport(options: {
       }
     }
 
+    if (usableSessions.length > 0) {
+      return {
+        title: 'Tabwright is ready. Use the healthy session only if you created it for this task.',
+      }
+    }
+
     const enabledExtension = options.extensions.find((extension) => {
       return extension.activeTargets > 0
     })
@@ -266,13 +272,6 @@ export function buildDoctorReport(options: {
         command: enabledExtension.stableKey
           ? `tabwright session new --browser ${enabledExtension.stableKey}`
           : 'tabwright session new',
-      }
-    }
-
-    if (usableSessions.length > 0) {
-      return {
-        title: 'Create a task-owned headless session instead of reusing another agent session.',
-        command: 'tabwright session new --browser headless',
       }
     }
 

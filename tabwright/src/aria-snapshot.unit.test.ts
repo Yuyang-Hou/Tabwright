@@ -18,6 +18,57 @@ const nameValue = (value: string): Protocol.Accessibility.AXValue => {
 }
 
 describe('aria-snapshot tree filters', () => {
+  it('excludes the Tabwright toolbar from interactive and full snapshots', () => {
+    const rawTree: SnapshotNode = {
+      role: 'main',
+      name: '',
+      ignored: false,
+      children: [
+        {
+          role: 'button',
+          name: 'Continue',
+          ignored: false,
+          children: [],
+        },
+        {
+          role: 'toolbar',
+          name: 'Tabwright tools',
+          ignored: false,
+          children: [
+            {
+              role: 'button',
+              name: 'Close Tabwright toolbar',
+              ignored: false,
+              children: [],
+            },
+          ],
+        },
+      ],
+    }
+    const createRefForNode = (): null => {
+      return null
+    }
+
+    const interactive = filterInteractiveSnapshotTree({
+      node: rawTree,
+      ancestorNames: [],
+      labelContext: false,
+      domByBackendId: new Map(),
+      createRefForNode,
+    })
+    const full = filterFullSnapshotTree({
+      node: rawTree,
+      ancestorNames: [],
+      domByBackendId: new Map(),
+      createRefForNode,
+    })
+
+    expect(buildSnapshotLines(interactive.nodes).map((line) => line.text).join('\n')).toContain('Continue')
+    expect(buildSnapshotLines(interactive.nodes).map((line) => line.text).join('\n')).not.toContain('Tabwright')
+    expect(buildSnapshotLines(full.nodes).map((line) => line.text).join('\n')).toContain('Continue')
+    expect(buildSnapshotLines(full.nodes).map((line) => line.text).join('\n')).not.toContain('Tabwright')
+  })
+
   it('builds a raw snapshot tree with scope pruning', () => {
     const rootId = '1' as Protocol.Accessibility.AXNodeId
     const mainId = '2' as Protocol.Accessibility.AXNodeId

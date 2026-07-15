@@ -55,7 +55,8 @@ describe('buildDoctorReport', () => {
     })
 
     expect(report.ready).toBe(true)
-    expect(report.next.command).toBe('tabwright session new --browser install:Chrome:profile-1')
+    expect(report.next.command).toBeUndefined()
+    expect(report.next.title).toContain('Tabwright is ready')
     expect(report.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'relay', status: 'pass' }),
@@ -142,7 +143,8 @@ describe('buildDoctorReport', () => {
     })
 
     expect(report.ready).toBe(true)
-    expect(report.next.command).toBe('tabwright session new --browser headless')
+    expect(report.next.command).toBeUndefined()
+    expect(report.next.title).toContain('Tabwright is ready')
   })
 
   test('explains a newer extension and missing relay', () => {

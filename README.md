@@ -11,7 +11,7 @@ Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly 
 
 ## Installation
 
-1. [**Install Extension**](https://chromewebstore.google.com/detail/tabwright-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) from Chrome Web Store
+1. [**Install Extension**](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep) from Chrome Web Store
 
 2. Click extension icon on a tab → turns green when connected
 
@@ -134,37 +134,37 @@ Variables in scope: `page`, `context`, `state` (persists between calls), `requir
 **Persist data in state:**
 
 ```bash
-tabwright -e "state.users = await page.$$eval('.user', els => els.map(e => e.textContent))"
-tabwright -e "console.log(state.users)"
+tabwright -s 1 -e "state.users = await page.$$eval('.user', els => els.map(e => e.textContent))"
+tabwright -s 1 -e "console.log(state.users)"
 ```
 
 **Intercept network requests:**
 
 ```bash
-tabwright -e "state.requests = []; page.on('response', r => { if (r.url().includes('/api/')) state.requests.push(r.url()) })"
-tabwright -e "await Promise.all([page.waitForResponse(r => r.url().includes('/api/')), page.click('button')])"
-tabwright -e "console.log(state.requests)"
+tabwright -s 1 -e "state.requests = []; page.on('response', r => { if (r.url().includes('/api/')) state.requests.push(r.url()) })"
+tabwright -s 1 -e "await Promise.all([page.waitForResponse(r => r.url().includes('/api/')), page.click('button')])"
+tabwright -s 1 -e "console.log(state.requests)"
 ```
 
 **Set breakpoints and debug:**
 
 ```bash
-tabwright -e "state.cdp = await getCDPSession({ page }); state.dbg = createDebugger({ cdp: state.cdp }); await state.dbg.enable()"
-tabwright -e "state.scripts = await state.dbg.listScripts({ search: 'app' }); console.log(state.scripts.map(s => s.url))"
-tabwright -e "await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42 })"
+tabwright -s 1 -e "state.cdp = await getCDPSession({ page }); state.dbg = createDebugger({ cdp: state.cdp }); await state.dbg.enable()"
+tabwright -s 1 -e "state.scripts = await state.dbg.listScripts({ search: 'app' }); console.log(state.scripts.map(s => s.url))"
+tabwright -s 1 -e "await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42 })"
 ```
 
 **Live edit page code:**
 
 ```bash
-tabwright -e "state.cdp = await getCDPSession({ page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable()"
-tabwright -e "await state.editor.edit({ url: 'https://example.com/app.js', oldString: 'const DEBUG = false', newString: 'const DEBUG = true' })"
+tabwright -s 1 -e "state.cdp = await getCDPSession({ page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable()"
+tabwright -s 1 -e "await state.editor.edit({ url: 'https://example.com/app.js', oldString: 'const DEBUG = false', newString: 'const DEBUG = true' })"
 ```
 
 **Screenshot with labels:**
 
 ```bash
-tabwright -e "await screenshotWithAccessibilityLabels({ page })"
+tabwright -s 1 -e "await screenshotWithAccessibilityLabels({ page })"
 ```
 
 ## MCP Setup

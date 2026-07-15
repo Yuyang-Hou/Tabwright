@@ -6,7 +6,8 @@ import { getTabwrightUserDataDir } from './product-paths.js'
 
 // Tabwright extension IDs - used for validation and Chrome flag commands
 export const EXTENSION_IDS = [
-  'jfeammnjpkecdekppnclgkkffahnhfhe', // Production (Chrome Web Store)
+  'dkfhphbajbkplddmchbdgdddioonngep', // Tabwright production (Chrome Web Store)
+  'jfeammnjpkecdekppnclgkkffahnhfhe', // Legacy Playwriter production
   'pebbngnfojnignonigcnkdilknapkgid', // Dev extension (stable ID from manifest key)
 ]
 

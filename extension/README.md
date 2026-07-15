@@ -2,7 +2,7 @@
 
 Control your Chrome browser via Model Context Protocol (MCP) using Chrome DevTools Protocol (CDP) events.
 
-[**Install from Chrome Web Store**](https://chromewebstore.google.com/detail/tabwright-mcp/jfeammnjpkecdekppnclgkkffahnhfhe)
+[**Install from Chrome Web Store**](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep)
 
 ## What is Tabwright MCP?
 
@@ -44,7 +44,7 @@ This extension requires the following permissions:
 
 ## Getting Started
 
-1. [Install the extension from the Chrome Web Store](https://chromewebstore.google.com/detail/tabwright-mcp/jfeammnjpkecdekppnclgkkffahnhfhe)
+1. [Install the extension from the Chrome Web Store](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep)
 2. Navigate to any webpage
 3. Click the Tabwright MCP extension icon
 4. The debugger will attach and the icon will turn green when connected

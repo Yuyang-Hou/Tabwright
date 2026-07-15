@@ -777,12 +777,12 @@ describe('extension options page', () => {
       })
 
       await page.goto(`${staticServer.baseUrl}/src/options.html`, { waitUntil: 'domcontentloaded' })
-      await page.locator('.language-button[data-language="en"]').click()
       await expect
         .poll(async () => {
           return await page.locator('#relay-review-warning').isVisible()
         })
         .toBe(true)
+      await page.locator('.language-button[data-language="en"]').click()
       await expect
         .poll(async () => {
           return await page.locator('#relay-review-warning').textContent()

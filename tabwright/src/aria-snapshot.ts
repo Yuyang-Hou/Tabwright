@@ -505,6 +505,10 @@ export function filterInteractiveSnapshotTree(options: {
     name: string
   }) => string | null
 }): { nodes: SnapshotNode[]; names: Set<string> } {
+  if (isTabwrightToolbarNode(options.node)) {
+    return { nodes: [], names: new Set<string>() }
+  }
+
   const role = options.node.role
   const name = options.node.name
   const hasName = name.length > 0
@@ -621,6 +625,10 @@ export function filterFullSnapshotTree(options: {
     name: string
   }) => string | null
 }): { nodes: SnapshotNode[]; names: Set<string> } {
+  if (isTabwrightToolbarNode(options.node)) {
+    return { nodes: [], names: new Set<string>() }
+  }
+
   const role = options.node.role
   const name = options.node.name
   const hasName = name.length > 0
@@ -708,6 +716,10 @@ export function filterFullSnapshotTree(options: {
     names.add(nameToUse)
   }
   return { nodes: [nodeEntry], names }
+}
+
+function isTabwrightToolbarNode(node: SnapshotNode): boolean {
+  return node.role === 'toolbar' && node.name === 'Tabwright tools'
 }
 
 function buildLocatorLineText({ line, locator }: { line: SnapshotLine; locator: string }): string {

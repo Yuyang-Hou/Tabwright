@@ -158,7 +158,7 @@ export const app = new Spiceflow()
         </div>
         <footer className="mt-auto pt-6 border-t border-border">
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-            <a href="https://chromewebstore.google.com/detail/tabwright/jfeammnjpkecdekppnclgkkffahnhfhe" className="hover:text-foreground transition-colors">
+            <a href="https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep" className="hover:text-foreground transition-colors">
               Chrome Extension
             </a>
             <a href="https://playwriter.dev" className="hover:text-foreground transition-colors">

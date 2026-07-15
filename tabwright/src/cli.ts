@@ -186,6 +186,7 @@ cli
 
 cli
   .command('', 'Start the MCP server or controls the browser with -e')
+  .hidden()
   .option('--host <host>', 'Remote relay server host to connect to (or use TABWRIGHT_HOST env var)')
   .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
   .option('-s, --session <name>', 'Session ID (required for -e, get one with `tabwright session new`)')
@@ -3178,4 +3179,10 @@ cli.help()
 cli.completions()
 cli.version(VERSION)
 
-await cli.parse()
+const commandLineArgs = process.argv.slice(2)
+const isVersionOnly = commandLineArgs.length === 1 && ['-v', '--version'].includes(commandLineArgs[0] || '')
+if (isVersionOnly) {
+  cli.outputVersion()
+} else {
+  await cli.parse()
+}
