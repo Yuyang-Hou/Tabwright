@@ -80,16 +80,10 @@ describe('capability package sharing', () => {
       location: 'project',
     })
 
-    expect(packed.files).toEqual([
-      'README.md',
-      'agent-skills/codex/SKILL.md',
-      'agent-skills/codex/agents/openai.yaml',
-      'capability.json',
-      'script.js',
-    ])
+    expect(packed.files).toEqual(['README.md', 'capability.json', 'script.js'])
     expect(installed.capability.manifest.status).toBe('draft')
     expect(fs.readFileSync(installed.capability.scriptPath, 'utf-8')).toBe('return { ok: true }\n')
-    expect(installed.agentSkillAvailable).toBe(true)
+    expect(fs.existsSync(path.join(installed.capability.dir, 'agent-skills'))).toBe(false)
     expect(fs.existsSync(path.join(installed.capability.dir, 'secrets.json'))).toBe(false)
     expect(fs.existsSync(path.join(installed.capability.dir, 'runs.jsonl'))).toBe(false)
     expect(fs.existsSync(path.join(installed.capability.dir, 'artifacts'))).toBe(false)

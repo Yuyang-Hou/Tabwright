@@ -33,21 +33,28 @@ If a described capability has `requiresConfirmation: true`, stop and obtain expl
 
 ## Creating Saved Capabilities
 
-When an AI is creating or refining a saved capability, put machine-readable behavior in the capability contract and executable behavior in `script.js`. Create a capability-specific agent skill only for high-frequency, exact-match, easy-to-misuse, auth-sensitive, or display-sensitive capabilities.
+When an AI is creating or refining a saved capability, put agent-facing discovery, workflow, and display rules in its standard `SKILL.md`; put executable behavior and machine-enforced safety in the runtime contract and `script.js`.
 
-Use the CLI to scaffold and install, but do not treat generated scaffold text as final prose:
+Export the portable skill directly, then refine it with the agent's official skill tooling:
 
 ```bash
-tabwright capability skill init <capability-id>
-# edit the generated SKILL.md with the real workflow and display rules
-tabwright capability skill install <capability-id>
+tabwright capability skill export <capability-id> --output ./skills/<capability-id>
+tabwright capability skill export-all --output ./skills
 ```
 
-`capability skill install` refuses untouched scaffold templates. Simple capabilities usually need only a good contract, not a separate agent skill.
+`capability skill export` creates a portable standard Agent Skill directory with runtime files under `runtime/`; use the agent's official skill or plugin manager to install, update, and distribute it. `export-all` migrates all saved capabilities in one pass. Simple capabilities can use the generated skill without maintaining a second Tabwright-specific instruction format.
 
 ## Sharing Saved Capabilities
 
-When the user asks to package, share, export, or install a saved capability, use the capability package commands directly:
+When the user asks to share a capability with mainstream agents, prefer a portable Agent Skill export:
+
+```bash
+tabwright capability skill export <capability-id> --output ./skills/<capability-id>
+```
+
+The exported `SKILL.md` explains how a fresh agent should detect or run the `tabwright` CLI, resolve `runtime/capability.json` and the entry script relative to the installed skill, install the runtime as draft, validate it, and refresh auth when required. It excludes secrets, run history, and artifacts.
+
+Use the legacy capability package commands for capability-only consumers:
 
 ```bash
 tabwright capability pack <capability-id>
@@ -58,7 +65,7 @@ tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capab
 
 Git sources use `<remote>#<ref>:<capability-path>` and read only that directory with `git archive`, so private SSH repositories do not need to be cloned. Prefer a release tag over a moving branch.
 
-`capability pack` includes only the manifest, entry script, optional README, and optional agent skills. It excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. Shared capabilities always install as `draft`. Do not trust one until its contract and script have been inspected and it has passed a `capability run --force` validation. Authentication must be refreshed from the recipient's own browser. Packaged agent skills are not installed unless the user explicitly passes `--with-agent-skill` or later runs `capability skill install <capability-id>`.
+`capability pack` includes only the runtime manifest, entry script, and optional README. It excludes agent skills, `secrets.json`, `runs.jsonl`, and `artifacts/`. Shared capabilities always install as `draft`. Do not trust one until its contract and script have been inspected and it has passed a `capability run --force` validation. Authentication must be refreshed from the recipient's own browser.
 
 ## Replay-to-Capability Handoff
 

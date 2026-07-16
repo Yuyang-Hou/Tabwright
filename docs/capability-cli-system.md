@@ -80,6 +80,30 @@ runs.jsonl        # operational memory
 README.md         # human-facing notes
 ```
 
+## Portable Agent Skill Distribution
+
+Agent-native discovery and distribution use the open Agent Skills structure instead of a Tabwright-specific installer. Export one capability or migrate all saved capabilities with:
+
+```bash
+tabwright capability skill export query-user --output ./skills/query-user
+tabwright capability skill export-all --output ./skills
+```
+
+The result is both portable to an Agent Skills-compatible manager and explicit about its Tabwright runtime dependency:
+
+```text
+query-user/
+  SKILL.md
+  agents/openai.yaml
+  runtime/
+    capability.json
+    script.js
+```
+
+`SKILL.md` is the only distributed semantic source for agent discovery, workflow, and display rules. The exported `runtime/capability.json` strips duplicated discovery fields and keeps the machine-enforced execution contract. Generated instructions tell a fresh agent how to detect or run the CLI, resolve runtime paths relative to `SKILL.md`, install the runtime as draft, validate it, and refresh auth when required. Export never includes local secrets, runs, or artifacts.
+
+Existing `.tgz` packages remain a capability-runtime compatibility surface. Agent skill installation and updates belong exclusively to the agent's official manager.
+
 ## Manifest Contract
 
 `capability.json` includes execution metadata and AI-facing intent:

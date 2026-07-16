@@ -1,248 +1,184 @@
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
-import { requireCapability, type CapabilityRecord } from './capability-registry.js'
+import {
+  listCapabilities,
+  requireCapability,
+  type CapabilityManifest,
+  type CapabilityOperation,
+  type CapabilityRecord,
+} from './capability-registry.js'
 
-export type AgentSkillTarget = 'codex'
-export type AgentSkillFileStatus = 'created' | 'updated' | 'unchanged'
-
-export interface AgentSkillFileResult {
-  relativePath: string
-  path: string
-  status: AgentSkillFileStatus
-}
-
-export interface CapabilityAgentSkillResult {
-  target: AgentSkillTarget
+export interface ExportedCapabilityAgentSkill {
   capabilityId: string
   dir: string
-  files: AgentSkillFileResult[]
+  files: string[]
   next: string[]
 }
 
-export interface CapabilityAgentSkillShowResult {
-  target: AgentSkillTarget
-  capabilityId: string
+export interface ExportedCapabilityAgentSkillBatch {
   dir: string
-  files: Array<{
-    relativePath: string
-    path: string
-    content: string
-  }>
+  skills: ExportedCapabilityAgentSkill[]
 }
 
-export interface CapabilityAgentSkillStatus {
-  target: AgentSkillTarget
-  draftExists: boolean
-  draftPath: string
-  installedExists: boolean
-  installedPath: string
-  initCommand: string
-  showCommand: string
-  installCommand: string
-}
+const LEGACY_SKILL_TEMPLATE_MARKER = '<!-- TABWRIGHT_AGENT_SKILL_TEMPLATE: edit before install -->'
+const SKILL_EXPORT_METADATA_FILENAME = '.tabwright-skill-export.json'
 
-const SKILL_TEMPLATE_MARKER = '<!-- TABWRIGHT_AGENT_SKILL_TEMPLATE: edit before install -->'
-
-export function initCapabilityAgentSkill(options: {
+export function exportCapabilityAgentSkill(options: {
   id: string
   cwd?: string
-  target?: AgentSkillTarget
+  output?: string
   overwrite?: boolean
-}): CapabilityAgentSkillResult {
-  const target = options.target || 'codex'
+}): ExportedCapabilityAgentSkill {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  const dir = getCapabilityAgentSkillDir({ capability, target })
-  const files = [
-    writeSkillFile({
-      filePath: path.join(dir, 'SKILL.md'),
+  const sourceFiles = getLegacyAgentSkillFiles(capability)
+  const legacySkillFile = sourceFiles.find((file) => {
+    return file.relativePath === 'SKILL.md'
+  })
+  const legacySkillContent = legacySkillFile ? fs.readFileSync(legacySkillFile.path, 'utf-8') : ''
+  const skillContent =
+    legacySkillContent && !legacySkillContent.includes(LEGACY_SKILL_TEMPLATE_MARKER)
+      ? legacySkillContent
+      : buildStandardSkillContent(capability)
+  assertSkillReadyToExport({ capability, content: skillContent })
+
+  const cwd = options.cwd || process.cwd()
+  const outputDir = path.resolve(cwd, options.output || capability.manifest.id)
+  if (path.basename(outputDir) !== capability.manifest.id) {
+    throw new Error(`Agent Skill directory name must match its skill name (${capability.manifest.id}): ${outputDir}`)
+  }
+  assertSkillExportDestination({ outputDir, capabilityId: capability.manifest.id, overwrite: options.overwrite })
+
+  const runtimeManifest = buildRuntimeOnlyManifest(capability.manifest)
+  const exportedFiles: Array<{ relativePath: string; content: string | Buffer }> = [
+    {
       relativePath: 'SKILL.md',
-      content: buildCodexSkillTemplate(capability),
-      overwrite: options.overwrite,
-    }),
-    writeSkillFile({
-      filePath: path.join(dir, 'agents', 'openai.yaml'),
-      relativePath: 'agents/openai.yaml',
-      content: buildOpenAiAgentTemplate(capability),
-      overwrite: options.overwrite,
-    }),
+      content: buildPortableSkillContent({ capability, content: skillContent }),
+    },
+    {
+      relativePath: 'capability.json',
+      content: `${JSON.stringify(runtimeManifest, null, 2)}\n`,
+    },
+    {
+      relativePath: capability.manifest.entry,
+      content: fs.readFileSync(capability.scriptPath),
+    },
   ]
-  return {
-    target,
+  exportedFiles.push({
+    relativePath: 'agents/openai.yaml',
+    content: buildOpenAiAgentMetadata(capability),
+  })
+
+  fs.mkdirSync(outputDir, { recursive: true })
+  const files = exportedFiles.map((file) => {
+    const relativePath =
+      file.relativePath === 'SKILL.md' || file.relativePath.startsWith('agents/')
+        ? file.relativePath
+        : path.posix.join('runtime', file.relativePath)
+    const destination = resolveExportDestination({ outputDir, relativePath })
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    fs.writeFileSync(destination, file.content)
+    return relativePath
+  })
+  const metadata = {
+    schemaVersion: 1,
     capabilityId: capability.manifest.id,
-    dir,
     files,
+  }
+  fs.writeFileSync(path.join(outputDir, SKILL_EXPORT_METADATA_FILENAME), `${JSON.stringify(metadata, null, 2)}\n`)
+
+  return {
+    capabilityId: capability.manifest.id,
+    dir: outputDir,
+    files: [...files, SKILL_EXPORT_METADATA_FILENAME].sort(),
     next: [
-      `Edit ${path.join(dir, 'SKILL.md')} with the real usage workflow and display rules.`,
-      `tabwright capability skill install ${capability.manifest.id}`,
+      `Install or distribute ${outputDir} with an Agent Skills-compatible agent or plugin manager.`,
+      'The installed skill uses Tabwright only for runtime installation and execution.',
     ],
   }
 }
 
-export function installCapabilityAgentSkill(options: {
-  id: string
+export function exportAllCapabilityAgentSkills(options: {
   cwd?: string
-  target?: AgentSkillTarget
+  output?: string
   overwrite?: boolean
-  codexHome?: string
-  capability?: CapabilityRecord
-}): CapabilityAgentSkillResult {
-  const target = options.target || 'codex'
-  const capability = options.capability || requireCapability({ id: options.id, cwd: options.cwd })
-  const dir = getCapabilityAgentSkillDir({ capability, target })
-  const skillPath = path.join(dir, 'SKILL.md')
-  if (!fs.existsSync(skillPath)) {
-    throw new Error(`Agent skill draft not found for ${capability.manifest.id}. Run: tabwright capability skill init ${capability.manifest.id}`)
-  }
-  const skillContent = fs.readFileSync(skillPath, 'utf-8')
-  assertSkillReadyToInstall({ capability, content: skillContent, filePath: skillPath })
-  const sourceFiles = getExistingAgentSkillFiles(dir)
-  const codexSkillDir = path.join(getCodexHome(options.codexHome), 'skills', capability.manifest.id)
-  const files = sourceFiles.map((file) => {
-    return writeSkillFile({
-      filePath: path.join(codexSkillDir, ...file.relativePath.split('/')),
-      relativePath: file.relativePath,
-      content: fs.readFileSync(file.path, 'utf-8'),
+}): ExportedCapabilityAgentSkillBatch {
+  const cwd = options.cwd || process.cwd()
+  const outputDir = path.resolve(cwd, options.output || 'skills')
+  const capabilities = listCapabilities({ cwd }).filter((capability, index, all) => {
+    return (
+      all.findIndex((candidate) => {
+        return candidate.manifest.id === capability.manifest.id
+      }) === index
+    )
+  })
+  const skills = capabilities.map((capability) => {
+    return exportCapabilityAgentSkill({
+      id: capability.manifest.id,
+      cwd,
+      output: path.join(outputDir, capability.manifest.id),
       overwrite: options.overwrite,
     })
   })
-  return {
-    target,
-    capabilityId: capability.manifest.id,
-    dir: codexSkillDir,
-    files,
-    next: [`Restart or open a new agent thread so it can load the ${capability.manifest.id} skill.`],
-  }
+  return { dir: outputDir, skills }
 }
 
-export function showCapabilityAgentSkill(options: {
-  id: string
-  cwd?: string
-  target?: AgentSkillTarget
-}): CapabilityAgentSkillShowResult {
-  const target = options.target || 'codex'
-  const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  const dir = getCapabilityAgentSkillDir({ capability, target })
-  const files = getExistingAgentSkillFiles(dir).map((file) => {
-    return {
-      relativePath: file.relativePath,
-      path: file.path,
-      content: fs.readFileSync(file.path, 'utf-8'),
-    }
+function getLegacyAgentSkillFiles(capability: CapabilityRecord): Array<{ relativePath: string; path: string }> {
+  const dir = path.join(capability.dir, 'agent-skills', 'codex')
+  const candidates: Array<{ relativePath: string; path: string }> = [
+    { relativePath: 'SKILL.md', path: path.join(dir, 'SKILL.md') },
+  ]
+  return candidates.filter((file) => {
+    return fs.existsSync(file.path)
   })
-  if (!files.some((file) => {
-    return file.relativePath === 'SKILL.md'
-  })) {
-    throw new Error(`Agent skill draft not found for ${capability.manifest.id}. Run: tabwright capability skill init ${capability.manifest.id}`)
-  }
+}
+
+function buildRuntimeOnlyManifest(manifest: CapabilityManifest): CapabilityManifest {
+  const operations: Record<string, CapabilityOperation> = Object.fromEntries(
+    Object.entries(manifest.operations).map(([id, operation]) => {
+      return [
+        id,
+        {
+          ...operation,
+          match: [],
+          routingHint: 'search-first' as const,
+        },
+      ]
+    }),
+  )
   return {
-    target,
-    capabilityId: capability.manifest.id,
-    dir,
-    files,
+    ...manifest,
+    description: '',
+    whenToUse: [],
+    whenNotToUse: [],
+    tags: [],
+    match: [],
+    routingHint: 'search-first',
+    operations,
+    status: 'draft',
   }
 }
 
-export function getCapabilityAgentSkillStatus(options: {
-  capability: CapabilityRecord
-  target?: AgentSkillTarget
-  codexHome?: string
-}): CapabilityAgentSkillStatus {
-  const target = options.target || 'codex'
-  const draftDir = getCapabilityAgentSkillDir({ capability: options.capability, target })
-  const installedDir = path.join(getCodexHome(options.codexHome), 'skills', options.capability.manifest.id)
-  return {
-    target,
-    draftExists: fs.existsSync(path.join(draftDir, 'SKILL.md')),
-    draftPath: path.join(draftDir, 'SKILL.md'),
-    installedExists: fs.existsSync(path.join(installedDir, 'SKILL.md')),
-    installedPath: path.join(installedDir, 'SKILL.md'),
-    initCommand: `tabwright capability skill init ${options.capability.manifest.id}`,
-    showCommand: `tabwright capability skill show ${options.capability.manifest.id}`,
-    installCommand: `tabwright capability skill install ${options.capability.manifest.id}`,
-  }
-}
-
-function getCapabilityAgentSkillDir(options: { capability: CapabilityRecord; target: AgentSkillTarget }): string {
-  return path.join(options.capability.dir, 'agent-skills', options.target)
-}
-
-function getCodexHome(codexHome?: string): string {
-  return codexHome || process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
-}
-
-function getExistingAgentSkillFiles(dir: string): Array<{ relativePath: string; path: string }> {
-  const skillPath = path.join(dir, 'SKILL.md')
-  const openAiPath = path.join(dir, 'agents', 'openai.yaml')
-  const files: Array<{ relativePath: string; path: string }> = []
-  if (fs.existsSync(skillPath)) {
-    files.push({ relativePath: 'SKILL.md', path: skillPath })
-  }
-  if (fs.existsSync(openAiPath)) {
-    files.push({ relativePath: 'agents/openai.yaml', path: openAiPath })
-  }
-  return files
-}
-
-function writeSkillFile(options: {
-  filePath: string
-  relativePath: string
-  content: string
-  overwrite?: boolean
-}): AgentSkillFileResult {
-  if (fs.existsSync(options.filePath)) {
-    const existing = fs.readFileSync(options.filePath, 'utf-8')
-    if (existing === options.content) {
-      return { relativePath: options.relativePath, path: options.filePath, status: 'unchanged' }
-    }
-    if (!options.overwrite) {
-      throw new Error(`Agent skill file already exists with different content: ${options.filePath}. Use --force to overwrite.`)
-    }
-  }
-  fs.mkdirSync(path.dirname(options.filePath), { recursive: true })
-  const status = fs.existsSync(options.filePath) ? 'updated' : 'created'
-  fs.writeFileSync(options.filePath, options.content)
-  return { relativePath: options.relativePath, path: options.filePath, status }
-}
-
-function assertSkillReadyToInstall(options: {
-  capability: CapabilityRecord
-  content: string
-  filePath: string
-}): void {
-  if (options.content.includes(SKILL_TEMPLATE_MARKER)) {
-    throw new Error(`Agent skill still contains the scaffold marker: ${options.filePath}. Edit the skill content before installing it.`)
-  }
-  if (!options.content.includes(`name: ${options.capability.manifest.id}`)) {
-    throw new Error(`Agent skill frontmatter must include name: ${options.capability.manifest.id}`)
-  }
-}
-
-function buildCodexSkillTemplate(capability: CapabilityRecord): string {
-  const operationIds = Object.keys(capability.manifest.operations)
-  const hasOperations = operationIds.length > 0
-  const requiresConfirmation = hasOperations
-    ? Object.values(capability.manifest.operations).some((operation) => {
-        return operation.requiresConfirmation
-      })
-    : capability.manifest.requiresConfirmation
-  const description = [
-    `TODO: Explain when agents should use the ${capability.manifest.id} Tabwright capability.`,
-    'Mention concrete user phrasing, exact-match signals, and when not to use it.',
-  ].join(' ')
-  const routeCommand = `tabwright capability route "<user-task-or-url>" --json`
+function buildStandardSkillContent(capability: CapabilityRecord): string {
+  const description = buildSkillDescription(capability)
+  const whenNotToUse =
+    capability.manifest.whenNotToUse.length > 0
+      ? capability.manifest.whenNotToUse
+      : ['Do not use this skill when the requested action is outside the bundled runtime contract.']
+  const operations = Object.keys(capability.manifest.operations)
+  const requiresConfirmation =
+    operations.length > 0
+      ? Object.values(capability.manifest.operations).some((operation) => {
+          return operation.requiresConfirmation
+        })
+      : capability.manifest.requiresConfirmation
+  const confirmationToken = operations.length > 0 ? '<confirmation-token-for-selected-action>' : capability.manifest.id
   const runCommand = [
     'tabwright capability run',
     capability.manifest.id,
     capability.manifest.runtime === 'browser' ? '--browser user' : '',
     "--input-json '<json-input>'",
+    requiresConfirmation ? `--confirm ${confirmationToken}` : '',
     '--json',
-    capability.manifest.status === 'trusted' ? '' : '--force',
-    requiresConfirmation
-      ? hasOperations
-        ? '--confirm <confirmation-token>'
-        : `--confirm ${capability.manifest.id}`
-      : '',
   ]
     .filter((part) => {
       return part.length > 0
@@ -254,50 +190,143 @@ function buildCodexSkillTemplate(capability: CapabilityRecord): string {
     `description: ${quoteYamlString(description)}`,
     '---',
     '',
-    SKILL_TEMPLATE_MARKER,
+    '## Scope Limits',
     '',
-    '## When To Use',
-    '',
-    '- TODO: Describe the concrete user intent, URL pattern, page state, or data shape that should trigger this capability.',
-    '- TODO: State when this capability should not be used.',
+    ...whenNotToUse.map((item) => {
+      return `- ${item}`
+    }),
     '',
     '## Workflow',
     '',
-    '1. Use route when exact-match metadata may apply:',
-    '',
-    '```bash',
-    routeCommand,
-    '```',
-    '',
+    ...(operations.length > 0
+      ? [`1. Select one runtime action and include it as \`input.action\`: ${operations.join(', ')}.`]
+      : ['1. Build input that matches the bundled runtime input schema.']),
     requiresConfirmation
-      ? hasOperations
-        ? `2. Select one operation (${operationIds.join(', ')}). Read operations may run directly; for a confirmation-required operation, stop for approval and use its exact confirmationToken:`
-        : '2. Stop and obtain explicit user approval for the concrete input and side effect. Only then run with structured input:'
-      : '2. Run the returned `shellCommand` exactly, or run the capability with structured input:',
+      ? '2. For a confirmation-required action, stop and obtain explicit user approval for the concrete input and side effect. Use the exact confirmation token only after approval.'
+      : '2. Confirm the requested input is within the skill scope.',
+    '3. Run the capability:',
     '',
     '```bash',
     runCommand,
     '```',
     '',
-    '3. If the capability requires browser/session/auth state, describe the required refresh or browser command.',
-    '',
-    '## Output And Display',
-    '',
-    '- TODO: Define the default answer shape.',
-    '- TODO: Say when to show a short summary versus when to point to artifacts.',
-    '- TODO: Say whether large outputs should be saved, filtered, or exported only on request.',
+    '4. Return a concise result. Point to runtime artifacts instead of pasting large raw output.',
     '',
   ].join('\n')
 }
 
-function buildOpenAiAgentTemplate(capability: CapabilityRecord): string {
+function buildSkillDescription(capability: CapabilityRecord): string {
+  const triggers = capability.manifest.whenToUse.join('; ')
+  const base = capability.manifest.description || capability.manifest.title
+  return triggers ? `${base}. Use when: ${triggers}` : `${base}. Use for tasks that match this capability.`
+}
+
+function buildOpenAiAgentMetadata(capability: CapabilityRecord): string {
   return [
     'interface:',
     `  display_name: ${quoteYamlString(capability.manifest.title)}`,
-    `  short_description: ${quoteYamlString(capability.manifest.description || capability.manifest.title)}`,
-    `  default_prompt: ${quoteYamlString(`Use ${capability.manifest.id} for <task>`)}`,
+    `  short_description: ${quoteYamlString(buildOpenAiShortDescription(capability))}`,
+    `  default_prompt: ${quoteYamlString(`Use $${capability.manifest.id} to complete the matching task with its bundled Tabwright runtime.`)}`,
     '',
   ].join('\n')
+}
+
+function buildOpenAiShortDescription(capability: CapabilityRecord): string {
+  const description = capability.manifest.description || `Run ${capability.manifest.title} workflows safely`
+  if (description.length >= 25 && description.length <= 64) {
+    return description
+  }
+  const fallback = `${capability.manifest.title} capability using the Tabwright runtime`
+  const expanded = fallback.length < 25 ? `${fallback} safely` : fallback
+  return expanded.length <= 64 ? expanded : `${expanded.slice(0, 63).trimEnd()}…`
+}
+
+function assertSkillReadyToExport(options: { capability: CapabilityRecord; content: string }): void {
+  if (!options.content.startsWith('---\n')) {
+    throw new Error(`Agent skill must start with YAML frontmatter: ${options.capability.manifest.id}`)
+  }
+  if (!options.content.includes(`name: ${options.capability.manifest.id}`)) {
+    throw new Error(`Agent skill frontmatter must include name: ${options.capability.manifest.id}`)
+  }
+}
+
+function assertSkillExportDestination(options: {
+  outputDir: string
+  capabilityId: string
+  overwrite?: boolean
+}): void {
+  if (!fs.existsSync(options.outputDir)) {
+    return
+  }
+  const entries = fs.readdirSync(options.outputDir)
+  if (entries.length === 0) {
+    return
+  }
+  if (!options.overwrite) {
+    throw new Error(`Agent Skill export directory already exists: ${options.outputDir}. Use --force to overwrite it.`)
+  }
+  const metadataPath = path.join(options.outputDir, SKILL_EXPORT_METADATA_FILENAME)
+  if (!fs.existsSync(metadataPath)) {
+    throw new Error(`Refusing to overwrite a directory that was not created by Tabwright: ${options.outputDir}`)
+  }
+  const metadata: unknown = (() => {
+    try {
+      return JSON.parse(fs.readFileSync(metadataPath, 'utf-8'))
+    } catch (error) {
+      throw new Error(`Invalid Tabwright Agent Skill export metadata: ${metadataPath}`, { cause: error })
+    }
+  })()
+  const capabilityId = typeof metadata === 'object' && metadata !== null ? Reflect.get(metadata, 'capabilityId') : null
+  if (capabilityId !== options.capabilityId) {
+    throw new Error(`Agent Skill export metadata does not match ${options.capabilityId}: ${metadataPath}`)
+  }
+}
+
+function resolveExportDestination(options: { outputDir: string; relativePath: string }): string {
+  const root = path.resolve(options.outputDir)
+  const destination = path.resolve(root, ...options.relativePath.split('/'))
+  if (destination !== root && !destination.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`Agent Skill export path escapes its destination: ${options.relativePath}`)
+  }
+  return destination
+}
+
+function buildPortableSkillContent(options: { capability: CapabilityRecord; content: string }): string {
+  const frontmatterEnd = options.content.indexOf('\n---\n', 4)
+  if (frontmatterEnd === -1) {
+    throw new Error(`Agent skill has invalid YAML frontmatter: ${options.capability.manifest.id}`)
+  }
+  const frontmatter = options.content.slice(0, frontmatterEnd)
+  const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1] || quoteYamlString(buildSkillDescription(options.capability))
+  const portableFrontmatter = ['---', `name: ${options.capability.manifest.id}`, `description: ${description}`].join('\n')
+  const body = options.content.slice(frontmatterEnd + '\n---\n'.length).trim()
+  const authRefreshSteps: string[] =
+    options.capability.manifest.auth.refresh === 'from-browser'
+      ? [
+          `5. If authentication is missing or expired, obtain approval and run \`tabwright capability refresh-auth ${options.capability.manifest.id} --browser user --json\`.`,
+          '',
+        ]
+      : []
+  const runtimeSection: string[] = [
+    '## Tabwright Runtime Dependency',
+    '',
+    'The agent skill manager owns this skill. Tabwright is only the deterministic runtime for execution, authentication, confirmation gates, and local run history.',
+    '',
+    'Bundled paths relative to this `SKILL.md`:',
+    '',
+    '- Runtime contract: `runtime/capability.json`',
+    `- Entry script: \`runtime/${options.capability.manifest.entry}\``,
+    '',
+    'Never resolve these paths from the process working directory. Resolve the absolute skill directory from this `SKILL.md` first.',
+    '',
+    '1. Run `tabwright --version` to check the runtime dependency.',
+    '2. If `tabwright` is unavailable, use `npm exec --yes --package=tabwright@latest -- tabwright` in place of `tabwright` below. If Node.js or npm is unavailable, pause and ask the user to install Node.js 18 or newer.',
+    `3. Check whether the runtime is installed with \`tabwright capability describe ${options.capability.manifest.id} --json\`.`,
+    '4. If missing, run `tabwright capability install "<absolute-skill-directory>/runtime" --json`. Never add `--force` automatically. The runtime installs as draft: inspect the bundled contract and entry script, validate with `capability run --force`, and trust it only after the user accepts it.',
+    ...authRefreshSteps,
+    '',
+  ]
+  return `${portableFrontmatter}\n---\n\n${runtimeSection.join('\n')}\n${body}\n`
 }
 
 function quoteYamlString(value: string): string {

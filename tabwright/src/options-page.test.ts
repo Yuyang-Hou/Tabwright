@@ -376,16 +376,6 @@ describe('extension options page', () => {
           createdAt: '2026-07-07T00:00:00.000Z',
         },
       ],
-      agentSkill: {
-        target: 'codex',
-        draftExists: true,
-        draftPath: '/Users/test/project/.tabwright/capabilities/query-user/agent-skills/codex/SKILL.md',
-        installedExists: false,
-        installedPath: '/Users/test/.codex/skills/query-user/SKILL.md',
-        initCommand: 'tabwright capability skill init query-user',
-        showCommand: 'tabwright capability skill show query-user',
-        installCommand: 'tabwright capability skill install query-user',
-      },
     }
     const trustedNextCommand =
       'tabwright capability run query-user --browser user --input-json \'{"email":"from-contract@example.com"}\' --confirm query-user --json'
@@ -612,11 +602,6 @@ describe('extension options page', () => {
           return await page.locator('#skill-detail').textContent()
         })
         .toContain('Needs your confirmation')
-      await expect
-        .poll(async () => {
-          return await page.locator('#skill-detail').textContent()
-        })
-        .toContain('AI instructions need publishing')
       await expect
         .poll(async () => {
           return await page.locator('.lifecycle-card').textContent()

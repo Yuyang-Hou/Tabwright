@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest'
 import { buildDoctorReport, formatDoctorReport, type DoctorSession } from './doctor.js'
 import type { ExtensionStatus } from './relay-client.js'
 import { CURRENT_EXTENSION_FEATURES } from './protocol.js'
-import type { TabwrightAgentSkillState, TabwrightAgentSkillStatus } from './tabwright-agent-skill.js'
 
 const extension = (overrides: Partial<ExtensionStatus> = {}): ExtensionStatus => {
   return {
@@ -27,18 +26,6 @@ const session = (overrides: Partial<DoctorSession> = {}): DoctorSession => {
     extensionId: 'install:Chrome:profile-1',
     cwd: '/project',
     ...overrides,
-  }
-}
-
-const skillStatus = (state: TabwrightAgentSkillState): TabwrightAgentSkillStatus => {
-  return {
-    target: 'codex',
-    state,
-    bundledPath: '/package/dist/agent-skills/tabwright/SKILL.md',
-    installedPath: '/home/.codex/skills/tabwright/SKILL.md',
-    bundledSha256: 'bundled',
-    ...(state === 'missing' ? {} : { installedSha256: state === 'current' ? 'bundled' : 'different' }),
-    installCommand: `tabwright skill install --target codex${state === 'outdated' ? ' --force' : ''}`,
   }
 }
 
@@ -79,30 +66,6 @@ describe('buildDoctorReport', () => {
 
     expect(report.ready).toBe(false)
     expect(report.next.command).toBe('tabwright session new --browser install:Chrome:profile-1')
-  })
-
-  test('asks for the bundled Tabwright skill before starting a browser session', () => {
-    const report = buildDoctorReport({
-      version: '0.4.0',
-      cwd: '/project',
-      remote: false,
-      relayVersion: '0.4.0',
-      extensions: [extension()],
-      sessions: [session()],
-      capabilityCount: 0,
-      skillStatus: skillStatus('missing'),
-    })
-
-    expect(report.checks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'skill',
-          status: 'warn',
-          message: expect.stringContaining('not installed'),
-        }),
-      ]),
-    )
-    expect(report.next.command).toBe('tabwright skill install --target codex')
   })
 
   test('asks for the extension click before suggesting a headless fallback', () => {

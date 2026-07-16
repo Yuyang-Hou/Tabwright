@@ -6,15 +6,14 @@ Let AI agents control your existing Chrome through a local CLI and MCP server. Y
 
 1. Install the [Tabwright Chrome extension](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep).
 2. Open the tab you want to control and click the extension icon until it turns green.
-3. Install the CLI and its matching Codex skill:
+3. Install the CLI:
 
 ```bash
 npm install -g tabwright@latest
-tabwright skill install --target codex
 tabwright doctor
 ```
 
-Open a new Codex task after installing or updating the skill.
+Install the Tabwright skill with your agent's official Agent Skills-compatible manager. The agent manager owns skill discovery and updates; the CLI owns runtime execution.
 
 ## First browser task
 
@@ -38,6 +37,6 @@ Install one capability directly from a tagged private Git repository without clo
 tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/query-user'
 ```
 
-Git and access to the repository are required. Add `--with-agent-skill` only after reviewing a packaged agent skill.
+Git and access to the repository are required. Capability packages contain runtime files only; distribute agent instructions as a standard Agent Skill.
 
 Run `tabwright skill` for the complete CLI and browser automation reference. See the [GitHub repository](https://github.com/Yuyang-Hou/tabwright) for architecture, development, remote access, and release documentation.

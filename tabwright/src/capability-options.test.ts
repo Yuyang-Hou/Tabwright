@@ -11,19 +11,15 @@ function createTempDir(prefix: string): string {
 }
 
 describe('capability options view', () => {
-  test('lists capabilities with read-only agent skill status', () => {
+  test('lists runtime capability contracts without agent-manager state', () => {
     const cwd = createTempDir('capability-options-')
     try {
-      const capability = createCapability({
+      createCapability({
         id: 'options-tool',
         title: 'Options Tool',
         location: 'project',
         cwd,
       })
-      const skillPath = path.join(capability.dir, 'agent-skills', 'codex', 'SKILL.md')
-      fs.mkdirSync(path.dirname(skillPath), { recursive: true })
-      fs.writeFileSync(skillPath, '---\nname: options-tool\n---\n')
-
       const response = listCapabilityOptions({ cwd })
       expect(response.cwd).toBe(cwd)
       expect(response.capabilities).toEqual(
@@ -31,14 +27,10 @@ describe('capability options view', () => {
           expect.objectContaining({
             id: 'options-tool',
             title: 'Options Tool',
-            agentSkill: expect.objectContaining({
-              draftExists: true,
-              initCommand: 'tabwright capability skill init options-tool',
-              installCommand: 'tabwright capability skill install options-tool',
-            }),
           }),
         ]),
       )
+      expect(response.capabilities[0]).not.toHaveProperty('agentSkill')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

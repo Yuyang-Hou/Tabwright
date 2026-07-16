@@ -21,11 +21,11 @@ import {
 import { refreshCapabilityAuthFromCookies, refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import { getCapabilityAuthState } from './capability-auth-state.js'
 import {
-  initCapabilityAgentSkill,
-  installCapabilityAgentSkill,
-  showCapabilityAgentSkill,
+  exportAllCapabilityAgentSkills,
+  exportCapabilityAgentSkill,
 } from './capability-agent-skill.js'
 import { prepareCapabilityRun, runCapabilityWithExecutor, runNodeCapability } from './capability-runner.js'
+import { installCapabilityPackage } from './capability-package.js'
 import { saveWorkflowCapability, saveWorkflowFromRecording } from './workflow-capability.js'
 
 function createTempDir(prefix: string): string {
@@ -137,7 +137,7 @@ describe('capability registry', () => {
     }
   })
 
-  test('scaffolds and installs agent skills for AI-authored capabilities', () => {
+  test('exports portable agent skills with runtime-only contracts', async () => {
     const cwd = createTempDir('capability-agent-skill-')
     try {
       createCapability({
@@ -155,53 +155,79 @@ describe('capability registry', () => {
           status: 'trusted',
           match: ['admin user email query'],
           routingHint: 'exact-match-direct-run',
+          whenToUse: ['Use for admin user lookup requests that include an email address.'],
+          whenNotToUse: ['Do not use for public profile lookup.'],
+          auth: {
+            type: 'cookie',
+            refresh: 'from-browser',
+            browserUrls: ['https://admin.example.com'],
+            requiredCookieNames: ['session'],
+            failureSignals: ['unauthorized'],
+          },
         },
       })
+      const exportDir = path.join(cwd, 'exports', 'query-user')
+      const exported = exportCapabilityAgentSkill({ id: 'query-user', cwd, output: exportDir })
+      const exportedSkill = fs.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf-8')
+      const exportedContract = JSON.parse(
+        fs.readFileSync(path.join(exportDir, 'runtime', 'capability.json'), 'utf-8'),
+      ) as {
+        status: string
+        description: string
+        whenToUse: string[]
+        whenNotToUse: string[]
+        match: string[]
+        tags: string[]
+        routingHint: string
+      }
+      expect(exported.dir).toBe(exportDir)
+      expect(exported.files).toEqual([
+        '.tabwright-skill-export.json',
+        'SKILL.md',
+        'agents/openai.yaml',
+        'runtime/capability.json',
+        'runtime/script.js',
+      ])
+      expect(exportedContract.status).toBe('draft')
+      expect(exportedContract).toMatchObject({
+        description: '',
+        whenToUse: [],
+        whenNotToUse: [],
+        match: [],
+        tags: [],
+        routingHint: 'search-first',
+      })
+      expect(exportedSkill).not.toContain('compatibility:')
+      expect(exportedSkill).toContain('If Node.js or npm is unavailable')
+      expect(exportedSkill).toContain('Use for admin user lookup requests that include an email address.')
+      expect(exportedSkill).toContain('runtime/capability.json')
+      expect(exportedSkill).toContain('runtime/script.js')
+      expect(exportedSkill).toContain('npm exec --yes --package=tabwright@latest -- tabwright')
+      expect(exportedSkill).toContain('"<absolute-skill-directory>/runtime"')
+      expect(exportedSkill).toContain('tabwright capability refresh-auth query-user --browser user --json')
+      expect(fs.existsSync(path.join(exportDir, 'secrets.json'))).toBe(false)
+      expect(fs.existsSync(path.join(exportDir, 'runs.jsonl'))).toBe(false)
+      expect(fs.existsSync(path.join(exportDir, 'artifacts'))).toBe(false)
+      expect(fs.existsSync(path.join(exportDir, 'runtime', 'README.md'))).toBe(false)
+      expect(fs.readFileSync(path.join(exportDir, 'agents', 'openai.yaml'), 'utf-8')).toContain('$query-user')
 
-      const initialized = initCapabilityAgentSkill({ id: 'query-user', cwd })
-      const skillPath = path.join(initialized.dir, 'SKILL.md')
-      const openAiPath = path.join(initialized.dir, 'agents', 'openai.yaml')
-      expect(initialized.files.map((file) => file.relativePath)).toEqual(['SKILL.md', 'agents/openai.yaml'])
-      expect(fs.readFileSync(skillPath, 'utf-8')).toContain('TABWRIGHT_AGENT_SKILL_TEMPLATE')
-      expect(fs.readFileSync(openAiPath, 'utf-8')).toContain('Query User')
-      expect(showCapabilityAgentSkill({ id: 'query-user', cwd }).files[0]?.content).toContain('TODO')
+      const recipientCwd = path.join(cwd, 'recipient')
+      fs.mkdirSync(recipientCwd, { recursive: true })
+      const installedRuntime = await installCapabilityPackage({
+        source: path.join(exportDir, 'runtime'),
+        cwd: recipientCwd,
+        location: 'project',
+      })
+      expect(installedRuntime.capability.manifest.id).toBe('query-user')
+      expect(installedRuntime.capability.manifest.status).toBe('draft')
+      expect(fs.existsSync(path.join(installedRuntime.capability.dir, 'secrets.json'))).toBe(false)
 
-      const codexHome = path.join(cwd, 'codex-home')
+      const unrelatedDir = path.join(cwd, 'unrelated', 'query-user')
+      fs.mkdirSync(unrelatedDir, { recursive: true })
+      fs.writeFileSync(path.join(unrelatedDir, 'user-file.txt'), 'keep me')
       expect(() => {
-        installCapabilityAgentSkill({ id: 'query-user', cwd, codexHome })
-      }).toThrow(/Edit the skill content before installing/)
-
-      const editedSkill = fs
-        .readFileSync(skillPath, 'utf-8')
-        .replace('<!-- TABWRIGHT_AGENT_SKILL_TEMPLATE: edit before install -->\n\n', '')
-        .replace(
-          'TODO: Explain when agents should use the query-user Tabwright capability. Mention concrete user phrasing, exact-match signals, and when not to use it.',
-          'Use when the user asks to look up an admin user by email.',
-        )
-        .replace(
-          '- TODO: Describe the concrete user intent, URL pattern, page state, or data shape that should trigger this capability.',
-          '- Use for admin user lookup requests that include an email address.',
-        )
-        .replace('- TODO: State when this capability should not be used.', '- Do not use for public profile lookup.')
-        .replace('- TODO: Define the default answer shape.', '- Return user id, email, and status.')
-        .replace(
-          '- TODO: Say when to show a short summary versus when to point to artifacts.',
-          '- Keep chat output short and point to artifacts for raw API output.',
-        )
-        .replace(
-          '- TODO: Say whether large outputs should be saved, filtered, or exported only on request.',
-          '- Export only when the user asks.',
-        )
-      fs.writeFileSync(skillPath, editedSkill)
-
-      const installed = installCapabilityAgentSkill({ id: 'query-user', cwd, codexHome })
-      expect(installed.dir).toBe(path.join(codexHome, 'skills', 'query-user'))
-      expect(fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'SKILL.md'), 'utf-8')).toContain(
-        'Use when the user asks to look up an admin user by email.',
-      )
-      expect(fs.readFileSync(path.join(codexHome, 'skills', 'query-user', 'agents', 'openai.yaml'), 'utf-8')).toContain(
-        'Query User',
-      )
+        exportCapabilityAgentSkill({ id: 'query-user', cwd, output: unrelatedDir, overwrite: true })
+      }).toThrow(/not created by Tabwright/)
 
       createCapability({ id: 'update-user', location: 'project', cwd, runtime: 'browser' })
       updateCapabilityManifest({
@@ -209,12 +235,37 @@ describe('capability registry', () => {
         cwd,
         patch: { sideEffect: 'write', requiresConfirmation: true },
       })
-      const writeSkill = initCapabilityAgentSkill({ id: 'update-user', cwd })
-      const writeSkillContent = fs.readFileSync(path.join(writeSkill.dir, 'SKILL.md'), 'utf-8')
+      const writeSkillDir = path.join(cwd, 'exports', 'update-user')
+      exportCapabilityAgentSkill({ id: 'update-user', cwd, output: writeSkillDir })
+      const writeSkillContent = fs.readFileSync(path.join(writeSkillDir, 'SKILL.md'), 'utf-8')
       expect(writeSkillContent).toContain('--browser user')
       expect(writeSkillContent).toContain('--force')
       expect(writeSkillContent).toContain('--confirm update-user')
-      expect(writeSkillContent).toContain('Stop and obtain explicit user approval')
+      expect(writeSkillContent).toContain('stop and obtain explicit user approval')
+
+      const legacyDir = path.join(getProjectCapabilitiesDir({ cwd }), 'query-user', 'agent-skills', 'codex')
+      fs.mkdirSync(legacyDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(legacyDir, 'SKILL.md'),
+        '---\nname: query-user\ndescription: "Legacy curated instructions"\n---\n\nKeep this migration text.\n',
+      )
+      exportCapabilityAgentSkill({ id: 'query-user', cwd, output: exportDir, overwrite: true })
+      expect(fs.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf-8')).toContain('Keep this migration text.')
+
+      fs.writeFileSync(
+        path.join(legacyDir, 'SKILL.md'),
+        '---\nname: query-user\ndescription: "TODO"\n---\n\n<!-- TABWRIGHT_AGENT_SKILL_TEMPLATE: edit before install -->\n',
+      )
+      exportCapabilityAgentSkill({ id: 'query-user', cwd, output: exportDir, overwrite: true })
+      const regeneratedSkill = fs.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf-8')
+      expect(regeneratedSkill).not.toContain('TABWRIGHT_AGENT_SKILL_TEMPLATE')
+      expect(regeneratedSkill).toContain('Query a user by email in the admin API')
+
+      const batchDir = path.join(cwd, 'all-skills')
+      const batch = exportAllCapabilityAgentSkills({ cwd, output: batchDir })
+      expect(batch.skills.map((skill) => skill.capabilityId)).toEqual(expect.arrayContaining(['query-user', 'update-user']))
+      expect(fs.existsSync(path.join(batchDir, 'query-user', 'runtime', 'capability.json'))).toBe(true)
+      expect(fs.existsSync(path.join(batchDir, 'update-user', 'runtime', 'capability.json'))).toBe(true)
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

@@ -45,12 +45,10 @@ import {
   type CapabilityManifestPatch,
   type CapabilityRecord,
 } from './capability-registry.js'
-import { initCapabilityAgentSkill, installCapabilityAgentSkill, showCapabilityAgentSkill } from './capability-agent-skill.js'
 import {
-  getTabwrightAgentSkillStatus,
-  installTabwrightAgentSkill,
-  type TabwrightAgentSkillTarget,
-} from './tabwright-agent-skill.js'
+  exportAllCapabilityAgentSkills,
+  exportCapabilityAgentSkill,
+} from './capability-agent-skill.js'
 import { installCapabilityPackage, packCapability } from './capability-package.js'
 import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
 import {
@@ -471,11 +469,22 @@ interface CapabilityRefreshAuthOptions {
 interface CapabilityInstallOptions {
   project?: boolean
   force?: boolean
-  withAgentSkill?: boolean
   json?: boolean
 }
 
 interface CapabilityPackOptions {
+  output?: string
+  force?: boolean
+  json?: boolean
+}
+
+interface CapabilitySkillExportOptions {
+  output?: string
+  force?: boolean
+  json?: boolean
+}
+
+interface CapabilitySkillExportAllOptions {
   output?: string
   force?: boolean
   json?: boolean
@@ -1396,28 +1405,33 @@ cli
   )
 
 cli
-  .command('capability skill init <id>', 'Create an editable agent skill scaffold for a saved capability')
-  .option('--force', 'Overwrite an existing agent skill draft')
+  .command('capability skill export <id>', 'Export a portable Agent Skill with its Tabwright runtime contract')
+  .option('-o, --output <dir>', 'Output skill directory (default: ./<id>)')
+  .option('--force', 'Overwrite a previous Tabwright export of the same skill')
   .option('--json', 'Print JSON')
-  .action((id: string, options: { force?: boolean; json?: boolean }) => {
+  .action((id: string, options: CapabilitySkillExportOptions) => {
     try {
-      const result = initCapabilityAgentSkill({
+      const result = exportCapabilityAgentSkill({
         id,
         cwd: process.cwd(),
+        output: options.output,
         overwrite: options.force,
       })
       if (options.json) {
         console.log(JSON.stringify(result, null, 2))
         return
       }
-      console.log(`Created agent skill draft for ${result.capabilityId}: ${result.dir}`)
-      result.files.forEach((file) => {
-        console.log(`- ${file.status}: ${file.path}`)
+      console.log(`Exported portable Agent Skill for ${result.capabilityId}: ${result.dir}`)
+      console.log('Included files:')
+      result.files.map((file) => {
+        console.log(`- ${file}`)
+        return file
       })
       console.log('')
       console.log('Next:')
-      result.next.forEach((step) => {
+      result.next.map((step) => {
         console.log(`  ${step}`)
+        return step
       })
     } catch (error) {
       exitWithError(error)
@@ -1425,56 +1439,26 @@ cli
   })
 
 cli
-  .command('capability skill install <id>', 'Install an edited capability agent skill into Codex')
-  .option('--force', 'Overwrite an existing installed agent skill')
-  .option('--codex-home <dir>', 'Codex home directory (defaults to CODEX_HOME or ~/.codex)')
+  .command('capability skill export-all', 'Export every saved capability for migration to an Agent Skill manager')
+  .option('-o, --output <dir>', 'Parent output directory (default: ./skills)')
+  .option('--force', 'Overwrite previous Tabwright exports of the same skills')
   .option('--json', 'Print JSON')
-  .action((id: string, options: { force?: boolean; codexHome?: string; json?: boolean }) => {
+  .action((options: CapabilitySkillExportAllOptions) => {
     try {
-      const result = installCapabilityAgentSkill({
-        id,
+      const result = exportAllCapabilityAgentSkills({
         cwd: process.cwd(),
+        output: options.output,
         overwrite: options.force,
-        codexHome: options.codexHome,
       })
       if (options.json) {
         console.log(JSON.stringify(result, null, 2))
         return
       }
-      console.log(`Installed agent skill for ${result.capabilityId}: ${result.dir}`)
-      result.files.forEach((file) => {
-        console.log(`- ${file.status}: ${file.path}`)
+      console.log(`Exported ${result.skills.length} portable Agent Skill(s): ${result.dir}`)
+      result.skills.map((skill) => {
+        console.log(`- ${skill.capabilityId}: ${skill.dir}`)
+        return skill
       })
-      console.log('')
-      console.log('Next:')
-      result.next.forEach((step) => {
-        console.log(`  ${step}`)
-      })
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('capability skill show <id>', 'Show the editable agent skill draft for a saved capability')
-  .option('--json', 'Print JSON')
-  .action((id: string, options: { json?: boolean }) => {
-    try {
-      const result = showCapabilityAgentSkill({
-        id,
-        cwd: process.cwd(),
-      })
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2))
-        return
-      }
-      const skill = result.files.find((file) => {
-        return file.relativePath === 'SKILL.md'
-      })
-      if (!skill) {
-        throw new Error(`Agent skill draft missing SKILL.md for ${id}`)
-      }
-      console.log(skill.content)
     } catch (error) {
       exitWithError(error)
     }
@@ -1513,7 +1497,6 @@ cli
   .command('capability install <source>', 'Install a capability directory, Git source, local .tgz, or .tgz URL')
   .option('--project', 'Install under .tabwright/capabilities in the current project')
   .option('--force', 'Overwrite existing installed capabilities')
-  .option('--with-agent-skill', 'Install a shared package agent skill after reviewing the source')
   .option('--json', 'Print JSON')
   .action(async (source: string, options: CapabilityInstallOptions) => {
     try {
@@ -1523,20 +1506,8 @@ cli
         location: options.project ? 'project' : 'user',
         overwrite: options.force,
       })
-      const agentSkill =
-        installed.agentSkillAvailable && options.withAgentSkill
-          ? installCapabilityAgentSkill({
-              id: installed.capability.manifest.id,
-              cwd: process.cwd(),
-              overwrite: options.force,
-              capability: installed.capability,
-            })
-          : null
       const next = [
         `tabwright capability describe ${installed.capability.manifest.id} --json`,
-        ...(installed.agentSkillAvailable && !agentSkill
-          ? [`Review the packaged agent skill, then install it with: tabwright capability skill install ${installed.capability.manifest.id}`]
-          : []),
         ...(installed.capability.manifest.auth.refresh === 'from-browser'
           ? [`tabwright capability refresh-auth ${installed.capability.manifest.id} --browser user --json`]
           : []),
@@ -1548,7 +1519,6 @@ cli
         capability: toCapabilitySummary(installed.capability),
         files: installed.files,
         integrity: installed.integrity,
-        agentSkill,
         next,
       }
       if (options.json) {
@@ -1557,9 +1527,6 @@ cli
       }
       console.log(`Installed ${installed.capability.manifest.id} as draft: ${installed.capability.dir}`)
       console.log(`Integrity: ${installed.integrity}`)
-      if (agentSkill) {
-        console.log(`Installed agent skill: ${agentSkill.dir}`)
-      }
       console.log('')
       console.log('Next:')
       next.map((step) => {
@@ -2525,7 +2492,6 @@ cli
       extensions,
       sessions,
       capabilityCount: listCapabilities({ cwd: process.cwd() }).length,
-      skillStatus: getTabwrightAgentSkillStatus(),
     })
 
     if (options.json) {
@@ -3053,71 +3019,11 @@ cli.command('logfile', 'Print the path to the relay server log file').action(() 
   console.log(`cdp: ${LOG_CDP_FILE_PATH}`)
 })
 
-cli
-  .command('skill install', 'Install the Tabwright agent skill bundled with this CLI')
-  .option('--target <target>', 'Agent skill target (default: codex)')
-  .option('--codex-home <dir>', 'Codex home directory (defaults to CODEX_HOME or ~/.codex)')
-  .option('--force', 'Overwrite an installed Tabwright skill from another CLI build')
-  .option('--json', 'Print JSON')
-  .action((options: { target?: string; codexHome?: string; force?: boolean; json?: boolean }) => {
-    try {
-      const target = parseTabwrightAgentSkillTarget(options.target)
-      const result = installTabwrightAgentSkill({
-        target,
-        codexHome: options.codexHome,
-        overwrite: options.force,
-      })
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2))
-        return
-      }
-      console.log(`Tabwright skill ${result.fileStatus}: ${result.installedPath}`)
-      result.next.forEach((step) => {
-        console.log(`Next: ${step}`)
-      })
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('skill status', 'Check whether the installed Tabwright agent skill matches this CLI')
-  .option('--target <target>', 'Agent skill target (default: codex)')
-  .option('--codex-home <dir>', 'Codex home directory (defaults to CODEX_HOME or ~/.codex)')
-  .option('--json', 'Print JSON')
-  .action((options: { target?: string; codexHome?: string; json?: boolean }) => {
-    try {
-      const status = getTabwrightAgentSkillStatus({
-        target: parseTabwrightAgentSkillTarget(options.target),
-        codexHome: options.codexHome,
-      })
-      if (options.json) {
-        console.log(JSON.stringify(status, null, 2))
-        return
-      }
-      console.log(`Tabwright skill (${status.target}): ${status.state}`)
-      console.log(`Bundled: ${status.bundledPath}`)
-      console.log(`Installed: ${status.installedPath}`)
-      if (status.state !== 'current') {
-        console.log(`Next: ${status.installCommand}`)
-      }
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
 cli.command('skill', 'Print the full tabwright usage instructions').action(() => {
   const skillPath = path.join(__dirname, '..', 'src', 'skill.md')
   const content = fs.readFileSync(skillPath, 'utf-8')
   console.log(content)
 })
-
-function parseTabwrightAgentSkillTarget(value: string | undefined): TabwrightAgentSkillTarget {
-  if (!value || value === 'codex') {
-    return 'codex'
-  }
-  throw new Error(`Unsupported Tabwright skill target: ${value}. Expected codex.`)
-}
 
 cli.help()
 cli.completions()

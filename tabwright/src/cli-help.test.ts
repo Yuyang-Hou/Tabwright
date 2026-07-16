@@ -59,9 +59,7 @@ describe('tabwright cli help', () => {
     }
 
     expect(report.ready).toBe(false)
-    expect(report.checks).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'relay', status: 'fail' })]),
-    )
+    expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'relay', status: 'fail' })]))
     expect(stderr).toBe('')
   }, 30000)
 
@@ -92,33 +90,49 @@ describe('tabwright cli help', () => {
     expect(stdout).toContain('tabwright capability install ./query-user.tgz')
     expect(stdout).toContain('git@example.com:team/capabilities.git#v1.0.0:capabilities/query-user')
     expect(stdout).toContain('A shared capability always installs as `draft`')
+    expect(stdout).toContain('tabwright capability skill export query-user --output ./skills/query-user')
+    expect(stdout).toContain('runtime/capability.json')
     expect(discoverySkill).toContain('tabwright capability pack <capability-id>')
     expect(discoverySkill).toContain('tabwright capability install ./<capability-id>.tgz')
+    expect(discoverySkill).toContain(
+      'tabwright capability skill export <capability-id> --output ./skills/<capability-id>',
+    )
+    expect(discoverySkill).toContain('runtime/capability.json')
     expect(stderr).toBe('')
+  }, 30000)
+
+  test('exports portable Agent Skills with explicit runtime guidance', async () => {
+    const { stdout, stderr } = await runCli(['capability', 'skill', 'export', '--help'])
+    const exportAll = await runCli(['capability', 'skill', 'export-all', '--help'])
+
+    expect(stdout).toContain('portable Agent Skill')
+    expect(stdout).toContain('Tabwright runtime contract')
+    expect(stdout).toContain('--output')
+    expect(stdout).toContain('--force')
+    expect(exportAll.stdout).toContain('every saved capability')
+    expect(exportAll.stdout).toContain('--output')
+    expect(stderr).toBe('')
+    expect(exportAll.stderr).toBe('')
   }, 30000)
 
   test('installs capabilities only from shareable package sources', async () => {
     const { stdout, stderr } = await runCli(['capability', 'install', '--help'])
 
     expect(stdout).toContain('capability directory, Git source, local .tgz, or .tgz URL')
-    expect(stdout).toContain('--with-agent-skill')
+    expect(stdout).not.toContain('--with-agent-skill')
     expect(stdout).not.toContain('built-in suite')
     expect(stdout).not.toContain('--draft')
     expect(stdout).not.toContain('--skip-agent-skills')
     expect(stderr).toBe('')
   }, 30000)
 
-  test('exposes bundled Tabwright skill installation and status commands', async () => {
-    const installHelp = await runCli(['skill', 'install', '--help'])
-    const statusHelp = await runCli(['skill', 'status', '--help'])
+  test('leaves skill installation to the agent skill manager', async () => {
+    const { stdout, stderr } = await runCli(['skill'])
 
-    expect(installHelp.stdout).toContain('bundled with this CLI')
-    expect(installHelp.stdout).toContain('--codex-home')
-    expect(installHelp.stdout).toContain('--force')
-    expect(statusHelp.stdout).toContain('matches this CLI')
-    expect(statusHelp.stdout).toContain('--json')
-    expect(installHelp.stderr).toBe('')
-    expect(statusHelp.stderr).toBe('')
+    expect(stdout).toContain('official Agent Skills-compatible manager')
+    expect(stdout).not.toContain('tabwright skill install')
+    expect(stdout).not.toContain('tabwright skill status')
+    expect(stderr).toBe('')
   }, 30000)
 
   test('unknown command exits with code 1', async () => {

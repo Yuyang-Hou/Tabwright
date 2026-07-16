@@ -19,14 +19,13 @@ Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly 
 
    ```bash
    npm i -g tabwright
-   tabwright skill install --target codex
    tabwright doctor
    tabwright session new  # copy the new session ID printed by this command
    SESSION_ID=2            # replace 2 with that ID
    tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
    ```
 
-The CLI bundles the matching Tabwright skill, so fork-specific instructions never come from another repository. Run `tabwright skill status --target codex` after upgrades; `tabwright doctor` also reports a missing or outdated skill and prints the exact install command. Updating a different installed copy requires `--force`.
+Install the Tabwright skill with your agent's official Agent Skills-compatible manager. Skill discovery, updates, and distribution belong to that manager; the CLI provides only browser and capability runtime behavior.
 
 ## Quick Start
 
@@ -73,7 +72,17 @@ The suite creates local example pages, writes rrweb recordings, builds AI indexe
 
 ## Share Capabilities
 
-Pack a saved capability into a sanitized archive, then send the `.tgz` file or host it at an HTTPS URL:
+For mainstream agents, export a portable Agent Skill and distribute it with the agent's official skill or plugin manager:
+
+```bash
+tabwright capability skill export my-capability --output ./skills/my-capability
+# edit or refine the exported SKILL.md with the agent's official skill tooling
+tabwright capability skill export-all --output ./skills
+```
+
+The exported directory contains a standard `SKILL.md`, optional `agents/openai.yaml`, and the machine-enforced Tabwright contract and entry script under `runtime/`. Its generated instructions tell a fresh agent how to detect or run the CLI, resolve runtime paths relative to `SKILL.md`, install the runtime as draft, validate it, and refresh browser authentication when required. Local notes, secrets, run history, and artifacts are excluded.
+
+For capability-only consumers, pack a sanitized archive, then send the `.tgz` file or host it at an HTTPS URL:
 
 ```bash
 tabwright capability pack my-capability
@@ -84,7 +93,7 @@ tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capab
 
 The Git form reads only the selected capability directory from the selected ref through `git archive`; it does not clone the repository. This is the recommended one-line install path for private repositories when users already have SSH access.
 
-Packages include `capability.json`, the entry script, `README.md`, and optional agent skills. They never include `secrets.json`, `runs.jsonl`, or `artifacts/`. Shared capabilities always install as `draft`; inspect and validate them with `--force` before trusting them. Authentication is local to each recipient and must be refreshed separately. Packaged agent skills are not installed by default; review one first, then use `capability skill install`, or opt in during installation with `--with-agent-skill`.
+Capability-only packages include `capability.json`, the entry script, and `README.md`. They never include agent skills, `secrets.json`, `runs.jsonl`, or `artifacts/`. Shared capabilities always install as `draft`; inspect and validate them with `--force` before trusting them. Authentication is local to each recipient and must be refreshed separately.
 
 Cookie-authenticated capabilities show their local authentication status in the extension Options page. Users can review the exact cookie domains and explicitly authenticate or refresh from the current Chrome profile there. Cookie values stay in the capability's local `secrets.json`; only non-sensitive status and expiry metadata is shown in the extension.
 

@@ -13,16 +13,7 @@ bunx tabwright@latest session new
 
 If using npx or bunx always use @latest for the first session command. so we are sure of using the latest version of the package
 
-Install the agent skill bundled with the same CLI build. Do not fetch it from a separate repository, because fork-specific behavior may differ:
-
-```bash
-tabwright skill status --target codex
-tabwright skill install --target codex
-# after a CLI upgrade, use --force only when status reports an outdated installed copy
-tabwright skill install --target codex --force
-```
-
-The install command writes to `$CODEX_HOME/skills/tabwright/SKILL.md`, or `~/.codex/skills/tabwright/SKILL.md` when `CODEX_HOME` is unset. Open a new agent thread after installation. `tabwright doctor` reports a missing or outdated Tabwright skill and prints the exact repair command.
+Install and update this skill with the agent's official Agent Skills-compatible manager. Tabwright does not manage the agent's skill directory; the CLI owns only runtime execution, browser access, authentication, safety gates, and run history.
 
 ### Capability routing shortcuts
 
@@ -316,25 +307,32 @@ tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capab
 
 Git sources use `<remote>#<ref>:<capability-path>`. Tabwright runs `git archive` against that ref and reads only the selected capability directory, so private SSH repositories can be installed in one command without cloning. Pin a release tag instead of a moving branch for reproducible installs.
 
-Capability packages contain only `capability.json`, the configured entry script, optional `README.md`, and optional `agent-skills/`. The pack command excludes `secrets.json`, `runs.jsonl`, and `artifacts/`. A shared capability always installs as `draft`, even if its author trusted it locally. Inspect its contract and script, refresh auth with the recipient's own browser session when needed, validate it with `capability run --force`, and only then trust it. Packaged agent skills are not installed by default because they influence agent behavior; review one and run `capability skill install <id>`, or explicitly pass `--with-agent-skill`.
+Capability packages contain only `capability.json`, the configured entry script, and optional `README.md`. The pack command excludes agent skills, `secrets.json`, `runs.jsonl`, and `artifacts/`. A shared capability always installs as `draft`, even if its author trusted it locally. Inspect its contract and script, refresh auth with the recipient's own browser session when needed, validate it with `capability run --force`, and only then trust it.
+
+For distribution through an Agent Skills-compatible agent or plugin manager, export a portable skill directory instead of making Tabwright own agent installation:
+
+```bash
+tabwright capability skill export query-user --output ./skills/query-user
+tabwright capability skill export-all --output ./skills
+```
+
+The exported directory contains the standard root `SKILL.md`, optional `agents/openai.yaml`, and a bundled runtime under `runtime/`. The generated runtime section tells a fresh agent how to detect or run the `tabwright` CLI, resolve `runtime/capability.json` and the entry script relative to `SKILL.md`, install the runtime as draft, validate it, and refresh browser auth when required. It never includes `secrets.json`, `runs.jsonl`, or `artifacts/`. Prefer this portable directory for new sharing flows; keep `.tgz` packaging for compatibility with existing capability-only consumers.
 
 When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
 
-- Put machine-readable behavior in the capability contract: `match`, `routingHint`, schemas, `sideEffect`, `requiresConfirmation`, `auth`, and examples. For a capability with multiple safety boundaries, define `operations` keyed by `input.action`; each operation owns its match/routing metadata, schemas, permissions, side effect, and confirmation requirement.
+- Put agent-facing discovery, routing, workflow, and display semantics in the standard `SKILL.md`.
+- Put schemas, permissions, side effects, confirmation requirements, auth, and executable operation definitions in the runtime contract. For multiple safety boundaries, define `operations` keyed by `input.action`.
 - Put executable behavior in `script.js`.
-- Put capability-specific agent instructions in an agent skill only when the capability is high-frequency, easy to misuse, has exact-match routing, needs auth/sandbox guidance, or needs nontrivial output/display rules.
-- Do not rely on the CLI to write final skill prose. The CLI only scaffolds and installs; the AI that learned the workflow must edit the skill content.
+- Use the agent's official skill tooling to refine generated prose and manage installation.
 
-Create an editable agent skill scaffold only when the capability needs one:
+Export one skill or migrate every saved capability:
 
 ```bash
-tabwright capability skill init query-user
-# edit .tabwright/capabilities/query-user/agent-skills/codex/SKILL.md
-tabwright capability skill show query-user
-tabwright capability skill install query-user
+tabwright capability skill export query-user --output ./skills/query-user
+tabwright capability skill export-all --output ./skills
 ```
 
-`capability skill install` refuses to install the untouched scaffold marker. Before installing, the AI should write: when to use the capability, when not to use it, the first command or route workflow, auth/sandbox notes, and the default output/display discipline. Simple capabilities usually do not need an agent skill; a strong contract is enough.
+The export contains one semantic source, `SKILL.md`, plus a runtime-only contract under `runtime/`. Tabwright preserves a previously edited legacy skill during migration, but ignores untouched legacy scaffolds. Install and distribute the result through the user's agent-native skill or plugin manager.
 
 Run a capability with structured JSON input. `node` runtime capabilities run locally without opening Chrome. `browser` runtime capabilities create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
 

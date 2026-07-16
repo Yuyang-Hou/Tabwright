@@ -60,7 +60,6 @@ export interface InstalledCapabilityPackage {
   capability: CapabilityRecord
   files: string[]
   integrity: string
-  agentSkillAvailable: boolean
 }
 
 export async function packCapability(options: {
@@ -153,7 +152,6 @@ export async function installCapabilityPackage(options: {
       return file.path
     }),
     integrity: source.integrity,
-    agentSkillAvailable: fs.existsSync(path.join(capabilityDir, 'agent-skills', 'codex', 'SKILL.md')),
   }
 }
 
@@ -172,13 +170,7 @@ function readCapabilityPackageFiles(options: {
   const optionalPaths = ['README.md'].filter((filePath) => {
     return fs.existsSync(path.join(options.sourceDir, filePath))
   })
-  const agentSkillDir = path.join(options.sourceDir, 'agent-skills')
-  const agentSkillPaths = fs.existsSync(agentSkillDir)
-    ? listRegularFiles({ dir: agentSkillDir }).map((filePath) => {
-        return path.posix.join('agent-skills', filePath)
-      })
-    : []
-  const packagePaths = [...new Set([...requiredPaths, ...optionalPaths, ...agentSkillPaths])].sort()
+  const packagePaths = [...new Set([...requiredPaths, ...optionalPaths])].sort()
   assertPackageLimits({ paths: packagePaths })
 
   const files = packagePaths.map((filePath) => {
@@ -197,23 +189,6 @@ function readCapabilityPackageFiles(options: {
   })
   assertExtractedSize(files)
   return files
-}
-
-function listRegularFiles(options: { dir: string; prefix?: string }): string[] {
-  return fs.readdirSync(options.dir, { withFileTypes: true }).flatMap((entry) => {
-    const relativePath = path.posix.join(options.prefix || '', entry.name)
-    const absolutePath = path.join(options.dir, entry.name)
-    if (entry.isSymbolicLink()) {
-      throw new Error(`Capability packages cannot contain symbolic links: ${relativePath}`)
-    }
-    if (entry.isDirectory()) {
-      return listRegularFiles({ dir: absolutePath, prefix: relativePath })
-    }
-    if (!entry.isFile()) {
-      throw new Error(`Capability packages can only contain regular files: ${relativePath}`)
-    }
-    return [relativePath]
-  })
 }
 
 function buildPackageMetadata(options: {
@@ -470,8 +445,7 @@ function normalizeInstallFiles(options: {
     return (
       file.path === 'capability.json' ||
       file.path === entryPath ||
-      file.path === 'README.md' ||
-      file.path.startsWith('agent-skills/')
+      file.path === 'README.md'
     )
   })
   requirePackageFile({ files: allowed, filePath: entryPath })

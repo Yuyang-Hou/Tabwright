@@ -20,7 +20,7 @@
   "capabilities_eyebrow": { "message": "Automation library" },
   "capabilities_heading": { "message": "Capabilities" },
   "capabilities_description": {
-    "message": "Inspect runnable capabilities, trust status, schemas, and agent skill coverage."
+    "message": "Inspect runtime contracts, trust status, schemas, and recent runs."
   },
   "search_label": { "message": "Search" },
   "search_recordings_placeholder": { "message": "Filter recordings" },
@@ -30,7 +30,7 @@
   "metric_events": { "message": "Events" },
   "metric_capabilities": { "message": "Capabilities" },
   "metric_trusted": { "message": "AI-ready" },
-  "metric_agent_skills": { "message": "Agent skills" },
+  "metric_runtimes": { "message": "Runtime contracts" },
   "detail_eyebrow": { "message": "Detail" },
   "replay_detail_title": { "message": "Replay preview" },
   "capability_detail_title": { "message": "Capability detail" },
@@ -149,7 +149,6 @@
   "field_output": { "message": "Output" },
   "field_autonomy": { "message": "Autonomy" },
   "field_recent_runs": { "message": "Recent runs" },
-  "field_agent_skill": { "message": "Agent skill" },
   "field_runtime": { "message": "Runtime" },
   "field_effect": { "message": "Side effect" },
   "field_routing": { "message": "Routing" },
@@ -163,9 +162,6 @@
   "badge_needs_trust": { "message": "Needs trust approval" },
   "badge_validation_expired": { "message": "Validation expired" },
   "badge_disabled": { "message": "Disabled" },
-  "badge_skill_installed": { "message": "AI instructions ready" },
-  "badge_skill_draft": { "message": "AI instructions need publishing" },
-  "badge_skill_missing": { "message": "AI instructions missing" },
   "runtime_browser": { "message": "Browser" },
   "runtime_node": { "message": "Node.js" },
   "effect_read": { "message": "Read only" },
@@ -203,15 +199,6 @@
     "message": "This capability is disabled. Enable it as a draft before validation or execution."
   },
   "autonomy_trusted_readonly": { "message": "trusted read-only capability" },
-  "agent_skill_installed": {
-    "message": "installed: $path$",
-    "placeholders": { "path": { "content": "$1" } }
-  },
-  "agent_skill_draft": {
-    "message": "draft: $path$",
-    "placeholders": { "path": { "content": "$1" } }
-  },
-  "agent_skill_missing": { "message": "not created" },
   "open_replay_aria": {
     "message": "Open replay $id$",
     "placeholders": { "id": { "content": "$1" } }

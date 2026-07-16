@@ -32,13 +32,9 @@ npx tabwright@latest session new
 
 ## Install the skill
 
-The **skill** teaches your AI agent how to use Tabwright: which selectors to use, how to read snapshots, how to avoid common mistakes, and all available utilities.
+The **skill** teaches your AI agent how to use Tabwright: which selectors to use, how to read snapshots, how to avoid common mistakes, and all available utilities. Import the `skills/tabwright` directory with your agent's official Agent Skills-compatible manager.
 
-```bash
-tabwright skill install --target codex
-```
-
-This works with any agent that supports skills (OpenCode, Cursor, Claude Code, etc.). The skill is the recommended way to use Tabwright with agents; it gives them comprehensive instructions so they can use the full API without trial and error.
+Skill installation, discovery, and updates belong to that manager. Tabwright does not write into agent-specific skill directories; the CLI remains the browser and capability runtime.
 
 ## Quick start
 

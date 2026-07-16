@@ -3,15 +3,9 @@ import {
   toCapabilityContract,
   type CapabilityRecord,
 } from './capability-registry.js'
-import {
-  getCapabilityAgentSkillStatus,
-  type CapabilityAgentSkillStatus,
-} from './capability-agent-skill.js'
 import { getCapabilityAuthState } from './capability-auth-state.js'
 
-export interface CapabilityOptionsItem extends Record<string, unknown> {
-  agentSkill: CapabilityAgentSkillStatus
-}
+export type CapabilityOptionsItem = Record<string, unknown>
 
 export interface CapabilityOptionsListResponse {
   cwd: string
@@ -52,6 +46,5 @@ function toCapabilityOptionsItem(capability: CapabilityRecord): CapabilityOption
   return {
     ...toCapabilityContract(capability),
     authState: getCapabilityAuthState({ capability }),
-    agentSkill: getCapabilityAgentSkillStatus({ capability }),
   }
 }

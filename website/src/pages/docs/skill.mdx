@@ -11,13 +11,9 @@ import SkillDoc from '../../../../tabwright/src/skill.md'
 This page is the **full agent reference** for Tabwright. It's intended for AI agents and coding assistants that need to know every available utility, pattern, and best practice. If you're a human looking for a quick overview, start with [Installation](./installation.mdx) or [CLI Reference](./cli.mdx) instead.
 </Note>
 
-To give your agent these instructions automatically, install the **Tabwright skill**:
+To give your agent these instructions automatically, import the `skills/tabwright` directory with its official Agent Skills-compatible manager. The agent manager owns installation and updates; Tabwright provides the runtime only.
 
-```bash
-tabwright skill install --target codex
-```
-
-The skill injects the content below into your agent's context so it knows how to use Tabwright without trial and error. Works with OpenCode, Cursor, Claude Code, and any agent that supports skills.
+The skill gives the agent the content below so it can use Tabwright without trial and error. It works with agents that support the standard skill structure.
 
 ---
 

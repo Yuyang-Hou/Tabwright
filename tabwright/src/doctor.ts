@@ -1,6 +1,5 @@
 import { compareVersions, supportsRelayFeatures, type ExtensionStatus } from './relay-client.js'
 import { RELAY_REVIEW_FEATURES } from './protocol.js'
-import type { TabwrightAgentSkillStatus } from './tabwright-agent-skill.js'
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail' | 'info'
 
@@ -15,7 +14,7 @@ export interface DoctorSession {
 }
 
 export interface DoctorCheck {
-  id: 'relay' | 'extension' | 'session' | 'capabilities' | 'skill'
+  id: 'relay' | 'extension' | 'session' | 'capabilities'
   status: DoctorCheckStatus
   message: string
   detail?: string
@@ -45,7 +44,6 @@ export function buildDoctorReport(options: {
   extensions: ExtensionStatus[]
   sessions: DoctorSession[]
   capabilityCount: number
-  skillStatus?: TabwrightAgentSkillStatus
 }): DoctorReport {
   const usableSessions = options.sessions.filter((session) => {
     if (session.connected === false) {
@@ -207,29 +205,6 @@ export function buildDoctorReport(options: {
           detail: 'This does not block browser control. Record or create a capability after the first successful task.',
         }
 
-  const skillCheck: DoctorCheck | null = (() => {
-    if (!options.skillStatus) {
-      return null
-    }
-    if (options.skillStatus.state === 'current') {
-      return {
-        id: 'skill',
-        status: 'pass',
-        message: 'The installed Tabwright skill matches this CLI.',
-        detail: options.skillStatus.installedPath,
-      }
-    }
-    return {
-      id: 'skill',
-      status: 'warn',
-      message:
-        options.skillStatus.state === 'missing'
-          ? 'The Tabwright skill is not installed for Codex.'
-          : 'The installed Tabwright skill does not match this CLI.',
-      detail: `Run: ${options.skillStatus.installCommand}`,
-    }
-  })()
-
   const next: DoctorNextStep = (() => {
     if (!options.relayVersion) {
       return {
@@ -244,16 +219,6 @@ export function buildDoctorReport(options: {
       return {
         title: 'Restart the local service so recordings and capabilities become available.',
         command: 'tabwright session list',
-      }
-    }
-
-    if (options.skillStatus && options.skillStatus.state !== 'current') {
-      return {
-        title:
-          options.skillStatus.state === 'missing'
-            ? 'Install the Tabwright skill bundled with this CLI.'
-            : 'Update the installed Tabwright skill to match this CLI.',
-        command: options.skillStatus.installCommand,
       }
     }
 
@@ -292,7 +257,7 @@ export function buildDoctorReport(options: {
     ready: relayCheck.status !== 'fail' && extensionCheck.status !== 'fail' && sessionCheck.status === 'pass',
     version: options.version,
     cwd: options.cwd,
-    checks: [relayCheck, extensionCheck, sessionCheck, capabilityCheck, ...(skillCheck ? [skillCheck] : [])],
+    checks: [relayCheck, extensionCheck, sessionCheck, capabilityCheck],
     next,
   }
 }

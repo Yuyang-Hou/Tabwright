@@ -53,17 +53,6 @@ interface CapabilityRunRecord {
   createdAt: string
 }
 
-interface CapabilityAgentSkillStatus {
-  target: string
-  draftExists: boolean
-  draftPath: string
-  installedExists: boolean
-  installedPath: string
-  initCommand: string
-  showCommand: string
-  installCommand: string
-}
-
 interface CapabilityLifecycle {
   stage: 'drafted' | 'validated' | 'trusted' | 'drifted' | 'disabled'
   nextAction: 'validate' | 'trust' | 'run' | 'repair' | 'enable'
@@ -114,7 +103,6 @@ interface CapabilityContract {
     reasons: string[]
   }
   recentRuns: CapabilityRunRecord[]
-  agentSkill: CapabilityAgentSkillStatus
   authState?: CapabilityAuthState
   lifecycle?: CapabilityLifecycle
 }
@@ -153,7 +141,7 @@ const messageFallbacks = {
   recordings_description: 'Review saved page recordings and turn repeatable flows into capabilities.',
   capabilities_eyebrow: 'Automation library',
   capabilities_heading: 'Capabilities',
-  capabilities_description: 'Inspect runnable capabilities, trust status, schemas, and agent skill coverage.',
+  capabilities_description: 'Inspect runtime contracts, trust status, schemas, and recent runs.',
   search_label: 'Search',
   search_recordings_placeholder: 'Filter recordings',
   search_capabilities_placeholder: 'Filter capabilities',
@@ -162,7 +150,7 @@ const messageFallbacks = {
   metric_events: 'Events',
   metric_capabilities: 'Capabilities',
   metric_trusted: 'AI-ready',
-  metric_agent_skills: 'Agent skills',
+  metric_runtimes: 'Runtime contracts',
   detail_eyebrow: 'Detail',
   replay_detail_title: 'Replay preview',
   capability_detail_title: 'Capability detail',
@@ -229,7 +217,6 @@ const messageFallbacks = {
   field_output: 'Output',
   field_autonomy: 'Autonomy',
   field_recent_runs: 'Recent runs',
-  field_agent_skill: 'Agent skill',
   field_runtime: 'Runtime',
   field_effect: 'Side effect',
   field_routing: 'Routing',
@@ -243,9 +230,6 @@ const messageFallbacks = {
   badge_needs_trust: 'Needs trust approval',
   badge_validation_expired: 'Validation expired',
   badge_disabled: 'Disabled',
-  badge_skill_installed: 'AI instructions ready',
-  badge_skill_draft: 'AI instructions need publishing',
-  badge_skill_missing: 'AI instructions missing',
   runtime_browser: 'Browser',
   runtime_node: 'Node.js',
   effect_read: 'Read only',
@@ -273,9 +257,6 @@ const messageFallbacks = {
   lifecycle_drift_warning: 'Normal execution and AI autonomy stay blocked until the contract passes validation again.',
   lifecycle_disabled_warning: 'This capability is disabled. Enable it as a draft before validation or execution.',
   autonomy_trusted_readonly: 'trusted read-only capability',
-  agent_skill_installed: 'installed: $1',
-  agent_skill_draft: 'draft: $1',
-  agent_skill_missing: 'not created',
   open_replay_aria: 'Open replay $1',
   open_capability_aria: 'Open capability $1',
   auth_title: 'Browser authentication',
@@ -622,20 +603,6 @@ function isCapabilityRunRecord(value: unknown): value is CapabilityRunRecord {
   )
 }
 
-function isCapabilityAgentSkillStatus(value: unknown): value is CapabilityAgentSkillStatus {
-  return (
-    isRecord(value) &&
-    typeof value.target === 'string' &&
-    typeof value.draftExists === 'boolean' &&
-    typeof value.draftPath === 'string' &&
-    typeof value.installedExists === 'boolean' &&
-    typeof value.installedPath === 'string' &&
-    typeof value.initCommand === 'string' &&
-    typeof value.showCommand === 'string' &&
-    typeof value.installCommand === 'string'
-  )
-}
-
 function isAutonomousInvocation(value: unknown): value is CapabilityContract['autonomousInvocation'] {
   return isRecord(value) && typeof value.allowed === 'boolean' && isStringArray(value.reasons)
 }
@@ -735,8 +702,7 @@ function isCapabilityContractPayload(value: unknown): value is CapabilityContrac
     typeof value.location === 'string' &&
     typeof value.dir === 'string' &&
     isAutonomousInvocation(value.autonomousInvocation) &&
-    Array.isArray(value.recentRuns) &&
-    isCapabilityAgentSkillStatus(value.agentSkill)
+    Array.isArray(value.recentRuns)
   )
 }
 
@@ -959,7 +925,7 @@ function updateViewLabels(): void {
   setMessage(viewDescription, 'capabilities_description')
   setMessage(metricPrimaryLabel, 'metric_capabilities')
   setMessage(metricSecondaryLabel, 'metric_trusted')
-  setMessage(metricTertiaryLabel, 'metric_agent_skills')
+  setMessage(metricTertiaryLabel, 'metric_runtimes')
   if (searchInput) {
     searchInput.placeholder = msg('search_capabilities_placeholder')
   }
@@ -990,12 +956,9 @@ function updateMetrics(): void {
   const trustedCount = capabilities.filter((capability) => {
     return capability.autonomousInvocation.allowed
   }).length
-  const skillCount = capabilities.filter((capability) => {
-    return capability.agentSkill.installedExists || capability.agentSkill.draftExists
-  }).length
   setText(metricPrimaryValue, String(capabilities.length))
   setText(metricSecondaryValue, String(trustedCount))
-  setText(metricTertiaryValue, String(skillCount))
+  setText(metricTertiaryValue, String(capabilities.length))
 }
 
 function languageLabel(language: LanguageCode): string {
@@ -1092,16 +1055,6 @@ function locationLabel(location: string): string {
   if (location === 'project') return msg('location_project')
   if (location === 'global') return msg('location_global')
   return location
-}
-
-function agentSkillBadge(capability: CapabilityContract): HTMLSpanElement {
-  if (capability.agentSkill.installedExists) {
-    return createBadge(msg('badge_skill_installed'), 'ready')
-  }
-  if (capability.agentSkill.draftExists) {
-    return createBadge(msg('badge_skill_draft'), 'draft')
-  }
-  return createBadge(msg('badge_skill_missing'), 'blocked')
 }
 
 function capabilityReadinessBadge(capability: CapabilityContract): HTMLSpanElement {
@@ -2232,7 +2185,6 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   badges.replaceChildren(
     capabilityReadinessBadge(capability),
     createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
-    agentSkillBadge(capability),
     ...(authState ? [createBadge(authStatusLabel(authState), authStatusTone(authState))] : []),
   )
 
@@ -2280,19 +2232,6 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
                 return `${run.status} ${formatDuration(run.durationMs)} ${run.createdAt}`
               })
               .join('\n'),
-    }),
-    createField({
-      title: msg('field_agent_skill'),
-      value: [
-        capability.agentSkill.installedExists ? msg('agent_skill_installed', capability.agentSkill.installedPath) : '',
-        capability.agentSkill.draftExists ? msg('agent_skill_draft', capability.agentSkill.draftPath) : '',
-        capability.agentSkill.draftExists || capability.agentSkill.installedExists ? '' : msg('agent_skill_missing'),
-      ]
-        .filter((line) => {
-          return line.length > 0
-        })
-        .join('\n'),
-      full: true,
     }),
   )
   advancedDetails.replaceChildren(advancedSummary, advancedFields)

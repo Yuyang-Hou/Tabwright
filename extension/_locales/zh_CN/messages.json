@@ -19,7 +19,7 @@
   "recordings_description": { "message": "查看已保存的页面录制，并把可复用流程沉淀成能力。" },
   "capabilities_eyebrow": { "message": "能力库" },
   "capabilities_heading": { "message": "自动化能力" },
-  "capabilities_description": { "message": "查看哪些自动化可以直接使用，哪些需要确认或补充设置。" },
+  "capabilities_description": { "message": "查看运行契约、授权状态、输入输出和最近运行。" },
   "search_label": { "message": "搜索" },
   "search_recordings_placeholder": { "message": "筛选录制" },
   "search_capabilities_placeholder": { "message": "筛选能力" },
@@ -28,7 +28,7 @@
   "metric_events": { "message": "事件" },
   "metric_capabilities": { "message": "自动化能力" },
   "metric_trusted": { "message": "可自动执行" },
-  "metric_agent_skills": { "message": "AI 使用说明" },
+  "metric_runtimes": { "message": "运行契约" },
   "detail_eyebrow": { "message": "详情" },
   "replay_detail_title": { "message": "回放预览" },
   "capability_detail_title": { "message": "自动化详情" },
@@ -147,7 +147,6 @@
   "field_output": { "message": "输出" },
   "field_autonomy": { "message": "AI 自动执行" },
   "field_recent_runs": { "message": "最近运行" },
-  "field_agent_skill": { "message": "AI 使用说明" },
   "field_runtime": { "message": "运行方式" },
   "field_effect": { "message": "数据影响" },
   "field_routing": { "message": "匹配方式" },
@@ -161,9 +160,6 @@
   "badge_needs_trust": { "message": "待授权使用" },
   "badge_validation_expired": { "message": "需重新检查" },
   "badge_disabled": { "message": "已停用" },
-  "badge_skill_installed": { "message": "AI 使用说明已就绪" },
-  "badge_skill_draft": { "message": "AI 使用说明待发布" },
-  "badge_skill_missing": { "message": "缺少 AI 使用说明" },
   "runtime_browser": { "message": "浏览器" },
   "runtime_node": { "message": "Node.js" },
   "effect_read": { "message": "只读" },
@@ -197,15 +193,6 @@
   "lifecycle_drift_warning": { "message": "配置发生了变化。重新检查通过前，暂时无法运行或由 AI 自动执行。" },
   "lifecycle_disabled_warning": { "message": "这项自动化已停用。请先重新启用，再检查是否可用。" },
   "autonomy_trusted_readonly": { "message": "可由 AI 自动执行" },
-  "agent_skill_installed": {
-    "message": "已安装：$path$",
-    "placeholders": { "path": { "content": "$1" } }
-  },
-  "agent_skill_draft": {
-    "message": "草稿：$path$",
-    "placeholders": { "path": { "content": "$1" } }
-  },
-  "agent_skill_missing": { "message": "未创建" },
   "open_replay_aria": {
     "message": "打开回放 $id$",
     "placeholders": { "id": { "content": "$1" } }
