@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { getTabwrightProjectDataDir, getTabwrightUserDataDir } from './product-paths.js'
 
 export type CapabilityStatus = 'draft' | 'trusted' | 'disabled'
-export type CapabilityLocation = 'project' | 'user'
+export type CapabilityLocation = 'project' | 'user' | 'skill'
 export type CapabilityRuntime = 'browser' | 'node'
 export type CapabilitySideEffect = 'read' | 'write' | 'dangerous'
 export type CapabilityAuthType = 'none' | 'cookie' | 'token' | 'custom'
@@ -74,6 +74,8 @@ export interface CapabilityManifest {
 export interface CapabilityRecord {
   manifest: CapabilityManifest
   dir: string
+  stateDir: string
+  target: string
   manifestPath: string
   scriptPath: string
   location: CapabilityLocation
@@ -167,6 +169,7 @@ export interface CapabilityRouteResult {
 export type CapabilityManifestPatch = Partial<Omit<CapabilityManifest, 'schemaVersion' | 'id' | 'createdAt'>>
 
 const CapabilityStatusSchema = z.enum(['draft', 'trusted', 'disabled'])
+const CAPABILITY_RUNTIME_STATE_FILENAME = 'runtime-state.json'
 const CapabilityRuntimeSchema = z.enum(['browser', 'node'])
 const CapabilitySideEffectSchema = z.enum(['read', 'write', 'dangerous'])
 const CapabilityRoutingHintSchema = z.enum(['search-first', 'exact-match-direct-run'])
@@ -286,6 +289,18 @@ export function getProjectCapabilitiesDir(options: { cwd?: string } = {}): strin
   return path.join(getTabwrightProjectDataDir({ cwd: options.cwd }), 'capabilities')
 }
 
+export function getCapabilityStateDir(options: { id: string }): string {
+  validateCapabilityId(options.id)
+  return path.join(getTabwrightUserDataDir(), 'capability-state', options.id)
+}
+
+export function ensureCapabilityStateDir(capability: CapabilityRecord): void {
+  fs.mkdirSync(capability.stateDir, { recursive: true, mode: 0o700 })
+  if (process.platform !== 'win32') {
+    fs.chmodSync(capability.stateDir, 0o700)
+  }
+}
+
 export function getCapabilityRoots(
   options: { cwd?: string } = {},
 ): Array<{ dir: string; location: CapabilityLocation }> {
@@ -310,6 +325,9 @@ export function validateCapabilityId(id: string): void {
 
 export function getCapabilityDir(options: { id: string; location: CapabilityLocation; cwd?: string }): string {
   validateCapabilityId(options.id)
+  if (options.location === 'skill') {
+    throw new Error('Skill runtimes are addressed by their directory and are not installed into the capability registry.')
+  }
   const root =
     options.location === 'project' ? getProjectCapabilitiesDir({ cwd: options.cwd }) : getUserCapabilitiesDir()
   return path.join(root, options.id)
@@ -320,8 +338,11 @@ function readJsonFile(filePath: string): unknown {
   return JSON.parse(content)
 }
 
-function writeJsonFile(options: { filePath: string; value: unknown }): void {
-  fs.writeFileSync(options.filePath, `${JSON.stringify(options.value, null, 2)}\n`)
+function writeJsonFile(options: { filePath: string; value: unknown; mode?: number }): void {
+  fs.writeFileSync(options.filePath, `${JSON.stringify(options.value, null, 2)}\n`, { mode: options.mode })
+  if (options.mode !== undefined && process.platform !== 'win32') {
+    fs.chmodSync(options.filePath, options.mode)
+  }
 }
 
 function resolveCapabilityEntry(options: { dir: string; entry: string }): string {
@@ -338,17 +359,43 @@ function parseManifest(options: { manifestPath: string }): CapabilityManifest {
   return parseCapabilityManifest(raw)
 }
 
-export function readCapability(options: { dir: string; location: CapabilityLocation }): CapabilityRecord {
+export function readCapability(options: {
+  dir: string
+  location: CapabilityLocation
+  stateDir?: string
+  target?: string
+}): CapabilityRecord {
   const manifestPath = path.join(options.dir, 'capability.json')
-  const manifest = parseManifest({ manifestPath })
-  const scriptPath = resolveCapabilityEntry({ dir: options.dir, entry: manifest.entry })
-  return {
-    manifest,
+  const baseManifest = parseManifest({ manifestPath })
+  const scriptPath = resolveCapabilityEntry({ dir: options.dir, entry: baseManifest.entry })
+  const stateDir = options.stateDir || options.dir
+  const record: CapabilityRecord = {
+    manifest: baseManifest,
     dir: options.dir,
+    stateDir,
+    target: options.target || baseManifest.id,
     manifestPath,
     scriptPath,
     location: options.location,
   }
+  if (options.location !== 'skill') {
+    return record
+  }
+  const storedState = readCapabilityRuntimeState({ stateDir })
+  if (!storedState) {
+    return { ...record, manifest: { ...baseManifest, status: 'trusted' } }
+  }
+  const fingerprint = getCapabilityContractFingerprint(record)
+  const status: CapabilityStatus = (() => {
+    if (storedState.status === 'disabled') {
+      return 'disabled'
+    }
+    if (storedState.status === 'draft' && storedState.fingerprint === fingerprint) {
+      return 'draft'
+    }
+    return 'trusted'
+  })()
+  return { ...record, manifest: { ...baseManifest, status } }
 }
 
 export function listCapabilities(options: { cwd?: string } = {}): CapabilityRecord[] {
@@ -377,6 +424,16 @@ export function listCapabilities(options: { cwd?: string } = {}): CapabilityReco
 }
 
 export function findCapability(options: { id: string; cwd?: string }): CapabilityRecord | null {
+  const runtimeDir = resolveCapabilityRuntimeDir({ target: options.id, cwd: options.cwd })
+  if (runtimeDir) {
+    const manifest = parseManifest({ manifestPath: path.join(runtimeDir, 'capability.json') })
+    return readCapability({
+      dir: runtimeDir,
+      stateDir: getCapabilityStateDir({ id: manifest.id }),
+      target: runtimeDir,
+      location: 'skill',
+    })
+  }
   validateCapabilityId(options.id)
   return (
     getCapabilityRoots({ cwd: options.cwd })
@@ -391,6 +448,83 @@ export function findCapability(options: { id: string; cwd?: string }): Capabilit
         return record !== null
       }) || null
   )
+}
+
+function resolveCapabilityRuntimeDir(options: { target: string; cwd?: string }): string | null {
+  const cwd = options.cwd || process.cwd()
+  const candidate = path.resolve(cwd, options.target)
+  const candidates: string[] = [candidate, path.join(candidate, 'runtime')]
+  return (
+    candidates.find((dir) => {
+      return fs.existsSync(path.join(dir, 'capability.json'))
+    }) || null
+  )
+}
+
+function readCapabilityRuntimeState(options: {
+  stateDir: string
+}): { schemaVersion: 1; status: CapabilityStatus; fingerprint: string; runtimeDir: string } | null {
+  const statePath = path.join(options.stateDir, CAPABILITY_RUNTIME_STATE_FILENAME)
+  if (!fs.existsSync(statePath)) {
+    return null
+  }
+  const value: unknown = (() => {
+    try {
+      return readJsonFile(statePath)
+    } catch {
+      return null
+    }
+  })()
+  if (!isPlainObject(value)) {
+    return null
+  }
+  const status = CapabilityStatusSchema.safeParse(value.status)
+  if (value.schemaVersion !== 1 || !status.success || typeof value.fingerprint !== 'string' || typeof value.runtimeDir !== 'string') {
+    return null
+  }
+  return { schemaVersion: 1, status: status.data, fingerprint: value.fingerprint, runtimeDir: value.runtimeDir }
+}
+
+export function updateCapabilityStatus(options: {
+  capability: CapabilityRecord
+  status: CapabilityStatus
+  cwd?: string
+  allowUnvalidatedTrust?: boolean
+}): CapabilityRecord {
+  if (options.capability.location !== 'skill') {
+    return updateCapabilityManifest({
+      id: options.capability.manifest.id,
+      cwd: options.cwd,
+      patch: { status: options.status },
+      allowUnvalidatedTrust: options.allowUnvalidatedTrust,
+    })
+  }
+  if (
+    options.status === 'trusted' &&
+    !options.allowUnvalidatedTrust &&
+    getCapabilityContractHealth(options.capability).state !== 'healthy'
+  ) {
+    throw new Error(
+      `Capability ${options.capability.manifest.id} has no passing conformance evidence for its current contract. Run it with --force before trusting it.`,
+    )
+  }
+  ensureCapabilityStateDir(options.capability)
+  writeJsonFile({
+    filePath: path.join(options.capability.stateDir, CAPABILITY_RUNTIME_STATE_FILENAME),
+    mode: 0o600,
+    value: {
+      schemaVersion: 1,
+      status: options.status,
+      fingerprint: getCapabilityContractFingerprint(options.capability),
+      runtimeDir: options.capability.dir,
+    },
+  })
+  return readCapability({
+    dir: options.capability.dir,
+    stateDir: options.capability.stateDir,
+    target: options.capability.target,
+    location: 'skill',
+  })
 }
 
 export function requireCapability(options: { id: string; cwd?: string }): CapabilityRecord {
@@ -628,7 +762,7 @@ export function readCapabilityScript(options: { id: string; cwd?: string }): str
 }
 
 export function readCapabilitySecrets(options: { capability: CapabilityRecord }): Record<string, unknown> {
-  const secretsPath = path.join(options.capability.dir, 'secrets.json')
+  const secretsPath = path.join(options.capability.stateDir, 'secrets.json')
   if (!fs.existsSync(secretsPath)) {
     return {}
   }
@@ -643,8 +777,8 @@ export function writeCapabilitySecrets(options: {
   capability: CapabilityRecord
   secrets: Record<string, unknown>
 }): void {
-  const secretsPath = path.join(options.capability.dir, 'secrets.json')
-  fs.mkdirSync(options.capability.dir, { recursive: true })
+  const secretsPath = path.join(options.capability.stateDir, 'secrets.json')
+  ensureCapabilityStateDir(options.capability)
   fs.writeFileSync(secretsPath, `${JSON.stringify(options.secrets, null, 2)}\n`, { mode: 0o600 })
   if (process.platform === 'win32') {
     return
@@ -741,11 +875,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function appendCapabilityRun(options: { capability: CapabilityRecord; record: CapabilityRunRecord }): void {
-  fs.appendFileSync(path.join(options.capability.dir, 'runs.jsonl'), `${JSON.stringify(options.record)}\n`)
+  ensureCapabilityStateDir(options.capability)
+  const runsPath = path.join(options.capability.stateDir, 'runs.jsonl')
+  fs.appendFileSync(runsPath, `${JSON.stringify(options.record)}\n`, { mode: 0o600 })
+  if (process.platform !== 'win32') {
+    fs.chmodSync(runsPath, 0o600)
+  }
 }
 
 export function readCapabilityRuns(options: { capability: CapabilityRecord; limit?: number }): CapabilityRunRecord[] {
-  const runsPath = path.join(options.capability.dir, 'runs.jsonl')
+  const runsPath = path.join(options.capability.stateDir, 'runs.jsonl')
   if (!fs.existsSync(runsPath)) {
     return []
   }
@@ -829,6 +968,7 @@ export function getCapabilityContractHealth(capability: CapabilityRecord): Capab
 
 export function getCapabilityLifecycle(capability: CapabilityRecord): CapabilityLifecycle {
   const contractHealth = getCapabilityContractHealth(capability)
+  const commandTarget = capability.location === 'skill' ? quoteShell(capability.target) : capability.target
   const stage: CapabilityLifecycle['stage'] = (() => {
     if (capability.manifest.status === 'disabled') {
       return 'disabled'
@@ -861,13 +1001,13 @@ export function getCapabilityLifecycle(capability: CapabilityRecord): Capability
   })()
   const nextCommand: string = (() => {
     if (nextAction === 'enable') {
-      return `tabwright capability draft ${capability.manifest.id}`
+      return `tabwright capability draft ${commandTarget}`
     }
     if (nextAction === 'repair') {
-      return `tabwright capability show ${capability.manifest.id}`
+      return `tabwright capability show ${commandTarget}`
     }
     if (nextAction === 'trust') {
-      return `tabwright capability trust ${capability.manifest.id}`
+      return `tabwright capability trust ${commandTarget}`
     }
 
     const exampleInput = capability.manifest.examples.find((example) => {
@@ -885,7 +1025,7 @@ export function getCapabilityLifecycle(capability: CapabilityRecord): Capability
       'tabwright',
       'capability',
       'run',
-      capability.manifest.id,
+      commandTarget,
       ...(capability.manifest.runtime === 'browser' ? ['--browser', 'user'] : []),
       '--input-json',
       quoteShell(JSON.stringify(input)),
@@ -1036,7 +1176,7 @@ export function routeCapabilities(options: { task: string; cwd?: string; limit?:
               runRequiresEscalatedSandbox: true,
               commandMustStartWith: 'tabwright capability run ',
               reason:
-                'capability run writes runs.jsonl and may write artifacts under ~/.tabwright/capabilities; use escalated/unsandboxed execution in Codex sandbox',
+                'capability run writes device-local state and may write artifacts under ~/.tabwright; use escalated/unsandboxed execution in Codex sandbox',
             },
             reasons: [
               `${operation.id ? `operation: ${operation.id}, ` : ''}routingHint: exact-match-direct-run`,
@@ -1130,6 +1270,8 @@ export function toCapabilitySummary(capability: CapabilityRecord): Record<string
     outputSchema: capability.manifest.outputSchema,
     location: capability.location,
     dir: capability.dir,
+    stateDir: capability.stateDir,
+    target: capability.target,
   }
 }
 

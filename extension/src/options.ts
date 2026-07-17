@@ -64,22 +64,6 @@ interface CapabilityLifecycle {
   }
 }
 
-type CapabilityAuthStatus = 'not-required' | 'missing' | 'authenticated' | 'expiring' | 'expired' | 'unknown'
-
-interface CapabilityAuthState {
-  type: string
-  status: CapabilityAuthStatus
-  canRefresh: boolean
-  browserUrls: string[]
-  requiredCookieNames: string[]
-  cookieNames: string[]
-  refreshedAt?: string
-  expiresAt?: string
-  browserKey?: string
-  reason?: string
-  refreshCommand?: string
-}
-
 interface CapabilityContract {
   id: string
   title: string
@@ -103,7 +87,6 @@ interface CapabilityContract {
     reasons: string[]
   }
   recentRuns: CapabilityRunRecord[]
-  authState?: CapabilityAuthState
   lifecycle?: CapabilityLifecycle
 }
 
@@ -121,7 +104,6 @@ type LoadError = { type: 'relay'; issue: RelayReviewIssue } | { type: 'message';
 type CapabilityContractPayload = Omit<CapabilityContract, 'recentRuns' | 'lifecycle'> & {
   recentRuns: unknown[]
   lifecycle?: unknown
-  authState?: unknown
 }
 
 const messageFallbacks = {
@@ -141,7 +123,7 @@ const messageFallbacks = {
   recordings_description: 'Review saved page recordings and turn repeatable flows into capabilities.',
   capabilities_eyebrow: 'Automation library',
   capabilities_heading: 'Capabilities',
-  capabilities_description: 'Inspect runtime contracts, trust status, schemas, and recent runs.',
+  capabilities_description: 'Review local automations and recent runs.',
   search_label: 'Search',
   search_recordings_placeholder: 'Filter recordings',
   search_capabilities_placeholder: 'Filter capabilities',
@@ -149,7 +131,7 @@ const messageFallbacks = {
   metric_total_duration: 'Total duration',
   metric_events: 'Events',
   metric_capabilities: 'Capabilities',
-  metric_trusted: 'AI-ready',
+  metric_trusted: 'Available',
   metric_runtimes: 'Runtime contracts',
   detail_eyebrow: 'Detail',
   replay_detail_title: 'Replay preview',
@@ -225,10 +207,8 @@ const messageFallbacks = {
   technical_details: 'Technical details',
   badge_auto_ready: 'Can run automatically',
   badge_needs_confirmation: 'Needs your confirmation',
-  badge_manual_only: 'Manual run only',
-  badge_needs_validation: 'Needs validation',
-  badge_needs_trust: 'Needs trust approval',
-  badge_validation_expired: 'Validation expired',
+  badge_local_draft: 'Local draft',
+  badge_validation_expired: 'Needs update',
   badge_disabled: 'Disabled',
   runtime_browser: 'Browser',
   runtime_node: 'Node.js',
@@ -240,54 +220,14 @@ const messageFallbacks = {
   routing_manual: 'Manual',
   location_project: 'Project',
   location_global: 'Global',
-  lifecycle_title: 'Lifecycle',
-  lifecycle_step_drafted: 'Draft created',
-  lifecycle_step_validated: 'Validation passed',
-  lifecycle_step_trusted: 'Trust approved',
-  lifecycle_stage_drafted: 'Needs validation',
-  lifecycle_stage_validated: 'Validation passed',
-  lifecycle_stage_trusted: 'Trusted',
-  lifecycle_stage_drifted: 'Validation expired',
-  lifecycle_stage_disabled: 'Disabled',
   lifecycle_health_checked: '$1 · checked $2',
   lifecycle_health_not_checked: 'Not yet checked for usability',
   lifecycle_health_healthy: 'Contract healthy',
   lifecycle_health_drifted: 'Contract drift detected',
   lifecycle_health_unknown: 'Usability not confirmed',
-  lifecycle_drift_warning: 'Normal execution and AI autonomy stay blocked until the contract passes validation again.',
-  lifecycle_disabled_warning: 'This capability is disabled. Enable it as a draft before validation or execution.',
   autonomy_trusted_readonly: 'trusted read-only capability',
   open_replay_aria: 'Open replay $1',
   open_capability_aria: 'Open capability $1',
-  auth_title: 'Browser authentication',
-  auth_status_missing: 'Not authenticated',
-  auth_status_authenticated: 'Authenticated',
-  auth_status_expiring: 'Expires soon',
-  auth_status_expired: 'Authentication expired',
-  auth_status_unknown: 'Status unknown',
-  auth_description_missing: 'Connect your current Chrome login before validating or running this capability.',
-  auth_description_authenticated: 'Authentication is saved locally and ready for this capability.',
-  auth_description_expiring: 'Authentication expires within 24 hours. Refresh it to avoid failed runs.',
-  auth_description_expired: 'The saved login has expired or the latest run reported an authentication failure.',
-  auth_description_unknown: 'Refresh the saved login to inspect its current cookie expiry.',
-  auth_domains: 'Cookie scope',
-  auth_last_refreshed: 'Last authenticated',
-  auth_expires: 'Cookie expiry',
-  auth_expiry_unknown: 'Session or server-managed',
-  auth_action_connect: 'Authenticate with current Chrome',
-  auth_action_refresh: 'Refresh authentication',
-  auth_confirm_title: 'Allow browser authentication?',
-  auth_confirm_description:
-    'Tabwright will read cookies only for the domains below and save them locally for this capability.',
-  auth_privacy: 'Cookie values stay on this device and are never included when the capability is shared.',
-  auth_confirm_action: 'Allow and authenticate',
-  auth_cancel_action: 'Cancel',
-  auth_progress: 'Authenticating $1...',
-  auth_success: '$1 authentication updated',
-  auth_error_generic: 'Authentication failed: $1',
-  auth_error_browser_not_connected: 'This Chrome profile is not connected to Tabwright.',
-  auth_error_multiple_profiles: 'Multiple Chrome profiles are connected. Retry from the profile that opened this page.',
-  auth_error_no_enabled_tab: 'Enable Tabwright on a normal browser tab, then retry authentication.',
 } as const
 
 type MessageKey = keyof typeof messageFallbacks
@@ -607,34 +547,6 @@ function isAutonomousInvocation(value: unknown): value is CapabilityContract['au
   return isRecord(value) && typeof value.allowed === 'boolean' && isStringArray(value.reasons)
 }
 
-function isCapabilityAuthStatus(value: unknown): value is CapabilityAuthStatus {
-  return (
-    value === 'not-required' ||
-    value === 'missing' ||
-    value === 'authenticated' ||
-    value === 'expiring' ||
-    value === 'expired' ||
-    value === 'unknown'
-  )
-}
-
-function isCapabilityAuthState(value: unknown): value is CapabilityAuthState {
-  return (
-    isRecord(value) &&
-    typeof value.type === 'string' &&
-    isCapabilityAuthStatus(value.status) &&
-    typeof value.canRefresh === 'boolean' &&
-    isStringArray(value.browserUrls) &&
-    isStringArray(value.requiredCookieNames) &&
-    isStringArray(value.cookieNames) &&
-    isStringOrUndefined(value.refreshedAt) &&
-    isStringOrUndefined(value.expiresAt) &&
-    isStringOrUndefined(value.browserKey) &&
-    isStringOrUndefined(value.reason) &&
-    isStringOrUndefined(value.refreshCommand)
-  )
-}
-
 function isLifecycleStage(value: unknown): value is CapabilityLifecycle['stage'] {
   return (
     value === 'drafted' || value === 'validated' || value === 'trusted' || value === 'drifted' || value === 'disabled'
@@ -718,7 +630,6 @@ function normalizeCapabilityContract(value: unknown): CapabilityContract | null 
       ? { allowed: false, reasons: [unsupportedReason] }
       : value.autonomousInvocation,
     recentRuns: value.recentRuns.filter(isCapabilityRunRecord),
-    authState: isCapabilityAuthState(value.authState) ? value.authState : undefined,
     lifecycle: hasUnsupportedLifecycle
       ? {
           stage: 'drifted',
@@ -953,11 +864,11 @@ function updateMetrics(): void {
     return
   }
 
-  const trustedCount = capabilities.filter((capability) => {
-    return capability.autonomousInvocation.allowed
+  const availableCount = capabilities.filter((capability) => {
+    return resolveCapabilityLifecycle(capability).stage === 'trusted'
   }).length
   setText(metricPrimaryValue, String(capabilities.length))
-  setText(metricSecondaryValue, String(trustedCount))
+  setText(metricSecondaryValue, String(availableCount))
   setText(metricTertiaryValue, String(capabilities.length))
 }
 
@@ -1059,25 +970,19 @@ function locationLabel(location: string): string {
 
 function capabilityReadinessBadge(capability: CapabilityContract): HTMLSpanElement {
   const lifecycle = resolveCapabilityLifecycle(capability)
-  if (capability.autonomousInvocation.allowed) {
-    return createBadge(msg('badge_auto_ready'), 'ready')
-  }
   if (lifecycle.stage === 'disabled') {
     return createBadge(msg('badge_disabled'), 'disabled')
   }
   if (lifecycle.stage === 'drifted') {
     return createBadge(msg('badge_validation_expired'), 'drifted')
   }
-  if (lifecycle.stage === 'drafted') {
-    return createBadge(msg('badge_needs_validation'), 'draft')
-  }
-  if (lifecycle.stage === 'validated') {
-    return createBadge(msg('badge_needs_trust'), 'validated')
+  if (lifecycle.stage === 'drafted' || lifecycle.stage === 'validated') {
+    return createBadge(msg('badge_local_draft'), 'draft')
   }
   if (capability.requiresConfirmation) {
     return createBadge(msg('badge_needs_confirmation'), 'write')
   }
-  return createBadge(msg('badge_manual_only'), 'write')
+  return createBadge(msg('badge_auto_ready'), 'ready')
 }
 
 function createBadge(text: string, tone = text): HTMLSpanElement {
@@ -1085,264 +990,6 @@ function createBadge(text: string, tone = text): HTMLSpanElement {
   badge.className = `badge badge-${cssToken(tone)}`
   badge.textContent = text
   return badge
-}
-
-function effectiveAuthStatus(authState: CapabilityAuthState): CapabilityAuthStatus {
-  if (!authState.expiresAt || (authState.status !== 'authenticated' && authState.status !== 'expiring')) {
-    return authState.status
-  }
-  const expiresAt = Date.parse(authState.expiresAt)
-  if (Number.isNaN(expiresAt)) {
-    return authState.status
-  }
-  if (expiresAt <= Date.now()) {
-    return 'expired'
-  }
-  if (expiresAt - Date.now() <= 24 * 60 * 60 * 1000) {
-    return 'expiring'
-  }
-  return 'authenticated'
-}
-
-function authStatusLabel(authState: CapabilityAuthState): string {
-  const status = effectiveAuthStatus(authState)
-  if (status === 'missing') return msg('auth_status_missing')
-  if (status === 'authenticated') return msg('auth_status_authenticated')
-  if (status === 'expiring') return msg('auth_status_expiring')
-  if (status === 'expired') return msg('auth_status_expired')
-  return msg('auth_status_unknown')
-}
-
-function authStatusDescription(authState: CapabilityAuthState): string {
-  const status = effectiveAuthStatus(authState)
-  if (status === 'missing') return msg('auth_description_missing')
-  if (status === 'authenticated') return msg('auth_description_authenticated')
-  if (status === 'expiring') return msg('auth_description_expiring')
-  if (status === 'expired') return msg('auth_description_expired')
-  return msg('auth_description_unknown')
-}
-
-function authStatusTone(authState: CapabilityAuthState): string {
-  const status = effectiveAuthStatus(authState)
-  if (status === 'authenticated') return 'ready'
-  if (status === 'expired') return 'blocked'
-  return 'draft'
-}
-
-function authDomain(url: string): string {
-  try {
-    return new URL(url).host
-  } catch {
-    return url
-  }
-}
-
-function formatAuthDate(options: { value?: string; fallback: string }): string {
-  if (!options.value) {
-    return options.fallback
-  }
-  const timestamp = Date.parse(options.value)
-  if (Number.isNaN(timestamp)) {
-    return options.value
-  }
-  return new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
-}
-
-async function readCurrentInstallId(): Promise<string | undefined> {
-  if (typeof chrome === 'undefined' || !chrome.storage?.local) {
-    return undefined
-  }
-  const result = await chrome.storage.local.get('playwriterInstallId')
-  return typeof result.playwriterInstallId === 'string' ? result.playwriterInstallId : undefined
-}
-
-function authRefreshErrorMessage(options: { code?: string; error: string }): string {
-  if (options.code === 'browser_not_connected') return msg('auth_error_browser_not_connected')
-  if (options.code === 'multiple_browser_profiles') return msg('auth_error_multiple_profiles')
-  if (options.code === 'no_enabled_tab') return msg('auth_error_no_enabled_tab')
-  return msg('auth_error_generic', options.error)
-}
-
-async function refreshCapabilityAuth(options: {
-  capability: CapabilityContract
-  button: HTMLButtonElement
-  errorMessage: HTMLElement
-}): Promise<void> {
-  const approved = await confirmCapabilityAuth(options.capability)
-  if (!approved) {
-    return
-  }
-  const originalText = options.button.textContent || ''
-  options.button.disabled = true
-  options.button.textContent = msg('auth_progress', options.capability.title)
-  options.errorMessage.hidden = true
-  options.errorMessage.textContent = ''
-  setStatus(msg('auth_progress', options.capability.title))
-  try {
-    const installId = await readCurrentInstallId()
-    const response = await fetch(
-      `${RELAY_BASE_URL}/capabilities/${encodeURIComponent(options.capability.id)}/auth/refresh`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ installId }),
-      },
-    )
-    const data: unknown = await response.json().catch(() => null)
-    if (!response.ok) {
-      const code = isRecord(data) && typeof data.code === 'string' ? data.code : undefined
-      const error = isRecord(data) && typeof data.error === 'string' ? data.error : String(response.status)
-      const message = authRefreshErrorMessage({ code, error })
-      options.errorMessage.textContent = message
-      options.errorMessage.hidden = false
-      setStatus(message)
-      return
-    }
-    await loadCapabilities()
-    setStatus(msg('auth_success', options.capability.title))
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error)
-    const displayMessage = msg('auth_error_generic', message)
-    options.errorMessage.textContent = displayMessage
-    options.errorMessage.hidden = false
-    setStatus(displayMessage)
-  } finally {
-    options.button.disabled = false
-    options.button.textContent = originalText
-  }
-}
-
-function confirmCapabilityAuth(capability: CapabilityContract): Promise<boolean> {
-  const authState = capability.authState
-  if (!authState) {
-    return Promise.resolve(false)
-  }
-  const dialog = document.createElement('dialog')
-  dialog.className = 'auth-dialog'
-
-  const content = document.createElement('div')
-  content.className = 'auth-dialog-content'
-  const title = document.createElement('h2')
-  title.textContent = msg('auth_confirm_title')
-  const description = document.createElement('p')
-  description.textContent = msg('auth_confirm_description')
-  const domains = document.createElement('div')
-  domains.className = 'auth-domain-list'
-  domains.replaceChildren(
-    ...authState.browserUrls.map((url) => {
-      const item = document.createElement('code')
-      item.textContent = authDomain(url)
-      return item
-    }),
-  )
-  const privacy = document.createElement('p')
-  privacy.className = 'auth-privacy'
-  privacy.textContent = msg('auth_privacy')
-
-  const actions = document.createElement('div')
-  actions.className = 'auth-dialog-actions'
-  const cancel = document.createElement('button')
-  cancel.type = 'button'
-  cancel.textContent = msg('auth_cancel_action')
-  const confirm = document.createElement('button')
-  confirm.type = 'button'
-  confirm.className = 'primary'
-  confirm.textContent = msg('auth_confirm_action')
-  actions.replaceChildren(cancel, confirm)
-  content.replaceChildren(title, description, domains, privacy, actions)
-  dialog.replaceChildren(content)
-  document.body.append(dialog)
-
-  return new Promise<boolean>((resolve) => {
-    let settled = false
-    const finish = (approved: boolean) => {
-      if (settled) {
-        return
-      }
-      settled = true
-      dialog.close()
-      dialog.remove()
-      resolve(approved)
-    }
-    cancel.addEventListener('click', () => {
-      finish(false)
-    })
-    confirm.addEventListener('click', () => {
-      finish(true)
-    })
-    dialog.addEventListener('cancel', (event) => {
-      event.preventDefault()
-      finish(false)
-    })
-    dialog.showModal()
-  })
-}
-
-function createCapabilityAuthCard(capability: CapabilityContract): HTMLElement | null {
-  const authState = capability.authState
-  if (!authState || authState.type !== 'cookie' || authState.status === 'not-required') {
-    return null
-  }
-  const status = effectiveAuthStatus(authState)
-  const card = document.createElement('section')
-  card.className = 'auth-card'
-  card.dataset.status = status
-
-  const heading = document.createElement('div')
-  heading.className = 'auth-heading'
-  const title = document.createElement('h3')
-  title.textContent = msg('auth_title')
-  heading.replaceChildren(title, createBadge(authStatusLabel(authState), authStatusTone(authState)))
-
-  const description = document.createElement('p')
-  description.className = 'auth-description'
-  description.textContent = authStatusDescription(authState)
-
-  const scope = document.createElement('div')
-  scope.className = 'auth-detail'
-  const scopeLabel = document.createElement('strong')
-  scopeLabel.textContent = msg('auth_domains')
-  const scopeValue = document.createElement('span')
-  scopeValue.textContent = authState.browserUrls.map(authDomain).join(', ')
-  scope.replaceChildren(scopeLabel, scopeValue)
-
-  const timestamps = document.createElement('div')
-  timestamps.className = 'auth-meta'
-  const refreshed = document.createElement('span')
-  refreshed.textContent = `${msg('auth_last_refreshed')}: ${formatAuthDate({ value: authState.refreshedAt, fallback: '-' })}`
-  const expires = document.createElement('span')
-  expires.textContent = `${msg('auth_expires')}: ${formatAuthDate({
-    value: authState.expiresAt,
-    fallback: msg('auth_expiry_unknown'),
-  })}`
-  timestamps.replaceChildren(refreshed, expires)
-
-  const privacy = document.createElement('p')
-  privacy.className = 'auth-privacy'
-  privacy.textContent = msg('auth_privacy')
-
-  const errorMessage = document.createElement('p')
-  errorMessage.className = 'auth-error'
-  errorMessage.setAttribute('role', 'alert')
-  errorMessage.hidden = true
-
-  const action = document.createElement('button')
-  action.type = 'button'
-  action.className = 'auth-action'
-  action.dataset.authAction = capability.id
-  action.textContent = status === 'missing' ? msg('auth_action_connect') : msg('auth_action_refresh')
-  action.hidden = !authState.canRefresh
-  action.addEventListener('click', () => {
-    void refreshCapabilityAuth({ capability, button: action, errorMessage })
-  })
-
-  if (status === 'authenticated') {
-    card.replaceChildren(heading, timestamps, errorMessage, action)
-    return card
-  }
-
-  card.replaceChildren(heading, description, scope, timestamps, privacy, errorMessage, action)
-  return card
 }
 
 async function copyTextToClipboard(options: { label: string; text: string }): Promise<void> {
@@ -1976,14 +1623,6 @@ function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityL
   }
 }
 
-function lifecycleStageMessage(stage: CapabilityLifecycle['stage']): string {
-  if (stage === 'validated') return msg('lifecycle_stage_validated')
-  if (stage === 'trusted') return msg('lifecycle_stage_trusted')
-  if (stage === 'drifted') return msg('lifecycle_stage_drifted')
-  if (stage === 'disabled') return msg('lifecycle_stage_disabled')
-  return msg('lifecycle_stage_drafted')
-}
-
 function capabilityAiContextText(capability: CapabilityContract): string {
   if (isChineseLocale()) {
     return [
@@ -2042,109 +1681,23 @@ function createCapabilityCommandField(options: { command: string }): HTMLDivElem
   return field
 }
 
-function lifecycleStepState(options: {
-  stage: CapabilityLifecycle['stage']
-  stepIndex: number
-}): 'done' | 'current' | 'pending' | 'blocked' {
-  if (options.stage === 'disabled') {
-    return 'blocked'
-  }
-  if (options.stage === 'drifted') {
-    return options.stepIndex === 0 ? 'blocked' : 'pending'
-  }
-  const currentIndex = options.stage === 'trusted' ? 2 : options.stage === 'validated' ? 1 : 0
-  if (options.stepIndex < currentIndex) {
-    return 'done'
-  }
-  if (options.stepIndex === currentIndex) {
-    return 'current'
-  }
-  return 'pending'
-}
-
-function createLifecycleStep(options: {
-  label: string
-  state: 'done' | 'current' | 'pending' | 'blocked'
-}): HTMLLIElement {
-  const step = document.createElement('li')
-  step.className = 'lifecycle-step'
-  step.dataset.state = options.state
-  if (options.state === 'current') {
-    step.setAttribute('aria-current', 'step')
-  }
-
-  const marker = document.createElement('span')
-  marker.className = 'lifecycle-marker'
-  marker.setAttribute('aria-hidden', 'true')
-
-  const label = document.createElement('span')
-  label.textContent = options.label
-  step.replaceChildren(marker, label)
-  return step
-}
-
 function lifecycleHealthMessage(lifecycle: CapabilityLifecycle): string {
   const healthLabel = (() => {
     if (lifecycle.contractHealth.state === 'healthy') return msg('lifecycle_health_healthy')
     if (lifecycle.contractHealth.state === 'drifted') return msg('lifecycle_health_drifted')
     return msg('lifecycle_health_unknown')
   })()
-  if (!lifecycle.contractHealth.checkedAt) {
-    return msg('lifecycle_health_not_checked')
-  }
-  const timestamp = Date.parse(lifecycle.contractHealth.checkedAt)
-  const checkedAt = Number.isNaN(timestamp)
-    ? lifecycle.contractHealth.checkedAt
-    : new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
-  return msg('lifecycle_health_checked', [healthLabel, checkedAt])
-}
-
-function createCapabilityLifecycle(options: { lifecycle: CapabilityLifecycle }): HTMLElement {
-  const lifecycle = options.lifecycle
-  const card = document.createElement('section')
-  card.className = 'lifecycle-card'
-  card.dataset.stage = lifecycle.stage
-
-  const heading = document.createElement('div')
-  heading.className = 'lifecycle-heading'
-  const title = document.createElement('h3')
-  title.textContent = msg('lifecycle_title')
-  heading.replaceChildren(title, createBadge(lifecycleStageMessage(lifecycle.stage), lifecycle.stage))
-
-  const steps = document.createElement('ol')
-  steps.className = 'lifecycle-steps'
-  steps.setAttribute('aria-label', msg('lifecycle_title'))
-  steps.replaceChildren(
-    createLifecycleStep({
-      label: msg('lifecycle_step_drafted'),
-      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 0 }),
-    }),
-    createLifecycleStep({
-      label: msg('lifecycle_step_validated'),
-      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 1 }),
-    }),
-    createLifecycleStep({
-      label: msg('lifecycle_step_trusted'),
-      state: lifecycleStepState({ stage: lifecycle.stage, stepIndex: 2 }),
-    }),
-  )
-
-  const warningText = (() => {
-    if (lifecycle.stage === 'drifted') {
-      return [msg('lifecycle_drift_warning'), ...lifecycle.contractHealth.reasons].join('\n')
+  const summary = (() => {
+    if (!lifecycle.contractHealth.checkedAt) {
+      return msg('lifecycle_health_not_checked')
     }
-    if (lifecycle.stage === 'disabled') {
-      return msg('lifecycle_disabled_warning')
-    }
-    return ''
+    const timestamp = Date.parse(lifecycle.contractHealth.checkedAt)
+    const checkedAt = Number.isNaN(timestamp)
+      ? lifecycle.contractHealth.checkedAt
+      : new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
+    return msg('lifecycle_health_checked', [healthLabel, checkedAt])
   })()
-  const warning = document.createElement('p')
-  warning.className = 'lifecycle-warning'
-  warning.textContent = warningText
-  warning.hidden = warningText.length === 0
-
-  card.replaceChildren(heading, steps, warning)
-  return card
+  return [summary, ...lifecycle.contractHealth.reasons].join('\n')
 }
 
 function createCapabilityActions(capability: CapabilityContract): HTMLDivElement {
@@ -2178,14 +1731,9 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
 
   const badges = document.createElement('div')
   badges.className = 'badge-row'
-  const authState =
-    capability.authState?.type === 'cookie' && capability.authState.status !== 'not-required'
-      ? capability.authState
-      : undefined
   badges.replaceChildren(
     capabilityReadinessBadge(capability),
     createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
-    ...(authState ? [createBadge(authStatusLabel(authState), authStatusTone(authState))] : []),
   )
 
   header.replaceChildren(title, meta, badges, createCapabilityActions(capability))
@@ -2236,14 +1784,7 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   )
   advancedDetails.replaceChildren(advancedSummary, advancedFields)
 
-  const authCard = createCapabilityAuthCard(capability)
-  skillDetail.replaceChildren(
-    header,
-    ...(authCard ? [authCard] : []),
-    createCapabilityLifecycle({ lifecycle }),
-    primaryFields,
-    advancedDetails,
-  )
+  skillDetail.replaceChildren(header, primaryFields, advancedDetails)
 }
 
 function updateActiveCapability(): void {

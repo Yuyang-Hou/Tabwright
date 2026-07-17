@@ -23,7 +23,7 @@ If the exact-match capability index is not already visible in the current skill 
 
 When using route output, run the returned `shellCommand` exactly. Do not infer a shell command from the capability id; capability ids are not shell commands.
 
-In Codex sandboxed environments, `tabwright capability run ...` writes the capability run log and may write artifacts under `~/.tabwright/capabilities/...`. Run trusted capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `tabwright capability route ... --json` is metadata-only and can run sandboxed.
+In Codex sandboxed environments, `tabwright capability run ...` writes device-local state under `~/.tabwright/capability-state/...` for Skill runtimes and may write artifacts. Run trusted capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `tabwright capability route ... --json` is metadata-only and can run sandboxed.
 
 Do not treat every URL as a direct-run signal. This shortcut only applies to exact capability matches, and it also applies to non-URL tasks when a capability's `match` patterns are specific enough. Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Tabwright skill. If there is no exact match, use `capability search` and `capability describe` before running or creating new automation.
 
@@ -295,28 +295,13 @@ tabwright capability update bilibili-current-user --contract-file contract.json
 tabwright capability trust query-user
 ```
 
-Share a user-authored capability as a sanitized `.tgz`, or install it directly from a directory, HTTPS `.tgz` URL, or one directory in a Git repository:
-
-```bash
-tabwright capability pack query-user
-tabwright capability install ./query-user.tgz
-tabwright capability install ../shared-capabilities/query-user --project
-tabwright capability install https://example.com/query-user.tgz
-tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/query-user'
-```
-
-Git sources use `<remote>#<ref>:<capability-path>`. Tabwright runs `git archive` against that ref and reads only the selected capability directory, so private SSH repositories can be installed in one command without cloning. Pin a release tag instead of a moving branch for reproducible installs.
-
-Capability packages contain only `capability.json`, the configured entry script, and optional `README.md`. The pack command excludes agent skills, `secrets.json`, `runs.jsonl`, and `artifacts/`. A shared capability always installs as `draft`, even if its author trusted it locally. Inspect its contract and script, refresh auth with the recipient's own browser session when needed, validate it with `capability run --force`, and only then trust it.
-
 For distribution through an Agent Skills-compatible agent or plugin manager, export a portable skill directory instead of making Tabwright own agent installation:
 
 ```bash
 tabwright capability skill export query-user --output ./skills/query-user
-tabwright capability skill export-all --output ./skills
 ```
 
-The exported directory contains the standard root `SKILL.md`, optional `agents/openai.yaml`, and a bundled runtime under `runtime/`. The generated runtime section tells a fresh agent how to detect or run the `tabwright` CLI, resolve `runtime/capability.json` and the entry script relative to `SKILL.md`, install the runtime as draft, validate it, and refresh browser auth when required. It never includes `secrets.json`, `runs.jsonl`, or `artifacts/`. Prefer this portable directory for new sharing flows; keep `.tgz` packaging for compatibility with existing capability-only consumers.
+The exported directory contains the standard root `SKILL.md`, optional `agents/openai.yaml`, and a bundled runtime under `runtime/`. A fresh agent resolves the runtime relative to `SKILL.md` and passes that directory directly to `capability run`. Agent-managed runtimes are ready immediately; Tabwright validates them and refreshes declared browser authentication automatically. It never copies the runtime and stores only device-local state under `~/.tabwright/capability-state/<id>/`.
 
 When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
 
@@ -325,16 +310,19 @@ When an AI is turning a user workflow into a durable capability, keep these resp
 - Put executable behavior in `script.js`.
 - Use the agent's official skill tooling to refine generated prose and manage installation.
 
-Export one skill or migrate every saved capability:
+Export a new skill once, then let the agent's skill tooling own it:
 
 ```bash
 tabwright capability skill export query-user --output ./skills/query-user
-tabwright capability skill export-all --output ./skills
 ```
 
-The export contains one semantic source, `SKILL.md`, plus a runtime-only contract under `runtime/`. Tabwright preserves a previously edited legacy skill during migration, but ignores untouched legacy scaffolds. Install and distribute the result through the user's agent-native skill or plugin manager.
+The export contains one semantic source, `SKILL.md`, plus a runtime-only contract under `runtime/`. The command refuses existing output directories; update and distribute the result through the user's agent-native skill or plugin manager.
 
-Run a capability with structured JSON input. `node` runtime capabilities run locally without opening Chrome. `browser` runtime capabilities create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
+Run a registered capability id or an absolute Skill runtime directory with structured JSON input. `node` runtimes run locally without opening Chrome. `browser` runtimes create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
+
+```bash
+tabwright capability run "/absolute/path/to/skill/runtime" --input-json '{"query":"example"}' --json
+```
 
 If the selected operation has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only then rerun with its exact `confirmationToken`, typically `--confirm <capability-id>:<operation>`. Capabilities without operations continue to use `--confirm <capability-id>`. `--force` never bypasses this gate.
 
@@ -350,14 +338,7 @@ When multiple Chrome extension connections exist, pass a browser key from `tabwr
 
 When turning a user demonstration into a repeatable workflow, do not analyze during recording. Keep the recording/replay id as evidence, then generate a draft browser capability only after the user gives the id plus a concrete goal. Generated workflow scripts should run directly and return `needs_ai` with page context when the live page diverges.
 
-Refresh cookie auth only after explicit user confirmation. This updates the local `secrets.json` and does not print cookie values:
-
-```bash
-tabwright capability refresh-auth bilibili-current-user --browser user --json
-tabwright capability refresh-auth bilibili-current-user --browser install:Chrome:qculboi03pt0 --json
-```
-
-The extension Options page shows the same local authentication state for cookie-authenticated capabilities. A user can review the declared cookie domains and explicitly authenticate or refresh with the current Chrome profile there. Treat that button click as the required user confirmation; never trigger the refresh endpoint automatically. Expiry is definitive when declared auth cookies have an expiry timestamp or a later run matches an auth failure signal. Session cookies without a validation failure remain authenticated with server-managed expiry.
+Cookie auth declared with `refresh: "from-browser"` is refreshed automatically before a run when it is missing, expired, unknown, or stale and expiring. A read-only operation that reports a declared auth failure is refreshed and retried once. Write and dangerous operations are refreshed but never retried automatically after a request may have started. Cookie values stay in local `secrets.json` and are never printed or shown in the extension Options page.
 
 Browser capability scripts run in the normal Tabwright sandbox and receive `input` and `capability` globals in addition to `page`, `context`, `state`, `snapshot`, and other helpers:
 

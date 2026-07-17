@@ -31,6 +31,7 @@ describe('capability options view', () => {
         ]),
       )
       expect(response.capabilities[0]).not.toHaveProperty('agentSkill')
+      expect(response.capabilities[0]).not.toHaveProperty('authState')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

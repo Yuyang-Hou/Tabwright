@@ -62,7 +62,6 @@ export function shouldAutoEnableTabwright(): boolean {
   return (process.env.TABWRIGHT_AUTO_ENABLE || process.env.PLAYWRITER_AUTO_ENABLE)?.toLowerCase() !== 'false'
 }
 
-// Existing installations continue using their legacy data directory until users migrate it.
 const LOG_BASE_DIR = getTabwrightUserDataDir()
 export const LOG_FILE_PATH =
   process.env.TABWRIGHT_LOG_FILE_PATH || process.env.PLAYWRITER_LOG_FILE_PATH || path.join(LOG_BASE_DIR, 'relay-server.log')

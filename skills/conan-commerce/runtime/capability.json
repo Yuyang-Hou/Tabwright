@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "id": "conan-commerce",
+  "title": "电商后台统一查询",
+  "description": "",
+  "whenToUse": [],
+  "whenNotToUse": [],
+  "tags": [],
+  "match": [],
+  "routingHint": "search-first",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "user.query",
+          "group.query",
+          "group.detail",
+          "group.validate",
+          "coupon-template.query",
+          "coupon.query",
+          "legacy-product.query",
+          "legacy-product.detail",
+          "product.query",
+          "product.detail",
+          "order.query",
+          "order.detail",
+          "legacy-price-strategy.query",
+          "legacy-price-strategy.detail",
+          "price-strategy.query",
+          "price-strategy.detail"
+        ]
+      },
+      "query": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "用户、优惠券等动作的快捷关键词"
+      },
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "单个详情 ID"
+      },
+      "ids": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "通用 ID 列表"
+      },
+      "groupIds": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "群组 ID 列表"
+      },
+      "userIds": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "群组验证或业务查询中的 User ID 列表"
+      },
+      "filters": {
+        "type": "object",
+        "description": "对应管理页面支持的筛选条件；脚本会按 action 白名单过滤"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "最多返回条数，默认 20"
+      },
+      "includeRaw": {
+        "type": "boolean",
+        "description": "是否附带原始接口对象；默认 false"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string"
+      },
+      "total": {
+        "type": "integer"
+      },
+      "page": {
+        "type": "integer"
+      },
+      "pageSize": {
+        "type": "integer"
+      },
+      "query": {
+        "type": [
+          "string",
+          "integer"
+        ]
+      },
+      "userIds": {
+        "type": "array"
+      },
+      "items": {
+        "type": "array"
+      },
+      "item": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "permissions": [
+    "browser.read"
+  ],
+  "sideEffect": "read",
+  "requiresConfirmation": false,
+  "operations": {},
+  "auth": {
+    "type": "cookie",
+    "refresh": "from-browser",
+    "secretKey": "cookieHeader",
+    "browserUrls": [
+      "https://deal.zhenguanyu.com/",
+      "https://conan.zhenguanyu.com/"
+    ],
+    "requiredCookieNames": [
+      "SESS_V2"
+    ],
+    "failureSignals": [
+      "401",
+      "403",
+      "登录",
+      "login"
+    ]
+  },
+  "examples": [
+    {
+      "description": "查询用户群组详情",
+      "input": {
+        "action": "group.detail",
+        "groupIds": [
+          6412
+        ]
+      }
+    },
+    {
+      "description": "验证用户是否属于群组",
+      "input": {
+        "action": "group.validate",
+        "groupIds": [
+          6412
+        ],
+        "userIds": [
+          10001,
+          10002
+        ]
+      }
+    },
+    {
+      "description": "查询用户及主子账号信息",
+      "input": {
+        "action": "user.query",
+        "query": "13800138000"
+      }
+    },
+    {
+      "description": "查询新版商品详情",
+      "input": {
+        "action": "product.detail",
+        "id": 52556043
+      }
+    },
+    {
+      "description": "按订单号查询订单",
+      "input": {
+        "action": "order.query",
+        "filters": {
+          "orderIds": [
+            123456
+          ]
+        },
+        "limit": 20
+      }
+    }
+  ],
+  "entry": "script.js",
+  "runtime": "browser",
+  "status": "draft",
+  "createdBy": "ai",
+  "createdAt": "2026-07-15T11:58:11.980Z",
+  "updatedAt": "2026-07-16T02:50:00.000Z"
+}

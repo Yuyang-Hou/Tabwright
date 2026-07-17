@@ -6,12 +6,13 @@ import vm from 'node:vm'
 import {
   appendCapabilityRun,
   capabilityMatchesUrl,
+  ensureCapabilityStateDir,
   getCapabilityContractFingerprint,
   getCapabilityContractHealth,
   readCapabilitySecrets,
   requireCapability,
   resolveCapabilityOperation,
-  updateCapabilityManifest,
+  updateCapabilityStatus,
   validateJsonAgainstSchema,
   type CapabilityContractCheckStatus,
   type CapabilityRecord,
@@ -304,11 +305,7 @@ export function finalizeCapabilityRun(options: {
     if (contractStatus !== 'failed' || trustBefore !== 'trusted') {
       return options.capability
     }
-    return updateCapabilityManifest({
-      id: options.capability.manifest.id,
-      cwd: options.cwd,
-      patch: { status: 'draft' },
-    })
+    return updateCapabilityStatus({ capability: options.capability, cwd: options.cwd, status: 'draft' })
   })()
   const contract: CapabilityRunContract = {
     schemaVersion: 1,
@@ -552,6 +549,11 @@ function validateCapabilityRunnable(options: {
   if (options.capability.manifest.status === 'disabled') {
     throw new Error(`Capability is disabled: ${options.capability.manifest.id}`)
   }
+  if (options.capability.location === 'skill' && options.capability.manifest.status === 'draft') {
+    throw new Error(
+      `Skill runtime ${options.capability.manifest.id} is quarantined after a contract failure. Update or reinstall the Skill before running it again.`,
+    )
+  }
   if (getCapabilityContractHealth(options.capability).state === 'drifted' && !options.force) {
     throw new Error(
       `Capability ${options.capability.manifest.id} failed conformance for its current contract. Repair it and run with --force before trusting it again.`,
@@ -681,7 +683,8 @@ function createCapabilityTimeout(options: { timeout: number }): {
 }
 
 function createCapabilityArtifacts(options: { capability: CapabilityRecord }): CapabilityArtifacts {
-  const root = path.join(options.capability.dir, 'artifacts')
+  ensureCapabilityStateDir(options.capability)
+  const root = path.join(options.capability.stateDir, 'artifacts')
   return {
     root,
     path: (pathOptions) => {
@@ -702,8 +705,8 @@ function createCapabilityArtifacts(options: { capability: CapabilityRecord }): C
 
 function writeArtifactText(options: { root: string; filename: string; text: string }): string {
   const filePath = resolveArtifactPath({ root: options.root, filename: options.filename })
-  fs.mkdirSync(path.dirname(filePath), { recursive: true })
-  fs.writeFileSync(filePath, options.text)
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 })
+  fs.writeFileSync(filePath, options.text, { mode: 0o600 })
   return filePath
 }
 

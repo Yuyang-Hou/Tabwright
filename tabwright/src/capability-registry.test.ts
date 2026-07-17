@@ -6,26 +6,25 @@ import {
   createCapability,
   appendCapabilityRun,
   getCapabilityRoots,
+  getCapabilityStateDir,
   getProjectCapabilitiesDir,
   listCapabilities,
   readCapabilityRuns,
   readCapabilityScript,
+  requireCapability,
   routeCapabilities,
   searchCapabilities,
   toCapabilityContract,
+  updateCapabilityStatus,
   updateCapabilityManifest as updateCapabilityManifestRecord,
   updateCapabilityScript,
   validateJsonAgainstSchema,
   writeCapabilitySecrets,
 } from './capability-registry.js'
 import { refreshCapabilityAuthFromCookies, refreshCapabilityAuthWithExecutor } from './capability-auth.js'
-import { getCapabilityAuthState } from './capability-auth-state.js'
-import {
-  exportAllCapabilityAgentSkills,
-  exportCapabilityAgentSkill,
-} from './capability-agent-skill.js'
+import { getCapabilityAuthState, shouldAutoRefreshCapabilityAuth } from './capability-auth-state.js'
+import { exportCapabilityAgentSkill } from './capability-agent-skill.js'
 import { prepareCapabilityRun, runCapabilityWithExecutor, runNodeCapability } from './capability-runner.js'
-import { installCapabilityPackage } from './capability-package.js'
 import { saveWorkflowCapability, saveWorkflowFromRecording } from './workflow-capability.js'
 
 function createTempDir(prefix: string): string {
@@ -139,6 +138,8 @@ describe('capability registry', () => {
 
   test('exports portable agent skills with runtime-only contracts', async () => {
     const cwd = createTempDir('capability-agent-skill-')
+    const previousHome = process.env.HOME
+    process.env.HOME = path.join(cwd, 'home')
     try {
       createCapability({
         id: 'query-user',
@@ -182,7 +183,6 @@ describe('capability registry', () => {
       }
       expect(exported.dir).toBe(exportDir)
       expect(exported.files).toEqual([
-        '.tabwright-skill-export.json',
         'SKILL.md',
         'agents/openai.yaml',
         'runtime/capability.json',
@@ -198,36 +198,57 @@ describe('capability registry', () => {
         routingHint: 'search-first',
       })
       expect(exportedSkill).not.toContain('compatibility:')
-      expect(exportedSkill).toContain('If Node.js or npm is unavailable')
+      expect(exportedSkill).toContain('Ask the user only when Node.js or npm is unavailable')
       expect(exportedSkill).toContain('Use for admin user lookup requests that include an email address.')
       expect(exportedSkill).toContain('runtime/capability.json')
       expect(exportedSkill).toContain('runtime/script.js')
       expect(exportedSkill).toContain('npm exec --yes --package=tabwright@latest -- tabwright')
       expect(exportedSkill).toContain('"<absolute-skill-directory>/runtime"')
-      expect(exportedSkill).toContain('tabwright capability refresh-auth query-user --browser user --json')
+      expect(exportedSkill).toContain('automatically refreshes declared browser authentication')
+      expect(exportedSkill).not.toContain('tabwright capability trust')
+      expect(exportedSkill).not.toContain('tabwright capability refresh-auth')
       expect(fs.existsSync(path.join(exportDir, 'secrets.json'))).toBe(false)
       expect(fs.existsSync(path.join(exportDir, 'runs.jsonl'))).toBe(false)
       expect(fs.existsSync(path.join(exportDir, 'artifacts'))).toBe(false)
       expect(fs.existsSync(path.join(exportDir, 'runtime', 'README.md'))).toBe(false)
       expect(fs.readFileSync(path.join(exportDir, 'agents', 'openai.yaml'), 'utf-8')).toContain('$query-user')
 
-      const recipientCwd = path.join(cwd, 'recipient')
-      fs.mkdirSync(recipientCwd, { recursive: true })
-      const installedRuntime = await installCapabilityPackage({
-        source: path.join(exportDir, 'runtime'),
-        cwd: recipientCwd,
-        location: 'project',
+      updateCapabilityScript({ id: 'query-user', cwd, source: 'return input\n' })
+      exportCapabilityAgentSkill({
+        id: 'query-user',
+        cwd,
+        output: path.join(cwd, 'direct-runtime', 'query-user'),
       })
-      expect(installedRuntime.capability.manifest.id).toBe('query-user')
-      expect(installedRuntime.capability.manifest.status).toBe('draft')
-      expect(fs.existsSync(path.join(installedRuntime.capability.dir, 'secrets.json'))).toBe(false)
+      const runtimeDir = path.join(cwd, 'direct-runtime', 'query-user', 'runtime')
+      const directRuntime = requireCapability({ id: runtimeDir, cwd })
+      expect(directRuntime.location).toBe('skill')
+      expect(directRuntime.stateDir).toBe(getCapabilityStateDir({ id: 'query-user' }))
+      expect(directRuntime.manifest.status).toBe('trusted')
+      const run = await runNodeCapability({ id: runtimeDir, cwd, input: { email: 'a@example.com' } })
+      expect(run.output).toEqual({ email: 'a@example.com' })
+      expect(fs.existsSync(path.join(directRuntime.stateDir, 'runs.jsonl'))).toBe(true)
+      const quarantined = updateCapabilityStatus({
+        capability: requireCapability({ id: runtimeDir, cwd }),
+        status: 'draft',
+      })
+      expect(quarantined.manifest.status).toBe('draft')
+      expect(fs.existsSync(path.join(directRuntime.stateDir, 'runtime-state.json'))).toBe(true)
+      await expect(
+        runNodeCapability({ id: runtimeDir, cwd, input: { email: 'a@example.com' }, force: true }),
+      ).rejects.toThrow(/quarantined/)
+      const bundledManifest = JSON.parse(fs.readFileSync(path.join(runtimeDir, 'capability.json'), 'utf-8')) as {
+        status: string
+      }
+      expect(bundledManifest.status).toBe('draft')
+      fs.writeFileSync(path.join(runtimeDir, 'script.js'), 'return { changed: true }\n')
+      expect(requireCapability({ id: runtimeDir, cwd }).manifest.status).toBe('trusted')
 
       const unrelatedDir = path.join(cwd, 'unrelated', 'query-user')
       fs.mkdirSync(unrelatedDir, { recursive: true })
       fs.writeFileSync(path.join(unrelatedDir, 'user-file.txt'), 'keep me')
       expect(() => {
-        exportCapabilityAgentSkill({ id: 'query-user', cwd, output: unrelatedDir, overwrite: true })
-      }).toThrow(/not created by Tabwright/)
+        exportCapabilityAgentSkill({ id: 'query-user', cwd, output: unrelatedDir })
+      }).toThrow(/Manage updates with the agent's skill tooling/)
 
       createCapability({ id: 'update-user', location: 'project', cwd, runtime: 'browser' })
       updateCapabilityManifest({
@@ -239,34 +260,15 @@ describe('capability registry', () => {
       exportCapabilityAgentSkill({ id: 'update-user', cwd, output: writeSkillDir })
       const writeSkillContent = fs.readFileSync(path.join(writeSkillDir, 'SKILL.md'), 'utf-8')
       expect(writeSkillContent).toContain('--browser user')
-      expect(writeSkillContent).toContain('--force')
+      expect(writeSkillContent).not.toContain('runtime" --browser user --force')
       expect(writeSkillContent).toContain('--confirm update-user')
       expect(writeSkillContent).toContain('stop and obtain explicit user approval')
-
-      const legacyDir = path.join(getProjectCapabilitiesDir({ cwd }), 'query-user', 'agent-skills', 'codex')
-      fs.mkdirSync(legacyDir, { recursive: true })
-      fs.writeFileSync(
-        path.join(legacyDir, 'SKILL.md'),
-        '---\nname: query-user\ndescription: "Legacy curated instructions"\n---\n\nKeep this migration text.\n',
-      )
-      exportCapabilityAgentSkill({ id: 'query-user', cwd, output: exportDir, overwrite: true })
-      expect(fs.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf-8')).toContain('Keep this migration text.')
-
-      fs.writeFileSync(
-        path.join(legacyDir, 'SKILL.md'),
-        '---\nname: query-user\ndescription: "TODO"\n---\n\n<!-- TABWRIGHT_AGENT_SKILL_TEMPLATE: edit before install -->\n',
-      )
-      exportCapabilityAgentSkill({ id: 'query-user', cwd, output: exportDir, overwrite: true })
-      const regeneratedSkill = fs.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf-8')
-      expect(regeneratedSkill).not.toContain('TABWRIGHT_AGENT_SKILL_TEMPLATE')
-      expect(regeneratedSkill).toContain('Query a user by email in the admin API')
-
-      const batchDir = path.join(cwd, 'all-skills')
-      const batch = exportAllCapabilityAgentSkills({ cwd, output: batchDir })
-      expect(batch.skills.map((skill) => skill.capabilityId)).toEqual(expect.arrayContaining(['query-user', 'update-user']))
-      expect(fs.existsSync(path.join(batchDir, 'query-user', 'runtime', 'capability.json'))).toBe(true)
-      expect(fs.existsSync(path.join(batchDir, 'update-user', 'runtime', 'capability.json'))).toBe(true)
     } finally {
+      if (previousHome === undefined) {
+        delete process.env.HOME
+      } else {
+        process.env.HOME = previousHome
+      }
       fs.rmSync(cwd, { recursive: true, force: true })
     }
   })
@@ -1180,5 +1182,33 @@ describe('capability runner', () => {
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }
+  })
+
+  test('automatically refreshes missing or stale Skill authentication without refreshing every run', () => {
+    const base = {
+      type: 'cookie' as const,
+      canRefresh: true,
+      browserUrls: ['https://example.com/'],
+      requiredCookieNames: ['SESSION'],
+      cookieNames: [],
+    }
+    expect(shouldAutoRefreshCapabilityAuth({ state: { ...base, status: 'missing' } })).toBe(true)
+    expect(shouldAutoRefreshCapabilityAuth({ state: { ...base, status: 'expired' } })).toBe(true)
+    expect(shouldAutoRefreshCapabilityAuth({ state: { ...base, status: 'unknown' } })).toBe(true)
+    expect(
+      shouldAutoRefreshCapabilityAuth({
+        state: { ...base, status: 'expiring', refreshedAt: '2026-07-17T00:00:00.000Z' },
+        now: new Date('2026-07-17T00:30:00.000Z'),
+      }),
+    ).toBe(false)
+    expect(
+      shouldAutoRefreshCapabilityAuth({
+        state: { ...base, status: 'expiring', refreshedAt: '2026-07-17T00:00:00.000Z' },
+        now: new Date('2026-07-17T02:00:00.000Z'),
+      }),
+    ).toBe(true)
+    expect(
+      shouldAutoRefreshCapabilityAuth({ state: { ...base, status: 'authenticated', canRefresh: false }, force: true }),
+    ).toBe(false)
   })
 })

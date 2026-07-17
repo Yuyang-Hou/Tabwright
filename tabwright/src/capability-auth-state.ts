@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  ensureCapabilityStateDir,
   readCapabilityRuns,
   readCapabilitySecrets,
   type CapabilityAuthType,
@@ -34,12 +35,38 @@ export interface CapabilityAuthState {
   refreshCommand?: string
 }
 
+export function shouldAutoRefreshCapabilityAuth(options: {
+  state: CapabilityAuthState
+  force?: boolean
+  now?: Date
+}): boolean {
+  if (!options.state.canRefresh) {
+    return false
+  }
+  if (options.force) {
+    return true
+  }
+  if (
+    options.state.status === 'missing' ||
+    options.state.status === 'expired' ||
+    options.state.status === 'unknown'
+  ) {
+    return true
+  }
+  if (options.state.status !== 'expiring') {
+    return false
+  }
+  const refreshedAt = options.state.refreshedAt ? Date.parse(options.state.refreshedAt) : Number.NaN
+  const now = options.now || new Date()
+  return Number.isNaN(refreshedAt) || now.getTime() - refreshedAt >= 60 * 60 * 1000
+}
+
 export function writeStoredCapabilityAuthState(options: {
   capability: CapabilityRecord
   state: StoredCapabilityAuthState
 }): string {
-  const statePath = path.join(options.capability.dir, AUTH_STATE_FILENAME)
-  fs.mkdirSync(options.capability.dir, { recursive: true })
+  const statePath = path.join(options.capability.stateDir, AUTH_STATE_FILENAME)
+  ensureCapabilityStateDir(options.capability)
   fs.writeFileSync(statePath, `${JSON.stringify(options.state, null, 2)}\n`, { mode: 0o600 })
   if (process.platform !== 'win32') {
     fs.chmodSync(statePath, 0o600)
@@ -132,7 +159,7 @@ export function getCapabilityAuthState(options: { capability: CapabilityRecord; 
 }
 
 function readStoredCapabilityAuthState(options: { capability: CapabilityRecord }): StoredCapabilityAuthState | null {
-  const statePath = path.join(options.capability.dir, AUTH_STATE_FILENAME)
+  const statePath = path.join(options.capability.stateDir, AUTH_STATE_FILENAME)
   if (!fs.existsSync(statePath)) {
     return null
   }

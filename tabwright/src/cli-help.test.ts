@@ -82,47 +82,26 @@ describe('tabwright cli help', () => {
     expect(indexHelp.stderr).toBe('')
   }, 30000)
 
-  test('teaches a fresh agent how to package and install capabilities', async () => {
+  test('teaches a fresh agent how to export Agent Skills with in-place runtimes', async () => {
     const { stdout, stderr } = await runCli(['skill'])
     const discoverySkill = fs.readFileSync(path.resolve(tabwrightDir, '..', 'skills', 'tabwright', 'SKILL.md'), 'utf-8')
 
-    expect(stdout).toContain('tabwright capability pack query-user')
-    expect(stdout).toContain('tabwright capability install ./query-user.tgz')
-    expect(stdout).toContain('git@example.com:team/capabilities.git#v1.0.0:capabilities/query-user')
-    expect(stdout).toContain('A shared capability always installs as `draft`')
     expect(stdout).toContain('tabwright capability skill export query-user --output ./skills/query-user')
-    expect(stdout).toContain('runtime/capability.json')
-    expect(discoverySkill).toContain('tabwright capability pack <capability-id>')
-    expect(discoverySkill).toContain('tabwright capability install ./<capability-id>.tgz')
+    expect(stdout).toContain('tabwright capability run "/absolute/path/to/skill/runtime"')
     expect(discoverySkill).toContain(
       'tabwright capability skill export <capability-id> --output ./skills/<capability-id>',
     )
-    expect(discoverySkill).toContain('runtime/capability.json')
+    expect(discoverySkill).toContain('execute the bundled runtime directly')
     expect(stderr).toBe('')
   }, 30000)
 
   test('exports portable Agent Skills with explicit runtime guidance', async () => {
     const { stdout, stderr } = await runCli(['capability', 'skill', 'export', '--help'])
-    const exportAll = await runCli(['capability', 'skill', 'export-all', '--help'])
 
     expect(stdout).toContain('portable Agent Skill')
     expect(stdout).toContain('Tabwright runtime contract')
     expect(stdout).toContain('--output')
-    expect(stdout).toContain('--force')
-    expect(exportAll.stdout).toContain('every saved capability')
-    expect(exportAll.stdout).toContain('--output')
-    expect(stderr).toBe('')
-    expect(exportAll.stderr).toBe('')
-  }, 30000)
-
-  test('installs capabilities only from shareable package sources', async () => {
-    const { stdout, stderr } = await runCli(['capability', 'install', '--help'])
-
-    expect(stdout).toContain('capability directory, Git source, local .tgz, or .tgz URL')
-    expect(stdout).not.toContain('--with-agent-skill')
-    expect(stdout).not.toContain('built-in suite')
-    expect(stdout).not.toContain('--draft')
-    expect(stdout).not.toContain('--skip-agent-skills')
+    expect(stdout).not.toContain('--force')
     expect(stderr).toBe('')
   }, 30000)
 

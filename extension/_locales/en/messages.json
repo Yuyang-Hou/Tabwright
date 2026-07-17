@@ -20,7 +20,7 @@
   "capabilities_eyebrow": { "message": "Automation library" },
   "capabilities_heading": { "message": "Capabilities" },
   "capabilities_description": {
-    "message": "Inspect runtime contracts, trust status, schemas, and recent runs."
+    "message": "Review local automations and recent runs."
   },
   "search_label": { "message": "Search" },
   "search_recordings_placeholder": { "message": "Filter recordings" },
@@ -29,7 +29,7 @@
   "metric_total_duration": { "message": "Total duration" },
   "metric_events": { "message": "Events" },
   "metric_capabilities": { "message": "Capabilities" },
-  "metric_trusted": { "message": "AI-ready" },
+  "metric_trusted": { "message": "Available" },
   "metric_runtimes": { "message": "Runtime contracts" },
   "detail_eyebrow": { "message": "Detail" },
   "replay_detail_title": { "message": "Replay preview" },
@@ -160,7 +160,8 @@
   "badge_manual_only": { "message": "Manual run only" },
   "badge_needs_validation": { "message": "Needs validation" },
   "badge_needs_trust": { "message": "Needs trust approval" },
-  "badge_validation_expired": { "message": "Validation expired" },
+  "badge_local_draft": { "message": "Local draft" },
+  "badge_validation_expired": { "message": "Needs update" },
   "badge_disabled": { "message": "Disabled" },
   "runtime_browser": { "message": "Browser" },
   "runtime_node": { "message": "Node.js" },

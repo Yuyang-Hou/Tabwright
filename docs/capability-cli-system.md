@@ -59,7 +59,7 @@ Capabilities currently support:
 - `node`: runs without opening Chrome. Use this for HTTP/API abilities such as querying the current Bilibili account from saved cookies.
 - `browser`: runs in a Tabwright browser session. Use this for workflows that require DOM interaction, page JavaScript, or user-visible browser state.
 
-Auth refresh is modeled separately from the main runtime. A `node` capability can declare cookie auth that is refreshed from the current browser only when the user explicitly allows it.
+Auth refresh is modeled separately from the main runtime. A capability can declare cookie auth that Tabwright refreshes automatically from the current browser when a run needs it.
 
 ## Capability Files
 
@@ -70,7 +70,7 @@ Capabilities live under either:
 ~/.tabwright/capabilities/<id>/
 ```
 
-Each capability directory contains:
+Locally authored capability directories contain:
 
 ```text
 capability.json   # manifest and AI contract
@@ -80,13 +80,14 @@ runs.jsonl        # operational memory
 README.md         # human-facing notes
 ```
 
+Installed Agent Skills keep `capability.json` and `script.js` under their own `runtime/` directory. Tabwright executes them in place and stores device-local `runtime-state.json`, `secrets.json`, `auth-state.json`, `runs.jsonl`, and `artifacts/` under `~/.tabwright/capability-state/<id>/`.
+
 ## Portable Agent Skill Distribution
 
-Agent-native discovery and distribution use the open Agent Skills structure instead of a Tabwright-specific installer. Export one capability or migrate all saved capabilities with:
+Agent-native discovery and distribution use the open Agent Skills structure instead of a Tabwright-specific installer. Export a capability once with:
 
 ```bash
 tabwright capability skill export query-user --output ./skills/query-user
-tabwright capability skill export-all --output ./skills
 ```
 
 The result is both portable to an Agent Skills-compatible manager and explicit about its Tabwright runtime dependency:
@@ -100,9 +101,9 @@ query-user/
     script.js
 ```
 
-`SKILL.md` is the only distributed semantic source for agent discovery, workflow, and display rules. The exported `runtime/capability.json` strips duplicated discovery fields and keeps the machine-enforced execution contract. Generated instructions tell a fresh agent how to detect or run the CLI, resolve runtime paths relative to `SKILL.md`, install the runtime as draft, validate it, and refresh auth when required. Export never includes local secrets, runs, or artifacts.
+`SKILL.md` is the only distributed semantic source for agent discovery, workflow, and display rules. The exported `runtime/capability.json` strips duplicated discovery fields and keeps the machine-enforced execution contract. The CLI executes this directory directly instead of installing a copy. Agent-managed runtimes are ready immediately. Device-local disable/quarantine state, secrets, auth state, runs, and artifacts live under `~/.tabwright/capability-state/<id>/`.
 
-Existing `.tgz` packages remain a capability-runtime compatibility surface. Agent skill installation and updates belong exclusively to the agent's official manager.
+Agent skill installation, updates, and runtime distribution belong exclusively to the agent's official manager. Tabwright has no parallel capability package installer.
 
 ## Manifest Contract
 
@@ -187,7 +188,6 @@ Agents must ask for user confirmation before:
 
 - `write` or `dangerous` capabilities;
 - payment, deletion, publishing, exporting private data, or account mutation;
-- `refresh_auth`, because it updates local credentials;
 - draft capabilities unless the user explicitly allows `--force`.
 
 After the user approves a concrete confirmation-required run, the CLI acknowledgement is explicit and capability-specific:
@@ -246,10 +246,10 @@ Supported actions:
 
 The Bilibili current-user capability demonstrates the intended architecture:
 
-1. Use the logged-in browser once to save cookies into `secrets.json`.
+1. Let the first run copy the declared cookies from the logged-in browser into `secrets.json` automatically.
 2. Run a `node` capability that calls `https://api.bilibili.com/x/web-interface/nav`.
 3. Return structured account data without opening Chrome.
-4. If the cookie expires, run `capability refresh-auth` after explicit user confirmation.
+4. If the cookie expires, let the next run refresh it automatically.
 
 The important product property is that the later CLI call does not depend on an open Chrome tab.
 
@@ -290,5 +290,5 @@ Track the loop rather than raw recording counts:
 1. Finish the shell loop: local `replay list`, compact indexes, structured unsupported-workflow handoff, validate/test, and safe pack/import.
 2. Make discovery context-bounded: compact search results, minimum relevance, one selected contract, and no duplicate text in JSON output.
 3. Build on the browser-graph foundation—settled profile selection, compatible relay restart recovery, and heartbeat expiry—with explicit protocol feature negotiation that does not break old extensions.
-4. Turn the Options page into the lifecycle UI: record guidance, compiler support status, validation evidence, approval state, trust, and export.
+4. Keep the Options page read-only and compact: show purpose, side effects, recent runs, and technical diagnostics without trust or authentication workflows.
 5. Add contract conformance: compare observed outputs and network hosts with schemas/permissions, then downgrade drifted capabilities to draft.

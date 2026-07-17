@@ -1,0 +1,4 @@
+interface:
+  display_name: "Conan 文案配置"
+  short_description: "Conan 文案配置 capability using the Tabwright runtime"
+  default_prompt: "Use $conan-config to complete the matching task with its bundled Tabwright runtime."

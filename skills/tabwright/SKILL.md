@@ -25,7 +25,7 @@ When using route output, run the returned `shellCommand` exactly. Do not infer a
 
 Do not use `capability search` or `capability describe` for an exact-match direct-run candidate.
 
-In Codex sandboxed environments, `tabwright capability run ...` writes the capability run log and may write artifacts under `~/.tabwright/capabilities/...`. Run trusted capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `tabwright capability route ... --json` is metadata-only and can run sandboxed.
+In Codex sandboxed environments, `tabwright capability run ...` writes device-local state under `~/.tabwright/capability-state/...` for Skill runtimes and may write artifacts. Run capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `tabwright capability route ... --json` is metadata-only and can run sandboxed.
 
 Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Tabwright skill.
 
@@ -39,10 +39,9 @@ Export the portable skill directly, then refine it with the agent's official ski
 
 ```bash
 tabwright capability skill export <capability-id> --output ./skills/<capability-id>
-tabwright capability skill export-all --output ./skills
 ```
 
-`capability skill export` creates a portable standard Agent Skill directory with runtime files under `runtime/`; use the agent's official skill or plugin manager to install, update, and distribute it. `export-all` migrates all saved capabilities in one pass. Simple capabilities can use the generated skill without maintaining a second Tabwright-specific instruction format.
+`capability skill export` is a one-time handoff. It refuses to overwrite an existing skill because subsequent edits, installation, and updates belong to the agent's official skill or plugin manager.
 
 ## Sharing Saved Capabilities
 
@@ -52,20 +51,7 @@ When the user asks to share a capability with mainstream agents, prefer a portab
 tabwright capability skill export <capability-id> --output ./skills/<capability-id>
 ```
 
-The exported `SKILL.md` explains how a fresh agent should detect or run the `tabwright` CLI, resolve `runtime/capability.json` and the entry script relative to the installed skill, install the runtime as draft, validate it, and refresh auth when required. It excludes secrets, run history, and artifacts.
-
-Use the legacy capability package commands for capability-only consumers:
-
-```bash
-tabwright capability pack <capability-id>
-tabwright capability install ./<capability-id>.tgz
-tabwright capability install https://example.com/<capability-id>.tgz
-tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/<capability-id>'
-```
-
-Git sources use `<remote>#<ref>:<capability-path>` and read only that directory with `git archive`, so private SSH repositories do not need to be cloned. Prefer a release tag over a moving branch.
-
-`capability pack` includes only the runtime manifest, entry script, and optional README. It excludes agent skills, `secrets.json`, `runs.jsonl`, and `artifacts/`. Shared capabilities always install as `draft`. Do not trust one until its contract and script have been inspected and it has passed a `capability run --force` validation. Authentication must be refreshed from the recipient's own browser.
+The exported `SKILL.md` explains how a fresh agent should resolve and execute the bundled runtime directly. Agent-managed runtimes are ready immediately; Tabwright validates them and refreshes declared browser authentication automatically. The export excludes secrets, run history, and artifacts.
 
 ## Replay-to-Capability Handoff
 

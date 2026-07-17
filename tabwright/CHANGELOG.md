@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.0
+
+### Major Changes
+
+- 4ca7d7f: Move capability distribution to official agent managers. Export each saved capability as a portable Agent Skill directory with a semantic `SKILL.md` and bundled runtime contract that executes in place.
+- Execute Agent Skill runtimes directly from their installed skill directories, treat agent-managed runtimes as ready without a second trust workflow, refresh declared browser authentication automatically, persist only device-local capability state under `~/.tabwright/capability-state`, and remove legacy `.playwriter`, bulk-export, and generated-skill overwrite compatibility.
+
+### Patch Changes
+
+- 6e382c6: Prevent duplicate saved capabilities when the current working directory and user capability directory resolve to the same location.
+
 ## 2.0.0
 
 ### Major Changes

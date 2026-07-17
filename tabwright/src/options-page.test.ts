@@ -379,29 +379,8 @@ describe('extension options page', () => {
     }
     const trustedNextCommand =
       'tabwright capability run query-user --browser user --input-json \'{"email":"from-contract@example.com"}\' --confirm query-user --json'
-    let authRefreshAttempts = 0
-    let capabilityAuthState: {
-      type: string
-      status: string
-      canRefresh: boolean
-      browserUrls: string[]
-      requiredCookieNames: string[]
-      cookieNames: string[]
-      refreshCommand: string
-      refreshedAt?: string
-      expiresAt?: string
-    } = {
-      type: 'cookie',
-      status: 'missing',
-      canRefresh: true,
-      browserUrls: ['https://admin.example.com/'],
-      requiredCookieNames: ['SESSION'],
-      cookieNames: [],
-      refreshCommand: 'tabwright capability refresh-auth query-user --browser user --json',
-    }
     const capability = {
       ...capabilityBase,
-      authState: capabilityAuthState,
       lifecycle: {
         stage: 'trusted',
         nextAction: 'run',
@@ -540,7 +519,7 @@ describe('extension options page', () => {
             body: JSON.stringify({
               cwd: '/Users/test/project',
               capabilities: [
-                { ...capability, authState: capabilityAuthState },
+                capability,
                 driftedCapability,
                 disabledCapability,
                 legacyTrustedCapability,
@@ -548,34 +527,6 @@ describe('extension options page', () => {
                 futureLifecycleCapability,
               ],
             }),
-          })
-          return
-        }
-
-        if (url.pathname === '/capabilities/query-user/auth/refresh' && request.method() === 'POST') {
-          authRefreshAttempts += 1
-          if (authRefreshAttempts === 1) {
-            await route.fulfill({
-              status: 409,
-              headers: { ...corsHeaders, 'content-type': 'application/json' },
-              body: JSON.stringify({
-                code: 'no_enabled_tab',
-                error: 'enable Tabwright on a browser tab before authenticating this capability',
-              }),
-            })
-            return
-          }
-          capabilityAuthState = {
-            ...capabilityAuthState,
-            status: 'authenticated',
-            cookieNames: ['SESSION'],
-            refreshedAt: '2026-07-13T10:00:00.000Z',
-            expiresAt: '2026-07-20T10:00:00.000Z',
-          }
-          await route.fulfill({
-            status: 200,
-            headers: { ...corsHeaders, 'content-type': 'application/json' },
-            body: JSON.stringify({ capability: 'query-user', saved: true, authState: capabilityAuthState }),
           })
           return
         }
@@ -602,12 +553,8 @@ describe('extension options page', () => {
           return await page.locator('#skill-detail').textContent()
         })
         .toContain('Needs your confirmation')
-      await expect
-        .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
-        })
-        .not.toContain('Next step')
-      expect(await page.locator('.lifecycle-card button').count()).toBe(0)
+      expect(await page.locator('.lifecycle-card').count()).toBe(0)
+      expect(await page.locator('.auth-card').count()).toBe(0)
       expect(await copyTechnicalCommand()).toBe(trustedNextCommand)
       expect(await page.locator('.advanced-details').textContent()).toContain('Validation status')
       expect(await page.locator('.advanced-details').textContent()).toContain('Contract healthy')
@@ -616,54 +563,15 @@ describe('extension options page', () => {
       expect(aiContext).toContain('Capability ID: query-user')
       expect(aiContext).toContain('Look up a user by email.')
 
-      const authCard = page.locator('.auth-card')
-      await expect
-        .poll(async () => {
-          return await authCard.textContent()
-        })
-        .toContain('Not authenticated')
-      await authCard.getByRole('button', { name: 'Authenticate with current Chrome' }).click()
-      const authDialog = page.locator('.auth-dialog')
-      await expect
-        .poll(async () => {
-          return await authDialog.textContent()
-        })
-        .toContain('admin.example.com')
-      await authDialog.getByRole('button', { name: 'Allow and authenticate' }).click()
-      await expect.poll(() => authRefreshAttempts).toBe(1)
-      await expect
-        .poll(async () => {
-          return await authCard.locator('.auth-error').textContent()
-        })
-        .toContain('Enable Tabwright on a normal browser tab')
-      await authCard.getByRole('button', { name: 'Authenticate with current Chrome' }).click()
-      await page.locator('.auth-dialog').getByRole('button', { name: 'Allow and authenticate' }).click()
-      await expect.poll(() => authRefreshAttempts).toBe(2)
-      await expect
-        .poll(async () => {
-          return await page.locator('.auth-card').textContent()
-        })
-        .toContain('Authenticated')
-      expect(await page.locator('.auth-card .auth-description').count()).toBe(0)
-      expect(await page.locator('.auth-card .auth-detail').count()).toBe(0)
-      expect(await page.locator('.auth-card .auth-privacy').count()).toBe(0)
-      expect(await page.locator('.auth-card .auth-meta').textContent()).toContain('Last authenticated')
-      expect(
-        await page.locator('.auth-card').getByRole('button', { name: 'Refresh authentication' }).isVisible(),
-      ).toBe(true)
-      const authenticatedCardBox = await page.locator('.auth-card').boundingBox()
-      expect(authenticatedCardBox).not.toBeNull()
-      expect(authenticatedCardBox?.height).toBeLessThan(80)
-
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await expect
         .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
+          return await page.locator('#skill-detail').textContent()
         })
-        .not.toContain('Next step')
+        .toContain('Needs update')
       await expect
         .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
+          return await page.locator('.advanced-details').textContent()
         })
         .toContain('output.userId must be string')
       expect(await copyTechnicalCommand()).toBe(driftedNextCommand)
@@ -671,7 +579,7 @@ describe('extension options page', () => {
       await page.locator('.skill-item').filter({ hasText: 'Legacy Disabled' }).click()
       await expect
         .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
+          return await page.locator('#skill-detail').textContent()
         })
         .toContain('Disabled')
       expect(await copyTechnicalCommand()).toBe("tabwright capability draft 'legacy-disabled'")
@@ -687,7 +595,7 @@ describe('extension options page', () => {
       await page.locator('.skill-item').filter({ hasText: 'Future Lifecycle' }).click()
       await expect
         .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
+          return await page.locator('.advanced-details').textContent()
         })
         .toContain('This extension cannot interpret the capability lifecycle')
       await expect
@@ -701,9 +609,9 @@ describe('extension options page', () => {
       await page.locator('.language-button[data-language="zh_CN"]').click()
       await expect
         .poll(async () => {
-          return await page.locator('.lifecycle-card').textContent()
+          return await page.locator('#skill-detail').textContent()
         })
-        .not.toContain('下一步')
+        .toContain('需要更新')
       expect(await copyTechnicalCommand()).toBe(driftedNextCommand)
       expect(await page.locator('.advanced-details').textContent()).toContain('配置发生变化 · 检查于')
       expect(await page.locator('.advanced-details').textContent()).toContain('CLI 命令')

@@ -45,12 +45,6 @@ import {
   listSavedRrwebRecordings,
 } from './rrweb-recording-relay.js'
 import { getCapabilityOptionsDetail, listCapabilityOptions } from './capability-options.js'
-import { getCapabilityAuthState } from './capability-auth-state.js'
-import {
-  refreshCapabilityAuthFromCookies,
-  type CapabilityAuthCookie,
-} from './capability-auth.js'
-import { requireCapability } from './capability-registry.js'
 import { appendSessionToWsUrl } from './chrome-discovery.js'
 import * as relayState from './relay-state.js'
 import { getTabwrightUserDataDir } from './product-paths.js'
@@ -91,28 +85,6 @@ export type RelayServer = {
   close(): void
   on<K extends keyof RelayServerEvents>(event: K, listener: RelayServerEvents[K]): void
   off<K extends keyof RelayServerEvents>(event: K, listener: RelayServerEvents[K]): void
-}
-
-function parseCapabilityAuthCookies(value: unknown): CapabilityAuthCookie[] {
-  if (!isRecord(value) || !Array.isArray(value.cookies)) {
-    throw new Error('Browser returned an invalid cookie response')
-  }
-  return value.cookies.flatMap((cookie) => {
-    if (!isRecord(cookie) || typeof cookie.name !== 'string' || typeof cookie.value !== 'string') {
-      return []
-    }
-    return [
-      {
-        name: cookie.name,
-        value: cookie.value,
-        expires: typeof cookie.expires === 'number' ? cookie.expires : undefined,
-      },
-    ]
-  })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export async function startTabwrightCDPRelayServer({
@@ -741,45 +713,6 @@ export async function startTabwrightCDPRelayServer({
       .map((target) => {
         return target.sessionId
       })
-  }
-
-  type CapabilityAuthSession =
-    | { ok: true; sessionId: string; temporaryTargetId?: string }
-    | { ok: false; code: 'no_enabled_tab' | 'temporary_tab_failed'; error: string }
-
-  async function getCapabilityAuthSession(options: { extensionId: string }): Promise<CapabilityAuthSession> {
-    const existingSessionId = getPageTargetSessionIds({ extensionId: options.extensionId })[0]
-    if (existingSessionId) {
-      return { ok: true, sessionId: existingSessionId }
-    }
-    if (
-      !extensionSupportsFeature({
-        extensionId: options.extensionId,
-        feature: EXTENSION_FEATURE.createInitialTab,
-      })
-    ) {
-      return {
-        ok: false,
-        code: 'no_enabled_tab',
-        error: 'enable Tabwright on a browser tab before authenticating this capability',
-      }
-    }
-    try {
-      // Authentication is already user-confirmed in Options. A temporary inactive tab lets
-      // chrome.debugger read profile cookies without requiring another extension-icon click.
-      const target = await createInitialTabTarget({ extensionId: options.extensionId })
-      return {
-        ok: true,
-        sessionId: target.sessionId,
-        temporaryTargetId: target.targetInfo.targetId,
-      }
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        code: 'temporary_tab_failed',
-        error: error instanceof Error ? error.message : String(error),
-      }
-    }
   }
 
   function maybeEmitBrowserDownloadCompatEvent({
@@ -2316,103 +2249,6 @@ export async function startTabwrightCDPRelayServer({
       return c.json({ error: 'capability not found' }, 404)
     }
     return c.json(result)
-  })
-
-  app.post('/capabilities/:id/auth/refresh', async (c) => {
-    const id = c.req.param('id')
-    const body = (await c.req.json().catch(() => ({}))) as { installId?: unknown }
-    const installId = typeof body.installId === 'string' ? body.installId : undefined
-    const capability = (() => {
-      try {
-        return requireCapability({ id, cwd: process.cwd() })
-      } catch {
-        return null
-      }
-    })()
-    if (!capability) {
-      return c.json({ error: 'capability not found' }, 404)
-    }
-    if (capability.manifest.auth.type !== 'cookie' || capability.manifest.auth.refresh !== 'from-browser') {
-      return c.json({ error: 'capability does not support browser cookie authentication' }, 400)
-    }
-
-    const connectedExtensions = Array.from(store.getState().extensions.values()).filter((extension) => {
-      return Boolean(extension.ws)
-    })
-    const matchingExtensions = installId
-      ? connectedExtensions.filter((extension) => {
-          return extension.info.installId === installId
-        })
-      : connectedExtensions
-    if (matchingExtensions.length === 0) {
-      return c.json(
-        { code: 'browser_not_connected', error: 'current browser profile is not connected to Tabwright' },
-        409,
-      )
-    }
-    if (matchingExtensions.length > 1) {
-      return c.json(
-        {
-          code: 'multiple_browser_profiles',
-          error: 'multiple browser profiles are connected; refresh from the profile that opened this page',
-        },
-        409,
-      )
-    }
-    const extension = matchingExtensions[0]
-    if (!extension) {
-      return c.json(
-        { code: 'browser_not_connected', error: 'current browser profile is not connected to Tabwright' },
-        409,
-      )
-    }
-    const authSession = await getCapabilityAuthSession({ extensionId: extension.id })
-    if (!authSession.ok) {
-      return c.json({ code: authSession.code, error: authSession.error }, 409)
-    }
-
-    try {
-      // Cookie values travel only over the existing extension/Relay CDP channel and are never returned to Options.
-      const rawCookies = await routeCdpCommand({
-        extensionId: extension.id,
-        method: 'Network.getCookies',
-        params: { urls: capability.manifest.auth.browserUrls },
-        sessionId: authSession.sessionId,
-        source: 'playwriter',
-      })
-      const cookies = parseCapabilityAuthCookies(rawCookies)
-      const result = refreshCapabilityAuthFromCookies({
-        id,
-        cookies,
-        cwd: process.cwd(),
-        browserKey: extension.stableKey,
-      })
-      return c.json({
-        capability: id,
-        saved: result.saved,
-        cookieCount: result.cookieCount,
-        cookieNames: result.cookieNames,
-        urls: result.urls,
-        expiresAt: result.expiresAt,
-        authState: getCapabilityAuthState({ capability: result.capability }),
-      })
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
-      return c.json({ error: message }, 400)
-    } finally {
-      if (authSession.temporaryTargetId) {
-        try {
-          await routeCdpCommand({
-            extensionId: extension.id,
-            method: 'Target.closeTarget',
-            params: { targetId: authSession.temporaryTargetId },
-            source: 'playwriter',
-          })
-        } catch (error: unknown) {
-          logger?.error('Failed to close temporary capability auth tab:', error)
-        }
-      }
-    }
   })
 
   app.post('/cli/session/new', async (c) => {

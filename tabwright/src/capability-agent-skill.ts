@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  listCapabilities,
   requireCapability,
   type CapabilityManifest,
   type CapabilityOperation,
@@ -15,30 +14,13 @@ export interface ExportedCapabilityAgentSkill {
   next: string[]
 }
 
-export interface ExportedCapabilityAgentSkillBatch {
-  dir: string
-  skills: ExportedCapabilityAgentSkill[]
-}
-
-const LEGACY_SKILL_TEMPLATE_MARKER = '<!-- TABWRIGHT_AGENT_SKILL_TEMPLATE: edit before install -->'
-const SKILL_EXPORT_METADATA_FILENAME = '.tabwright-skill-export.json'
-
 export function exportCapabilityAgentSkill(options: {
   id: string
   cwd?: string
   output?: string
-  overwrite?: boolean
 }): ExportedCapabilityAgentSkill {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  const sourceFiles = getLegacyAgentSkillFiles(capability)
-  const legacySkillFile = sourceFiles.find((file) => {
-    return file.relativePath === 'SKILL.md'
-  })
-  const legacySkillContent = legacySkillFile ? fs.readFileSync(legacySkillFile.path, 'utf-8') : ''
-  const skillContent =
-    legacySkillContent && !legacySkillContent.includes(LEGACY_SKILL_TEMPLATE_MARKER)
-      ? legacySkillContent
-      : buildStandardSkillContent(capability)
+  const skillContent = buildStandardSkillContent(capability)
   assertSkillReadyToExport({ capability, content: skillContent })
 
   const cwd = options.cwd || process.cwd()
@@ -46,7 +28,7 @@ export function exportCapabilityAgentSkill(options: {
   if (path.basename(outputDir) !== capability.manifest.id) {
     throw new Error(`Agent Skill directory name must match its skill name (${capability.manifest.id}): ${outputDir}`)
   }
-  assertSkillExportDestination({ outputDir, capabilityId: capability.manifest.id, overwrite: options.overwrite })
+  assertSkillExportDestination(outputDir)
 
   const runtimeManifest = buildRuntimeOnlyManifest(capability.manifest)
   const exportedFiles: Array<{ relativePath: string; content: string | Buffer }> = [
@@ -79,57 +61,15 @@ export function exportCapabilityAgentSkill(options: {
     fs.writeFileSync(destination, file.content)
     return relativePath
   })
-  const metadata = {
-    schemaVersion: 1,
-    capabilityId: capability.manifest.id,
-    files,
-  }
-  fs.writeFileSync(path.join(outputDir, SKILL_EXPORT_METADATA_FILENAME), `${JSON.stringify(metadata, null, 2)}\n`)
-
   return {
     capabilityId: capability.manifest.id,
     dir: outputDir,
-    files: [...files, SKILL_EXPORT_METADATA_FILENAME].sort(),
+    files: files.sort(),
     next: [
       `Install or distribute ${outputDir} with an Agent Skills-compatible agent or plugin manager.`,
-      'The installed skill uses Tabwright only for runtime installation and execution.',
+      'The installed skill runs its bundled runtime directly; Tabwright stores only local state.',
     ],
   }
-}
-
-export function exportAllCapabilityAgentSkills(options: {
-  cwd?: string
-  output?: string
-  overwrite?: boolean
-}): ExportedCapabilityAgentSkillBatch {
-  const cwd = options.cwd || process.cwd()
-  const outputDir = path.resolve(cwd, options.output || 'skills')
-  const capabilities = listCapabilities({ cwd }).filter((capability, index, all) => {
-    return (
-      all.findIndex((candidate) => {
-        return candidate.manifest.id === capability.manifest.id
-      }) === index
-    )
-  })
-  const skills = capabilities.map((capability) => {
-    return exportCapabilityAgentSkill({
-      id: capability.manifest.id,
-      cwd,
-      output: path.join(outputDir, capability.manifest.id),
-      overwrite: options.overwrite,
-    })
-  })
-  return { dir: outputDir, skills }
-}
-
-function getLegacyAgentSkillFiles(capability: CapabilityRecord): Array<{ relativePath: string; path: string }> {
-  const dir = path.join(capability.dir, 'agent-skills', 'codex')
-  const candidates: Array<{ relativePath: string; path: string }> = [
-    { relativePath: 'SKILL.md', path: path.join(dir, 'SKILL.md') },
-  ]
-  return candidates.filter((file) => {
-    return fs.existsSync(file.path)
-  })
 }
 
 function buildRuntimeOnlyManifest(manifest: CapabilityManifest): CapabilityManifest {
@@ -174,7 +114,7 @@ function buildStandardSkillContent(capability: CapabilityRecord): string {
   const confirmationToken = operations.length > 0 ? '<confirmation-token-for-selected-action>' : capability.manifest.id
   const runCommand = [
     'tabwright capability run',
-    capability.manifest.id,
+    '"<absolute-skill-directory>/runtime"',
     capability.manifest.runtime === 'browser' ? '--browser user' : '',
     "--input-json '<json-input>'",
     requiresConfirmation ? `--confirm ${confirmationToken}` : '',
@@ -250,36 +190,15 @@ function assertSkillReadyToExport(options: { capability: CapabilityRecord; conte
   }
 }
 
-function assertSkillExportDestination(options: {
-  outputDir: string
-  capabilityId: string
-  overwrite?: boolean
-}): void {
-  if (!fs.existsSync(options.outputDir)) {
+function assertSkillExportDestination(outputDir: string): void {
+  if (!fs.existsSync(outputDir)) {
     return
   }
-  const entries = fs.readdirSync(options.outputDir)
+  const entries = fs.readdirSync(outputDir)
   if (entries.length === 0) {
     return
   }
-  if (!options.overwrite) {
-    throw new Error(`Agent Skill export directory already exists: ${options.outputDir}. Use --force to overwrite it.`)
-  }
-  const metadataPath = path.join(options.outputDir, SKILL_EXPORT_METADATA_FILENAME)
-  if (!fs.existsSync(metadataPath)) {
-    throw new Error(`Refusing to overwrite a directory that was not created by Tabwright: ${options.outputDir}`)
-  }
-  const metadata: unknown = (() => {
-    try {
-      return JSON.parse(fs.readFileSync(metadataPath, 'utf-8'))
-    } catch (error) {
-      throw new Error(`Invalid Tabwright Agent Skill export metadata: ${metadataPath}`, { cause: error })
-    }
-  })()
-  const capabilityId = typeof metadata === 'object' && metadata !== null ? Reflect.get(metadata, 'capabilityId') : null
-  if (capabilityId !== options.capabilityId) {
-    throw new Error(`Agent Skill export metadata does not match ${options.capabilityId}: ${metadataPath}`)
-  }
+  throw new Error(`Agent Skill export directory already exists: ${outputDir}. Manage updates with the agent's skill tooling.`)
 }
 
 function resolveExportDestination(options: { outputDir: string; relativePath: string }): string {
@@ -300,30 +219,14 @@ function buildPortableSkillContent(options: { capability: CapabilityRecord; cont
   const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1] || quoteYamlString(buildSkillDescription(options.capability))
   const portableFrontmatter = ['---', `name: ${options.capability.manifest.id}`, `description: ${description}`].join('\n')
   const body = options.content.slice(frontmatterEnd + '\n---\n'.length).trim()
-  const authRefreshSteps: string[] =
-    options.capability.manifest.auth.refresh === 'from-browser'
-      ? [
-          `5. If authentication is missing or expired, obtain approval and run \`tabwright capability refresh-auth ${options.capability.manifest.id} --browser user --json\`.`,
-          '',
-        ]
-      : []
   const runtimeSection: string[] = [
-    '## Tabwright Runtime Dependency',
+    '## Tabwright Runtime',
     '',
-    'The agent skill manager owns this skill. Tabwright is only the deterministic runtime for execution, authentication, confirmation gates, and local run history.',
+    'Resolve the absolute `runtime/` directory next to this `SKILL.md` and execute it directly with `tabwright capability run "<absolute-skill-directory>/runtime" ...`. Never copy or install the runtime into a Tabwright data directory.',
     '',
-    'Bundled paths relative to this `SKILL.md`:',
+    'Use `tabwright` when available. If the command is missing or rejects a Skill runtime directory, use `npm exec --yes --package=tabwright@latest -- tabwright` in its place. Ask the user only when Node.js or npm is unavailable.',
     '',
-    '- Runtime contract: `runtime/capability.json`',
-    `- Entry script: \`runtime/${options.capability.manifest.entry}\``,
-    '',
-    'Never resolve these paths from the process working directory. Resolve the absolute skill directory from this `SKILL.md` first.',
-    '',
-    '1. Run `tabwright --version` to check the runtime dependency.',
-    '2. If `tabwright` is unavailable, use `npm exec --yes --package=tabwright@latest -- tabwright` in place of `tabwright` below. If Node.js or npm is unavailable, pause and ask the user to install Node.js 18 or newer.',
-    `3. Check whether the runtime is installed with \`tabwright capability describe ${options.capability.manifest.id} --json\`.`,
-    '4. If missing, run `tabwright capability install "<absolute-skill-directory>/runtime" --json`. Never add `--force` automatically. The runtime installs as draft: inspect the bundled contract and entry script, validate with `capability run --force`, and trust it only after the user accepts it.',
-    ...authRefreshSteps,
+    `Tabwright validates \`runtime/capability.json\` and \`runtime/${options.capability.manifest.entry}\` on every run and automatically refreshes declared browser authentication when needed. Do not run \`describe\`, \`trust\`, \`--force\`, or \`refresh-auth\` as setup steps. Pause only when Tabwright reports that browser login is unavailable or the selected operation requires explicit confirmation.`,
     '',
   ]
   return `${portableFrontmatter}\n---\n\n${runtimeSection.join('\n')}\n${body}\n`

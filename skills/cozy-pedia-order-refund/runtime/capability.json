@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "cozy-pedia-order-refund",
+  "title": "Cozy 百科订单退款",
+  "description": "通过后端 API 为指定 Cozy UID 退款近期尚未退款的百科订单。",
+  "whenToUse": [
+    "需要为指定 Cozy UID 退款近期尚未退款的百科订单。",
+    "需要通过可重复执行的后端 API 流程退款，而不是重放浏览器界面操作。"
+  ],
+  "whenNotToUse": [
+    "订单需要人工填写退货物流信息。",
+    "目标订单属于百科默认商品退款场景。"
+  ],
+  "tags": [
+    "cozy",
+    "pedia",
+    "refund",
+    "node-runtime",
+    "write"
+  ],
+  "match": [
+    "帮我操作退款*",
+    "退款 uid 最近所有未退款百科订单",
+    "退款 * 未退款百科订单",
+    "cozy pedia refund uid"
+  ],
+  "routingHint": "search-first",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "uid": {
+        "type": "string",
+        "description": "用户 UID"
+      }
+    },
+    "required": [
+      "uid"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "uid": {
+        "type": "string"
+      },
+      "operator": {
+        "type": "string"
+      },
+      "candidateCount": {
+        "type": "number"
+      },
+      "refundedCount": {
+        "type": "number"
+      },
+      "skippedCount": {
+        "type": "number"
+      },
+      "failedCount": {
+        "type": "number"
+      },
+      "results": {
+        "type": "array"
+      },
+      "artifactPath": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "uid",
+      "candidateCount",
+      "refundedCount",
+      "skippedCount",
+      "failedCount",
+      "results"
+    ]
+  },
+  "permissions": [
+    "network:https://ytkconan.zhenguanyu.com/*"
+  ],
+  "sideEffect": "write",
+  "requiresConfirmation": true,
+  "operations": {},
+  "auth": {
+    "type": "cookie",
+    "refresh": "from-browser",
+    "secretKey": "cookieHeader",
+    "browserUrls": [
+      "https://cozy-test.zhenguanyu.com/",
+      "https://ytkconan.zhenguanyu.com/"
+    ],
+    "requiredCookieNames": [],
+    "failureSignals": [
+      "Full authentication is required",
+      "Request failed 401",
+      "Request failed 403",
+      "Missing saved cookie auth"
+    ]
+  },
+  "examples": [
+    {
+      "description": "退款 UID 最近所有未退款百科订单",
+      "input": {
+        "uid": "123456789"
+      }
+    }
+  ],
+  "entry": "script.js",
+  "runtime": "node",
+  "status": "draft",
+  "createdBy": "user",
+  "updatedAt": "2026-07-07T08:29:37.521Z"
+}

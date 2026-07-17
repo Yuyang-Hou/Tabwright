@@ -1,0 +1,1570 @@
+{
+  "schemaVersion": 1,
+  "id": "conan-config",
+  "title": "Conan 文案配置",
+  "description": "",
+  "whenToUse": [],
+  "whenNotToUse": [],
+  "tags": [],
+  "match": [],
+  "routingHint": "search-first",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {}
+  },
+  "permissions": [
+    "network:https://conan.zhenguanyu.com/*",
+    "network:https://ytkconan.zhenguanyu.com/*"
+  ],
+  "sideEffect": "write",
+  "requiresConfirmation": true,
+  "operations": {
+    "search": {
+      "title": "搜索配置",
+      "description": "并行调用 searchTree API 的 config、configValue、grouping 维度，默认返回去重后的紧凑结果。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "query": {
+            "type": "string"
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "includeRawTree": {
+            "type": "boolean"
+          },
+          "detailLevel": {
+            "type": "string",
+            "enum": [
+              "compact",
+              "full"
+            ],
+            "description": "默认 compact；仅在需要完整分维度结果时使用 full。"
+          }
+        },
+        "required": [
+          "action",
+          "query"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "resultCount": {
+            "type": "number"
+          },
+          "matchCount": {
+            "type": "number"
+          },
+          "results": {
+            "type": "array"
+          },
+          "view": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "query",
+          "matchCount",
+          "resultCount",
+          "results",
+          "view"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "get": {
+      "title": "读取配置",
+      "description": "通过精确后台链接或 namespace/key 读取当前值、Schema 摘要和本地产物。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "grouping": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "includeRawValue": {
+            "type": "boolean"
+          },
+          "saveArtifacts": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "configId": {
+            "type": "number"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "value": {
+            "type": "object"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "view": {
+            "type": "object"
+          },
+          "artifacts": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "namespace",
+          "key",
+          "configId",
+          "metadata",
+          "value",
+          "schema",
+          "view"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "list-spaces": {
+      "title": "列出配置空间",
+      "description": "读取国内正式或测试环境的根配置空间及权限信息。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "spaces": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "count",
+          "spaces"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "history": {
+      "title": "查看配置历史",
+      "description": "读取版本记录，并可按 historyIds 拉取历史版本的完整配置。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "historyIds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "configId": {
+            "type": "number"
+          },
+          "historyCount": {
+            "type": "number"
+          },
+          "histories": {
+            "type": "array"
+          },
+          "details": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "namespace",
+          "key",
+          "configId",
+          "historyCount",
+          "histories",
+          "details"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "get-schema": {
+      "title": "读取配置 Schema",
+      "description": "按 schemaId 或配置目标读取完整 Formily schema、form 和元数据。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "schema": {
+            "type": "object"
+          },
+          "form": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "schemaId",
+          "metadata",
+          "schema",
+          "form"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "prepare-publish-draft": {
+      "title": "准备发布草稿",
+      "description": "读取当前线上值和草稿，计算哈希与语义 Diff，供 AI 校验后确认发布。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "configId": {
+            "type": "number"
+          },
+          "configDraftId": {
+            "type": "number"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "updatedTime": {
+            "type": "number"
+          },
+          "sourceSha256": {
+            "type": "string"
+          },
+          "draftSha256": {
+            "type": "string"
+          },
+          "currentValue": {
+            "type": "object"
+          },
+          "draftValue": {
+            "type": "object"
+          },
+          "diff": {
+            "type": "array"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "form": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "namespace",
+          "key",
+          "configId",
+          "configDraftId",
+          "schemaId",
+          "updatedTime",
+          "sourceSha256",
+          "draftSha256",
+          "currentValue",
+          "draftValue",
+          "diff",
+          "schema",
+          "form"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "prepare-create": {
+      "title": "准备新建配置",
+      "description": "校验目标分组、key、名称、描述和 Schema，生成不可变的新建预览。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action",
+          "groupingId",
+          "key",
+          "name",
+          "desc",
+          "schemaId"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "object"
+          },
+          "groupingUpdatedTime": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "targetSha256": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "form": {
+            "type": "object"
+          },
+          "warnings": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "definition",
+          "groupingUpdatedTime",
+          "targetSha256",
+          "schema",
+          "form",
+          "warnings"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "prepare-copy": {
+      "title": "准备复制配置定义",
+      "description": "读取源配置并校验目标分组和 key；与 B 端一致，仅复制元数据和 Schema，不复制内容值。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "sourceUrl": {
+            "type": "string"
+          },
+          "sourceNamespace": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "groupingId",
+          "targetKey"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object"
+          },
+          "target": {
+            "type": "object"
+          },
+          "sourceUpdatedTime": {
+            "type": "number"
+          },
+          "sourceDefinitionSha256": {
+            "type": "string"
+          },
+          "groupingUpdatedTime": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "targetSha256": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "form": {
+            "type": "object"
+          },
+          "contentCopied": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "source",
+          "target",
+          "sourceUpdatedTime",
+          "sourceDefinitionSha256",
+          "groupingUpdatedTime",
+          "targetSha256",
+          "schema",
+          "form",
+          "contentCopied"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "prepare-rollback": {
+      "title": "准备回滚历史版本",
+      "description": "读取指定历史版本，计算当前值与历史值的哈希和语义 Diff，供 AI 校验。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "historyId": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action",
+          "historyId"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "configId": {
+            "type": "number"
+          },
+          "historyId": {
+            "type": "number"
+          },
+          "hasDraft": {
+            "type": "boolean"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "updatedTime": {
+            "type": "number"
+          },
+          "sourceSha256": {
+            "type": "string"
+          },
+          "historicalSha256": {
+            "type": "string"
+          },
+          "currentValue": {
+            "type": "object"
+          },
+          "historicalValue": {
+            "type": "object"
+          },
+          "diff": {
+            "type": "array"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "form": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "namespace",
+          "key",
+          "configId",
+          "historyId",
+          "hasDraft",
+          "schemaId",
+          "updatedTime",
+          "sourceSha256",
+          "historicalSha256",
+          "currentValue",
+          "historicalValue",
+          "diff",
+          "schema",
+          "form"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "prepare-change": {
+      "title": "准备并校验修改",
+      "description": "读取当前值和完整 Formily schema，计算源值/目标值哈希与语义 Diff，供 AI 生成校验报告。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "changeSummary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "updatedTime": {
+            "type": "number"
+          },
+          "sourceSha256": {
+            "type": "string"
+          },
+          "currentValue": {
+            "type": "object"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "diff": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "namespace",
+          "key",
+          "schemaId",
+          "updatedTime",
+          "sourceSha256",
+          "currentValue",
+          "schema",
+          "diff"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "apply-change": {
+      "title": "发布修改",
+      "description": "校验 AI 报告、目标哈希、源值和版本后更新发布，并回读验证。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "changeSummary": {
+            "type": "string"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "value",
+          "changeSummary",
+          "validationReport"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    },
+    "save-draft": {
+      "title": "保存配置草稿",
+      "description": "校验目标值、源值哈希和版本后保存草稿，不发布；已有草稿时拒绝覆盖。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "changeSummary": {
+            "type": "string"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "value",
+          "changeSummary",
+          "validationReport"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted",
+          "published",
+          "verified"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    },
+    "publish-draft": {
+      "title": "发布已有草稿",
+      "description": "校验草稿 ID、内容哈希、线上源值和 Schema 后发布，并回读验证。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "validationReport"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted",
+          "published",
+          "verified"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    },
+    "discard-draft": {
+      "title": "丢弃已有草稿",
+      "description": "核对草稿 ID 和内容哈希后丢弃草稿，并确认草稿已消失。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "configDraftId": {
+            "type": "number"
+          },
+          "draftSha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "configDraftId",
+          "draftSha256"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted",
+          "published",
+          "verified"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    },
+    "create": {
+      "title": "新建配置",
+      "description": "复核 prepare-create 的目标定义和分组版本后新建配置，并回读验证。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "preparationReport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "groupingId",
+          "key",
+          "name",
+          "desc",
+          "schemaId",
+          "preparationReport"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted",
+          "published",
+          "verified"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    },
+    "copy": {
+      "title": "复制配置定义",
+      "description": "复核源配置和目标定义后新建配置，沿用源 Schema；不复制内容值。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "sourceUrl": {
+            "type": "string"
+          },
+          "sourceNamespace": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          },
+          "preparationReport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "groupingId",
+          "targetKey",
+          "preparationReport"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted",
+          "published",
+          "verified"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    },
+    "rollback": {
+      "title": "回滚历史版本",
+      "description": "复核历史版本、当前源值、Schema 和版本后创建回滚草稿、发布并验证。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "historyId": {
+            "type": "number"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "historyId",
+          "validationReport"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted",
+          "published",
+          "verified"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    }
+  },
+  "auth": {
+    "type": "cookie",
+    "refresh": "from-browser",
+    "secretKey": "cookieHeader",
+    "browserUrls": [
+      "https://conan.zhenguanyu.com/",
+      "https://ytkconan.zhenguanyu.com/",
+      "https://buff.zhenguanyu.com/",
+      "https://buff-test.zhenguanyu.com/"
+    ],
+    "requiredCookieNames": [],
+    "failureSignals": [
+      "Full authentication is required",
+      "Request failed 401",
+      "Request failed 403",
+      "Missing saved cookie auth"
+    ]
+  },
+  "examples": [
+    {
+      "description": "用户给 Space_Enhanced_Config 后台链接时，直接解析 URL 并查询配置。",
+      "input": {
+        "action": "get",
+        "url": "https://buff.zhenguanyu.com/buff-army/#/buff-oversea-designer/Space_Enhanced_Config?key=wareLandingPageSendCouponConfig&rootGroupingKey=Space_Pedia"
+      }
+    },
+    {
+      "description": "搜索会员订单相关配置",
+      "input": {
+        "action": "search",
+        "query": "会员订单"
+      }
+    }
+  ],
+  "entry": "script.js",
+  "runtime": "node",
+  "status": "draft",
+  "createdBy": "ai",
+  "createdAt": "2026-07-13T07:33:35.350Z",
+  "updatedAt": "2026-07-16T02:52:50.541Z"
+}

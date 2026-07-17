@@ -35,22 +35,24 @@ import {
   createCapability,
   getCapabilitySafetySummary,
   listCapabilities,
-  readCapabilityScript,
+  requireCapability,
+  resolveCapabilityOperation,
   routeCapabilities,
   searchCapabilities,
   toCapabilityContract,
   toCapabilitySummary,
   updateCapabilityManifest,
+  updateCapabilityStatus,
   updateCapabilityScript,
   type CapabilityManifestPatch,
   type CapabilityRecord,
 } from './capability-registry.js'
+import { exportCapabilityAgentSkill } from './capability-agent-skill.js'
 import {
-  exportAllCapabilityAgentSkills,
-  exportCapabilityAgentSkill,
-} from './capability-agent-skill.js'
-import { installCapabilityPackage, packCapability } from './capability-package.js'
-import { refreshCapabilityAuthWithExecutor } from './capability-auth.js'
+  refreshCapabilityAuthWithExecutor,
+  type CapabilityAuthRefreshResult,
+} from './capability-auth.js'
+import { getCapabilityAuthState, shouldAutoRefreshCapabilityAuth } from './capability-auth-state.js'
 import {
   finalizeCapabilityRun,
   normalizeCapabilityExecutionText,
@@ -466,27 +468,8 @@ interface CapabilityRefreshAuthOptions {
   keepSession?: boolean
 }
 
-interface CapabilityInstallOptions {
-  project?: boolean
-  force?: boolean
-  json?: boolean
-}
-
-interface CapabilityPackOptions {
-  output?: string
-  force?: boolean
-  json?: boolean
-}
-
 interface CapabilitySkillExportOptions {
   output?: string
-  force?: boolean
-  json?: boolean
-}
-
-interface CapabilitySkillExportAllOptions {
-  output?: string
-  force?: boolean
   json?: boolean
 }
 
@@ -683,35 +666,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-async function refreshCapabilityAuthFromCli(id: string, options: CapabilityRefreshAuthOptions): Promise<void> {
-  const session = options.session || process.env.TABWRIGHT_SESSION
+async function refreshCapabilityAuthFromCli(options: {
+  id: string
+  cliOptions: CapabilityRefreshAuthOptions
+  silent?: boolean
+}): Promise<CapabilityAuthRefreshResult> {
+  const session = options.cliOptions.session || process.env.TABWRIGHT_SESSION
   const sessionInfo = session
     ? { sessionId: session, autoCreated: false }
     : await createCapabilityRunSession({
-        browser: options.browser || 'user',
-        host: options.host,
-        token: options.token,
+        browser: options.cliOptions.browser || 'user',
+        host: options.cliOptions.host,
+        token: options.cliOptions.token,
       })
 
   try {
     const result = await refreshCapabilityAuthWithExecutor({
-      id,
+      id: options.id,
       cwd: process.cwd(),
-      timeout: options.timeout || 10000,
+      timeout: options.cliOptions.timeout || 10000,
+      browserKey: options.cliOptions.browser || 'user',
       executor: {
         execute: (code, timeout, executeOptions) => {
           return requestCliExecute({
             code,
             timeout: timeout || 10000,
             sessionId: sessionInfo.sessionId,
-            host: options.host,
-            token: options.token,
+            host: options.cliOptions.host,
+            token: options.cliOptions.token,
             includeStructuredResult: executeOptions?.includeStructuredResult,
           })
         },
       },
     })
-    if (options.json) {
+    if (options.silent) {
+      return result
+    }
+    if (options.cliOptions.json) {
       console.log(
         JSON.stringify(
           {
@@ -728,43 +719,118 @@ async function refreshCapabilityAuthFromCli(id: string, options: CapabilityRefre
           2,
         ),
       )
-      return
+      return result
     }
     console.log(`Refreshed ${result.capability.manifest.id} auth at ${result.path}`)
     console.log(`Saved ${result.cookieCount} cookies into secret "${result.secretKey}".`)
     if (result.expiresAt) {
       console.log(`Expires at ${result.expiresAt}.`)
     }
+    return result
   } finally {
-    if (sessionInfo.autoCreated && !options.keepSession) {
+    if (sessionInfo.autoCreated && !options.cliOptions.keepSession) {
       await deleteCapabilityRunSession({
         sessionId: sessionInfo.sessionId,
-        host: options.host,
-        token: options.token,
+        host: options.cliOptions.host,
+        token: options.cliOptions.token,
       })
     }
   }
 }
 
-async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): Promise<void> {
-  const input = parseCapabilityInput({ input: options.input, inputJson: options.inputJson })
-  const prepared = prepareCapabilityRun({
-    id,
+async function refreshCapabilityAuthForRun(options: {
+  id: string
+  cliOptions: CapabilityRunOptions
+  force?: boolean
+}): Promise<boolean> {
+  const capability = requireCapability({ id: options.id, cwd: process.cwd() })
+  if (capability.location !== 'skill' && capability.manifest.status !== 'trusted') {
+    return false
+  }
+  const authState = getCapabilityAuthState({ capability })
+  if (!shouldAutoRefreshCapabilityAuth({ state: authState, force: options.force })) {
+    return false
+  }
+  await refreshCapabilityAuthFromCli({
+    id: options.id,
+    silent: true,
+    cliOptions: {
+      host: options.cliOptions.host,
+      token: options.cliOptions.token,
+      timeout: options.cliOptions.timeout,
+      browser: 'user',
+    },
+  })
+  return true
+}
+
+function capabilityErrorMatchesAuth(options: { capability: CapabilityRecord; error: unknown }): boolean {
+  const message = options.error instanceof Error ? options.error.message : String(options.error)
+  const normalized = message.toLowerCase()
+  return options.capability.manifest.auth.failureSignals.some((signal) => {
+    return normalized.includes(signal.toLowerCase())
+  })
+}
+
+async function runCapabilityFromCli(options: { id: string; cliOptions: CapabilityRunOptions }): Promise<void> {
+  const input = parseCapabilityInput({ input: options.cliOptions.input, inputJson: options.cliOptions.inputJson })
+  prepareCapabilityRun({
+    id: options.id,
     input,
     cwd: process.cwd(),
-    force: options.force,
-    confirmation: options.confirm,
+    force: options.cliOptions.force,
+    confirmation: options.cliOptions.confirm,
+  })
+  await refreshCapabilityAuthForRun({ id: options.id, cliOptions: options.cliOptions })
+  try {
+    await runCapabilityFromCliOnce({ id: options.id, cliOptions: options.cliOptions, input })
+  } catch (error: unknown) {
+    const capability = requireCapability({ id: options.id, cwd: process.cwd() })
+    if (!capabilityErrorMatchesAuth({ capability, error })) {
+      throw error
+    }
+    const operation = resolveCapabilityOperation({ capability, input })
+    const refreshed = await refreshCapabilityAuthForRun({
+      id: options.id,
+      cliOptions: options.cliOptions,
+      force: true,
+    })
+    if (!refreshed) {
+      throw error
+    }
+    if (operation.sideEffect === 'read') {
+      await runCapabilityFromCliOnce({ id: options.id, cliOptions: options.cliOptions, input })
+      return
+    }
+    throw new Error(
+      `Authentication was refreshed, but ${operation.sideEffect} operation ${operation.confirmationToken} was not retried automatically. Run the same confirmed command again.`,
+      { cause: error },
+    )
+  }
+}
+
+async function runCapabilityFromCliOnce(options: {
+  id: string
+  cliOptions: CapabilityRunOptions
+  input: unknown
+}): Promise<void> {
+  const prepared = prepareCapabilityRun({
+    id: options.id,
+    input: options.input,
+    cwd: process.cwd(),
+    force: options.cliOptions.force,
+    confirmation: options.cliOptions.confirm,
   })
   if (prepared.capability.manifest.runtime === 'node') {
     const result = await runNodeCapability({
-      id,
-      input,
+      id: options.id,
+      input: options.input,
       cwd: process.cwd(),
-      force: options.force,
-      confirmation: options.confirm,
-      timeout: options.timeout || 10000,
+      force: options.cliOptions.force,
+      confirmation: options.cliOptions.confirm,
+      timeout: options.cliOptions.timeout || 10000,
     })
-    if (options.json) {
+    if (options.cliOptions.json) {
       console.log(
         JSON.stringify(
           {
@@ -783,23 +849,23 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
     return
   }
 
-  const session = options.session || process.env.TABWRIGHT_SESSION
+  const session = options.cliOptions.session || process.env.TABWRIGHT_SESSION
   const sessionInfo = session
     ? { sessionId: session, autoCreated: false }
     : await createCapabilityRunSession({
-        browser: options.browser || 'headless',
-        host: options.host,
-        token: options.token,
+        browser: options.cliOptions.browser || 'headless',
+        host: options.cliOptions.host,
+        token: options.cliOptions.token,
       })
 
   const start = Date.now()
   try {
     const result = await requestCliExecute({
       code: prepared.code,
-      timeout: options.timeout || 10000,
+      timeout: options.cliOptions.timeout || 10000,
       sessionId: sessionInfo.sessionId,
-      host: options.host,
-      token: options.token,
+      host: options.cliOptions.host,
+      token: options.cliOptions.token,
       includeStructuredResult: true,
     }).catch((error: unknown) => {
       finalizeCapabilityRun({
@@ -840,8 +906,11 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
     if (finalized.contractError) {
       throw finalized.contractError
     }
+    if (isExecutionError) {
+      throw new Error(observation.error || normalizedText)
+    }
 
-    if (options.json) {
+    if (options.cliOptions.json) {
       console.log(
         JSON.stringify(
           {
@@ -861,15 +930,12 @@ async function runCapabilityFromCli(id: string, options: CapabilityRunOptions): 
       }
     }
 
-    if (isExecutionError) {
-      process.exit(1)
-    }
   } finally {
-    if (sessionInfo.autoCreated && !options.keepSession) {
+    if (sessionInfo.autoCreated && !options.cliOptions.keepSession) {
       await deleteCapabilityRunSession({
         sessionId: sessionInfo.sessionId,
-        host: options.host,
-        token: options.token,
+        host: options.cliOptions.host,
+        token: options.cliOptions.token,
       })
     }
   }
@@ -1308,16 +1374,11 @@ cli
   })
 
 cli
-  .command('capability describe <id>', 'Print the AI-readable contract for a capability')
+  .command('capability describe <target>', 'Print the runtime contract for a capability id or Skill runtime directory')
   .option('--json', 'Print JSON')
-  .action((id: string, options: { json?: boolean }) => {
+  .action((target: string, options: { json?: boolean }) => {
     try {
-      const capability = listCapabilities({ cwd: process.cwd() }).find((candidate) => {
-        return candidate.manifest.id === id
-      })
-      if (!capability) {
-        throw new Error(`Capability not found: ${id}`)
-      }
+      const capability = requireCapability({ id: target, cwd: process.cwd() })
       const contract = toCapabilityContract(capability)
       if (options.json) {
         console.log(JSON.stringify(contract, null, 2))
@@ -1330,19 +1391,14 @@ cli
   })
 
 cli
-  .command('capability show <id>', 'Show a saved Tabwright capability')
+  .command('capability show <target>', 'Show a capability id or Skill runtime directory')
   .option('--json', 'Print JSON')
   .option('--script', 'Print the script source')
-  .action((id: string, options: { json?: boolean; script?: boolean }) => {
+  .action((target: string, options: { json?: boolean; script?: boolean }) => {
     try {
-      const capability = listCapabilities({ cwd: process.cwd() }).find((candidate) => {
-        return candidate.manifest.id === id
-      })
-      if (!capability) {
-        throw new Error(`Capability not found: ${id}`)
-      }
+      const capability = requireCapability({ id: target, cwd: process.cwd() })
       if (options.script) {
-        console.log(readCapabilityScript({ id, cwd: process.cwd() }))
+        console.log(fs.readFileSync(capability.scriptPath, 'utf-8'))
         return
       }
       if (options.json) {
@@ -1407,7 +1463,6 @@ cli
 cli
   .command('capability skill export <id>', 'Export a portable Agent Skill with its Tabwright runtime contract')
   .option('-o, --output <dir>', 'Output skill directory (default: ./<id>)')
-  .option('--force', 'Overwrite a previous Tabwright export of the same skill')
   .option('--json', 'Print JSON')
   .action((id: string, options: CapabilitySkillExportOptions) => {
     try {
@@ -1415,7 +1470,6 @@ cli
         id,
         cwd: process.cwd(),
         output: options.output,
-        overwrite: options.force,
       })
       if (options.json) {
         console.log(JSON.stringify(result, null, 2))
@@ -1430,106 +1484,6 @@ cli
       console.log('')
       console.log('Next:')
       result.next.map((step) => {
-        console.log(`  ${step}`)
-        return step
-      })
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('capability skill export-all', 'Export every saved capability for migration to an Agent Skill manager')
-  .option('-o, --output <dir>', 'Parent output directory (default: ./skills)')
-  .option('--force', 'Overwrite previous Tabwright exports of the same skills')
-  .option('--json', 'Print JSON')
-  .action((options: CapabilitySkillExportAllOptions) => {
-    try {
-      const result = exportAllCapabilityAgentSkills({
-        cwd: process.cwd(),
-        output: options.output,
-        overwrite: options.force,
-      })
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2))
-        return
-      }
-      console.log(`Exported ${result.skills.length} portable Agent Skill(s): ${result.dir}`)
-      result.skills.map((skill) => {
-        console.log(`- ${skill.capabilityId}: ${skill.dir}`)
-        return skill
-      })
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('capability pack <id>', 'Pack a capability for safe sharing')
-  .option('-o, --output <path>', 'Output .tgz path (default: <id>.tgz)')
-  .option('--force', 'Overwrite an existing package')
-  .option('--json', 'Print JSON')
-  .action(async (id: string, options: CapabilityPackOptions) => {
-    try {
-      const packed = await packCapability({
-        id,
-        cwd: process.cwd(),
-        output: options.output,
-        overwrite: options.force,
-      })
-      if (options.json) {
-        console.log(JSON.stringify(packed, null, 2))
-        return
-      }
-      console.log(`Packed ${packed.capabilityId}: ${packed.path}`)
-      console.log(`Integrity: ${packed.integrity}`)
-      console.log('Included files:')
-      packed.files.map((file) => {
-        console.log(`- ${file}`)
-        return file
-      })
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('capability install <source>', 'Install a capability directory, Git source, local .tgz, or .tgz URL')
-  .option('--project', 'Install under .tabwright/capabilities in the current project')
-  .option('--force', 'Overwrite existing installed capabilities')
-  .option('--json', 'Print JSON')
-  .action(async (source: string, options: CapabilityInstallOptions) => {
-    try {
-      const installed = await installCapabilityPackage({
-        source,
-        cwd: process.cwd(),
-        location: options.project ? 'project' : 'user',
-        overwrite: options.force,
-      })
-      const next = [
-        `tabwright capability describe ${installed.capability.manifest.id} --json`,
-        ...(installed.capability.manifest.auth.refresh === 'from-browser'
-          ? [`tabwright capability refresh-auth ${installed.capability.manifest.id} --browser user --json`]
-          : []),
-        `Validate with capability run --force before trusting ${installed.capability.manifest.id}.`,
-      ]
-      const summary = {
-        type: 'package',
-        source: installed.source,
-        capability: toCapabilitySummary(installed.capability),
-        files: installed.files,
-        integrity: installed.integrity,
-        next,
-      }
-      if (options.json) {
-        console.log(JSON.stringify(summary, null, 2))
-        return
-      }
-      console.log(`Installed ${installed.capability.manifest.id} as draft: ${installed.capability.dir}`)
-      console.log(`Integrity: ${installed.integrity}`)
-      console.log('')
-      console.log('Next:')
-      next.map((step) => {
         console.log(`  ${step}`)
         return step
       })
@@ -1598,10 +1552,14 @@ cli
   )
 
 cli
-  .command('capability trust <id>', 'Mark a capability trusted')
-  .action((id: string) => {
+  .command('capability trust <target>', 'Trust a capability id or Skill runtime directory after validation')
+  .action((target: string) => {
     try {
-      const capability = updateCapabilityManifest({ id, cwd: process.cwd(), patch: { status: 'trusted' } })
+      const capability = updateCapabilityStatus({
+        capability: requireCapability({ id: target, cwd: process.cwd() }),
+        cwd: process.cwd(),
+        status: 'trusted',
+      })
       console.log(`Trusted ${capability.manifest.id}`)
     } catch (error) {
       exitWithError(error)
@@ -1609,10 +1567,14 @@ cli
   })
 
 cli
-  .command('capability draft <id>', 'Mark a capability draft')
-  .action((id: string) => {
+  .command('capability draft <target>', 'Mark a capability id or Skill runtime directory as draft')
+  .action((target: string) => {
     try {
-      const capability = updateCapabilityManifest({ id, cwd: process.cwd(), patch: { status: 'draft' } })
+      const capability = updateCapabilityStatus({
+        capability: requireCapability({ id: target, cwd: process.cwd() }),
+        cwd: process.cwd(),
+        status: 'draft',
+      })
       console.log(`Marked ${capability.manifest.id} as draft`)
     } catch (error) {
       exitWithError(error)
@@ -1620,10 +1582,14 @@ cli
   })
 
 cli
-  .command('capability disable <id>', 'Disable a capability')
-  .action((id: string) => {
+  .command('capability disable <target>', 'Disable a capability id or Skill runtime directory')
+  .action((target: string) => {
     try {
-      const capability = updateCapabilityManifest({ id, cwd: process.cwd(), patch: { status: 'disabled' } })
+      const capability = updateCapabilityStatus({
+        capability: requireCapability({ id: target, cwd: process.cwd() }),
+        cwd: process.cwd(),
+        status: 'disabled',
+      })
       console.log(`Disabled ${capability.manifest.id}`)
     } catch (error) {
       exitWithError(error)
@@ -1631,7 +1597,7 @@ cli
   })
 
 cli
-  .command('capability refresh-auth <id>', 'Refresh a capability auth secret from the current browser session')
+  .command('capability refresh-auth <target>', 'Refresh auth for a capability id or Skill runtime directory')
   .option('-s, --session <id>', 'Existing Tabwright session id')
   .option('--host <host>', 'Remote relay server host')
   .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
@@ -1639,16 +1605,16 @@ cli
   .option('--keep-session', 'Keep auto-created session alive after refresh')
   .option('--json', 'Print JSON envelope')
   .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
-  .action(async (id: string, options: CapabilityRefreshAuthOptions) => {
+  .action(async (target: string, options: CapabilityRefreshAuthOptions) => {
     try {
-      await refreshCapabilityAuthFromCli(id, options)
+      await refreshCapabilityAuthFromCli({ id: target, cliOptions: options })
     } catch (error) {
       exitWithError(error)
     }
   })
 
 cli
-  .command('capability run <id>', 'Run a Tabwright capability')
+  .command('capability run <target>', 'Run a capability id or Skill runtime directory')
   .option('--input <json>', 'JSON input object')
   .option('--input-json <json>', 'JSON input object')
   .option('-s, --session <id>', 'Existing Tabwright session id')
@@ -1660,9 +1626,9 @@ cli
   .option('--keep-session', 'Keep auto-created session alive after run')
   .option('--json', 'Print JSON envelope')
   .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
-  .action(async (id: string, options: CapabilityRunOptions) => {
+  .action(async (target: string, options: CapabilityRunOptions) => {
     try {
-      await runCapabilityFromCli(id, options)
+      await runCapabilityFromCli({ id: target, cliOptions: options })
     } catch (error) {
       exitWithError(error)
     }

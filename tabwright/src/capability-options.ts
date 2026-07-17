@@ -3,7 +3,6 @@ import {
   toCapabilityContract,
   type CapabilityRecord,
 } from './capability-registry.js'
-import { getCapabilityAuthState } from './capability-auth-state.js'
 
 export type CapabilityOptionsItem = Record<string, unknown>
 
@@ -43,8 +42,5 @@ export function getCapabilityOptionsDetail(options: {
 }
 
 function toCapabilityOptionsItem(capability: CapabilityRecord): CapabilityOptionsItem {
-  return {
-    ...toCapabilityContract(capability),
-    authState: getCapabilityAuthState({ capability }),
-  }
+  return toCapabilityContract(capability)
 }

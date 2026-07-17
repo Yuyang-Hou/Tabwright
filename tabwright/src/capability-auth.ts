@@ -73,14 +73,14 @@ export async function refreshCapabilityAuthWithExecutor(options: {
 
 function buildCookieRefreshCode(options: { capability: CapabilityRecord }): string {
   const secretKey = options.capability.manifest.auth.secretKey || 'cookieHeader'
-  const secretsPath = path.join(options.capability.dir, 'secrets.json')
+  const secretsPath = path.join(options.capability.stateDir, 'secrets.json')
   return [
     'const fs = await globalThis.import("node:fs")',
     `const urls = ${JSON.stringify(options.capability.manifest.auth.browserUrls)};`,
     `const requiredCookieNames = ${JSON.stringify(options.capability.manifest.auth.requiredCookieNames)};`,
     `const secretKey = ${JSON.stringify(secretKey)};`,
     `const secretsPath = ${JSON.stringify(secretsPath)};`,
-    `const secretsDir = ${JSON.stringify(options.capability.dir)};`,
+    `const secretsDir = ${JSON.stringify(options.capability.stateDir)};`,
     'const cdp = await getCDPSession({ page });',
     'const result = await cdp.send("Network.getCookies", { urls });',
     'const cookies = Array.isArray(result.cookies) ? result.cookies : [];',
@@ -99,7 +99,10 @@ function buildCookieRefreshCode(options: { capability: CapabilityRecord }): stri
     '  [secretKey]: cookieHeader,',
     '  updatedAt: new Date().toISOString(),',
     '};',
-    'fs.mkdirSync(secretsDir, { recursive: true });',
+    'fs.mkdirSync(secretsDir, { recursive: true, mode: 0o700 });',
+    'if (process.platform !== "win32") {',
+    '  fs.chmodSync(secretsDir, 0o700);',
+    '}',
     'fs.writeFileSync(secretsPath, JSON.stringify(nextSecrets, null, 2), { mode: 0o600 });',
     'if (process.platform !== "win32") {',
     '  fs.chmodSync(secretsPath, 0o600);',
@@ -196,7 +199,7 @@ export function refreshCapabilityAuthFromCookies(options: {
     cookieNames,
     urls: capability.manifest.auth.browserUrls,
     expiresAt,
-    path: path.join(capability.dir, 'secrets.json'),
+    path: path.join(capability.stateDir, 'secrets.json'),
   }
 }
 

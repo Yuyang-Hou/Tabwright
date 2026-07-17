@@ -77,33 +77,11 @@ For mainstream agents, export a portable Agent Skill and distribute it with the 
 ```bash
 tabwright capability skill export my-capability --output ./skills/my-capability
 # edit or refine the exported SKILL.md with the agent's official skill tooling
-tabwright capability skill export-all --output ./skills
 ```
 
-The exported directory contains a standard `SKILL.md`, optional `agents/openai.yaml`, and the machine-enforced Tabwright contract and entry script under `runtime/`. Its generated instructions tell a fresh agent how to detect or run the CLI, resolve runtime paths relative to `SKILL.md`, install the runtime as draft, validate it, and refresh browser authentication when required. Local notes, secrets, run history, and artifacts are excluded.
+The exported directory contains a standard `SKILL.md`, optional `agents/openai.yaml`, and the machine-enforced Tabwright contract and entry script under `runtime/`. A fresh agent resolves that runtime relative to `SKILL.md` and executes it directly; it is never copied into a CLI capability directory. Agent-managed runtimes are ready on first run. Tabwright stores only device-local authentication, disable/quarantine state, run history, and artifacts under `~/.tabwright/capability-state/<id>/`.
 
-For capability-only consumers, pack a sanitized archive, then send the `.tgz` file or host it at an HTTPS URL:
-
-```bash
-tabwright capability pack my-capability
-tabwright capability install ./my-capability.tgz
-tabwright capability install https://example.com/my-capability.tgz
-tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/my-capability'
-```
-
-The Git form reads only the selected capability directory from the selected ref through `git archive`; it does not clone the repository. This is the recommended one-line install path for private repositories when users already have SSH access.
-
-Capability-only packages include `capability.json`, the entry script, and `README.md`. They never include agent skills, `secrets.json`, `runs.jsonl`, or `artifacts/`. Shared capabilities always install as `draft`; inspect and validate them with `--force` before trusting them. Authentication is local to each recipient and must be refreshed separately.
-
-Cookie-authenticated capabilities show their local authentication status in the extension Options page. Users can review the exact cookie domains and explicitly authenticate or refresh from the current Chrome profile there. Cookie values stay in the capability's local `secrets.json`; only non-sensitive status and expiry metadata is shown in the extension.
-
-For repository-scoped sharing, install directly from a capability directory with `--project`. Public capabilities can be distributed as `.tgz` files or hosted at HTTPS URLs:
-
-```bash
-tabwright capability install ../shared-capabilities/my-capability --project
-tabwright capability install https://example.com/capabilities/my-capability.tgz
-tabwright capability install 'git@example.com:team/capabilities.git#v1.0.0:capabilities/my-capability' --project
-```
+Cookie-authenticated capabilities refresh their declared browser authentication automatically when a run needs it. Cookie values stay in the capability's local `secrets.json` and are never shown in the extension Options page. The Options page stays focused on what an automation does, its side-effect level, and recent runs.
 
 ## CLI Usage
 

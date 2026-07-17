@@ -1,0 +1,4 @@
+interface:
+  display_name: "电商后台统一查询"
+  short_description: "电商后台统一查询 capability using the Tabwright runtime"
+  default_prompt: "Use $conan-commerce to complete the matching task with its bundled Tabwright runtime."

@@ -28,12 +28,12 @@ describe('Tabwright data paths', () => {
     expect(getTabwrightProjectDataDir({ cwd: root })).toBe(path.join(root, '.tabwright'))
   })
 
-  test('continues using legacy data when it is the only existing directory', () => {
+  test('does not fall back to legacy Playwriter data', () => {
     const root = createTestDir('tabwright-legacy-paths')
     fs.mkdirSync(path.join(root, '.playwriter'))
 
-    expect(getTabwrightUserDataDir({ homeDir: root })).toBe(path.join(root, '.playwriter'))
-    expect(getTabwrightProjectDataDir({ cwd: root })).toBe(path.join(root, '.playwriter'))
+    expect(getTabwrightUserDataDir({ homeDir: root })).toBe(path.join(root, '.tabwright'))
+    expect(getTabwrightProjectDataDir({ cwd: root })).toBe(path.join(root, '.tabwright'))
   })
 
   test('prefers the Tabwright directory when both directories exist', () => {
