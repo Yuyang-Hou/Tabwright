@@ -20,17 +20,6 @@
           </div>
         </div>
 
-        <nav class="tabs" role="tablist" aria-label="Options sections" data-i18n-aria-label="sections_aria_label">
-          <button class="tab-button active" data-tab="recordings" type="button" role="tab" aria-selected="true">
-            <span class="tab-label" data-i18n="recordings_tab">Recordings</span>
-            <span id="recordings-count" class="count-pill">0</span>
-          </button>
-          <button class="tab-button" data-tab="skills" type="button" role="tab" aria-selected="false">
-            <span class="tab-label" data-i18n="capabilities_tab">Capabilities</span>
-            <span id="skills-count" class="count-pill">0</span>
-          </button>
-        </nav>
-
         <div class="toolbar-actions">
           <label class="search-field">
             <span class="visually-hidden" data-i18n="search_label">Search</span>
@@ -38,14 +27,24 @@
               id="search-input"
               type="search"
               autocomplete="off"
-              data-i18n-placeholder="search_recordings_placeholder"
-              placeholder="Filter recordings"
+              data-i18n-placeholder="search_capabilities_placeholder"
+              placeholder="Filter Tabwright Skills"
             />
+          </label>
+
+          <label class="status-filter-field">
+            <span class="visually-hidden" data-i18n="filter_status_label">Filter by status</span>
+            <select id="status-filter" aria-label="Filter by status" data-i18n-aria-label="filter_status_label">
+              <option value="all" data-i18n="filter_status_all">All statuses</option>
+              <option value="ready" data-i18n="filter_status_ready">Ready</option>
+              <option value="attention" data-i18n="filter_status_attention">Needs attention</option>
+              <option value="disabled" data-i18n="filter_status_disabled">Disabled</option>
+            </select>
           </label>
 
           <div class="status-pill" aria-live="polite">
             <span class="status-dot" aria-hidden="true"></span>
-            <span id="status-text" data-i18n="status_loading_recordings">Loading recordings...</span>
+            <span id="status-text" data-i18n="status_loading_capabilities">Loading Tabwright Skills...</span>
           </div>
 
           <button
@@ -95,69 +94,27 @@
           >
           <p id="relay-review-warning-text"></p>
         </div>
-        <code id="relay-review-warning-command"
-          >npm install -g tabwright@latest<br />tabwright session list</code
-        >
+        <code id="relay-review-warning-command">npm install -g tabwright@latest<br />tabwright session list</code>
       </section>
 
       <section class="workspace">
         <aside class="collection-panel">
           <header class="collection-header">
-            <p class="eyebrow" id="view-eyebrow" data-i18n="recordings_eyebrow">Replay library</p>
-            <h2 id="view-title" data-i18n="recordings_heading">DOM replays</h2>
-            <p id="view-description" data-i18n="recordings_description">
-              Review saved page recordings and turn repeatable flows into capabilities.
+            <p class="eyebrow" id="view-eyebrow" data-i18n="capabilities_eyebrow">Agent Skills</p>
+            <h2 id="view-title" data-i18n="capabilities_heading">Tabwright Skills</h2>
+            <p id="view-description" data-i18n="capabilities_description">
+              See installed Agent Skills and their safe local Tabwright runtime state.
             </p>
+            <p id="skills-summary" class="collection-summary" aria-live="polite"></p>
           </header>
 
-          <section id="recordings-view" class="list-view">
-            <div id="replays-list" class="list-body"></div>
-          </section>
-          <section id="skills-view" class="list-view" hidden>
+          <section id="skills-view" class="list-view">
             <div id="skills-list" class="list-body"></div>
           </section>
         </aside>
 
         <section class="detail-panel">
-          <div id="replay-view" class="replay-view">
-            <header class="detail-header">
-              <div>
-                <p class="eyebrow" data-i18n="detail_eyebrow">Detail</p>
-                <h2 data-i18n="replay_detail_title">Replay preview</h2>
-              </div>
-            </header>
-            <div id="replay-player" class="replay-player">
-              <div class="empty-state" data-i18n="select_replay">Select a DOM replay.</div>
-            </div>
-            <div id="replay-controls" class="replay-controls" hidden>
-              <button id="replay-play-toggle" type="button" data-i18n="play_button">Play</button>
-              <input
-                id="replay-timeline"
-                type="range"
-                min="0"
-                max="0"
-                value="0"
-                step="100"
-                aria-label="Replay timeline"
-                data-i18n-aria-label="replay_timeline_label"
-              />
-              <span id="replay-time" class="replay-time">0:00 / 0:00</span>
-              <p
-                id="replay-warning"
-                class="replay-warning"
-                role="status"
-                aria-live="polite"
-                aria-label="Replay reconstruction notice"
-                data-i18n-aria-label="replay_warning_aria_label"
-                hidden
-              ></p>
-            </div>
-            <details class="recording-technical">
-              <summary data-i18n="technical_details">Technical details</summary>
-              <div id="replay-details" class="recording-details" data-i18n="select_replay">Select a DOM replay.</div>
-            </details>
-          </div>
-          <div id="skill-detail" class="skill-detail" hidden>
+          <div id="skill-detail" class="skill-detail">
             <div class="empty-state" data-i18n="select_capability">Select a capability.</div>
           </div>
         </section>

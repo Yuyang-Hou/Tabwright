@@ -105,6 +105,8 @@ query-user/
 
 Agent skill installation, updates, and runtime distribution belong exclusively to the agent's official manager. Tabwright has no parallel capability package installer.
 
+The extension Options page discovers compatible installed skills read-only from project and user `.codex/skills`, `.agents/skills`, and `.claude/skills` roots. `TABWRIGHT_SKILL_DIRS` adds platform-delimited custom roots. The same capability ID installed by multiple managers appears once with every installation source. User-facing purpose comes from the installed `SKILL.md`; machine diagnostics come from its runtime contract and safe local state such as lifecycle, authentication readiness, recent runs, and artifact counts. It never returns Cookie, Token, or secret values.
+
 ## Manifest Contract
 
 `capability.json` includes execution metadata and AI-facing intent:
@@ -290,5 +292,5 @@ Track the loop rather than raw recording counts:
 1. Finish the shell loop: local `replay list`, compact indexes, structured unsupported-workflow handoff, validate/test, and safe pack/import.
 2. Make discovery context-bounded: compact search results, minimum relevance, one selected contract, and no duplicate text in JSON output.
 3. Build on the browser-graph foundation—settled profile selection, compatible relay restart recovery, and heartbeat expiry—with explicit protocol feature negotiation that does not break old extensions.
-4. Keep the Options page read-only and compact: show purpose, side effects, recent runs, and technical diagnostics without trust or authentication workflows.
+4. Keep the Options page read-only and compact: discover agent-managed Tabwright Skills and show purpose, installation sources, side effects, recent runs, and safe technical diagnostics without trust or authentication workflows.
 5. Add contract conformance: compare observed outputs and network hosts with schemas/permissions, then downgrade drifted capabilities to draft.

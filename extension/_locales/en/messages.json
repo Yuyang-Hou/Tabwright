@@ -9,7 +9,7 @@
   "status_loading_recordings": { "message": "Loading recordings..." },
   "refresh_button": { "message": "Refresh" },
   "recordings_tab": { "message": "Recordings" },
-  "capabilities_tab": { "message": "Capabilities" },
+  "capabilities_tab": { "message": "Tabwright Skills" },
   "language_label": { "message": "Language" },
   "language_switch_aria_label": { "message": "Language switch" },
   "language_en": { "message": "English" },
@@ -17,25 +17,25 @@
   "recordings_eyebrow": { "message": "Replay library" },
   "recordings_heading": { "message": "DOM replays" },
   "recordings_description": { "message": "Review saved page recordings and turn repeatable flows into capabilities." },
-  "capabilities_eyebrow": { "message": "Automation library" },
-  "capabilities_heading": { "message": "Capabilities" },
+  "capabilities_eyebrow": { "message": "Agent Skills" },
+  "capabilities_heading": { "message": "Tabwright Skills" },
   "capabilities_description": {
-    "message": "Review local automations and recent runs."
+    "message": "See installed Agent Skills and their safe local Tabwright runtime state."
   },
   "search_label": { "message": "Search" },
   "search_recordings_placeholder": { "message": "Filter recordings" },
-  "search_capabilities_placeholder": { "message": "Filter capabilities" },
+  "search_capabilities_placeholder": { "message": "Filter Tabwright Skills" },
   "metric_replays": { "message": "Replays" },
   "metric_total_duration": { "message": "Total duration" },
   "metric_events": { "message": "Events" },
-  "metric_capabilities": { "message": "Capabilities" },
+  "metric_capabilities": { "message": "Skills" },
   "metric_trusted": { "message": "Available" },
-  "metric_runtimes": { "message": "Runtime contracts" },
+  "metric_runtimes": { "message": "Installations" },
   "detail_eyebrow": { "message": "Detail" },
   "replay_detail_title": { "message": "Replay preview" },
-  "capability_detail_title": { "message": "Capability detail" },
+  "capability_detail_title": { "message": "Tabwright Skill detail" },
   "select_replay": { "message": "Select a DOM replay." },
-  "select_capability": { "message": "Select a capability." },
+  "select_capability": { "message": "Select a Tabwright Skill." },
   "play_button": { "message": "Play" },
   "pause_button": { "message": "Pause" },
   "sections_aria_label": { "message": "Options sections" },
@@ -69,20 +69,14 @@
     "message": "$count$ replays",
     "placeholders": { "count": { "content": "$1" } }
   },
-  "status_loading_capabilities": { "message": "Loading capabilities..." },
+  "status_loading_capabilities": { "message": "Loading Tabwright Skills..." },
   "status_capability_count_one": {
-    "message": "$count$ capability from $cwd$",
-    "placeholders": {
-      "count": { "content": "$1" },
-      "cwd": { "content": "$2" }
-    }
+    "message": "$count$ Tabwright Skill",
+    "placeholders": { "count": { "content": "$1" } }
   },
   "status_capability_count_other": {
-    "message": "$count$ capabilities from $cwd$",
-    "placeholders": {
-      "count": { "content": "$1" },
-      "cwd": { "content": "$2" }
-    }
+    "message": "$count$ Tabwright Skills and local capabilities",
+    "placeholders": { "count": { "content": "$1" } }
   },
   "error_load_replay": {
     "message": "Failed to load replay: $status$",
@@ -116,11 +110,13 @@
     "message": "This extension cannot interpret the capability lifecycle. Update Tabwright before running it."
   },
   "empty_no_replays": { "message": "No DOM replays yet." },
-  "empty_no_capabilities": { "message": "No capabilities yet." },
+  "empty_no_capabilities": { "message": "No installed Tabwright Skills or local capabilities found." },
   "empty_no_matches": { "message": "No matches for this search." },
   "copy_for_ai": { "message": "Copy for AI" },
+  "copy_skill_context": { "message": "Copy details" },
   "copy_command": { "message": "Copy command" },
   "label_ai_context": { "message": "AI context" },
+  "label_skill_context": { "message": "Skill details" },
   "label_next_command": { "message": "CLI command" },
   "detail_id": { "message": "ID" },
   "detail_path": { "message": "Path" },
@@ -140,7 +136,7 @@
     "placeholders": { "id": { "content": "$1" } }
   },
   "no_fields_declared": { "message": "No fields declared." },
-  "field_description": { "message": "Description" },
+  "field_description": { "message": "Purpose" },
   "field_when_to_use": { "message": "When to use" },
   "field_when_not_to_use": { "message": "When not to use" },
   "field_match": { "message": "Match" },
@@ -149,6 +145,13 @@
   "field_output": { "message": "Output" },
   "field_autonomy": { "message": "Autonomy" },
   "field_recent_runs": { "message": "Recent runs" },
+  "field_installed_by": { "message": "Installed by" },
+  "field_installation_paths": { "message": "Installation paths" },
+  "field_runtime_status": { "message": "Local status" },
+  "field_last_run": { "message": "Last run" },
+  "field_local_state": { "message": "Local runtime state" },
+  "field_auth_status": { "message": "Authentication" },
+  "field_artifacts": { "message": "Artifacts" },
   "field_runtime": { "message": "Runtime" },
   "field_effect": { "message": "Side effect" },
   "field_routing": { "message": "Routing" },
@@ -157,6 +160,7 @@
   "technical_details": { "message": "Technical details" },
   "badge_auto_ready": { "message": "Can run automatically" },
   "badge_needs_confirmation": { "message": "Needs your confirmation" },
+  "badge_partial_confirmation": { "message": "Some actions need confirmation" },
   "badge_manual_only": { "message": "Manual run only" },
   "badge_needs_validation": { "message": "Needs validation" },
   "badge_needs_trust": { "message": "Needs trust approval" },
@@ -168,11 +172,38 @@
   "effect_read": { "message": "Read only" },
   "effect_write": { "message": "Modifies data" },
   "effect_dangerous": { "message": "High-risk changes" },
+  "effect_mixed": { "message": "Reads and modifies data" },
   "routing_exact": { "message": "Exact match" },
   "routing_semantic": { "message": "Semantic match" },
   "routing_manual": { "message": "Manual" },
   "location_project": { "message": "Project" },
   "location_global": { "message": "Global" },
+  "location_skill": { "message": "Agent Skill" },
+  "manager_codex": { "message": "Codex" },
+  "manager_agents": { "message": "Agent Skills" },
+  "manager_claude": { "message": "Claude" },
+  "manager_custom": { "message": "Custom directory" },
+  "scope_project": { "message": "project" },
+  "scope_user": { "message": "user" },
+  "scope_custom": { "message": "custom" },
+  "auth_status_not_required": { "message": "Not required" },
+  "artifact_count_one": {
+    "message": "$count$ file",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "artifact_count_other": {
+    "message": "$count$ files",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "runtime_status_ready": { "message": "Ready to run" },
+  "runtime_status_auto_auth": { "message": "Authentication refreshes when needed" },
+  "runtime_status_auth_required": { "message": "Authentication required" },
+  "runtime_status_auth_expiring": { "message": "Ready · authentication expires soon" },
+  "runtime_status_disabled": { "message": "Disabled locally" },
+  "runtime_status_update": { "message": "Runtime contract needs attention" },
+  "run_never": { "message": "Not run on this device" },
+  "run_success": { "message": "Succeeded" },
+  "run_error": { "message": "Failed" },
   "lifecycle_title": { "message": "Lifecycle" },
   "lifecycle_step_drafted": { "message": "Draft created" },
   "lifecycle_step_validated": { "message": "Validation passed" },
@@ -209,11 +240,11 @@
     "placeholders": { "id": { "content": "$1" } }
   },
   "auth_title": { "message": "Browser authentication" },
-  "auth_status_missing": { "message": "Not authenticated" },
-  "auth_status_authenticated": { "message": "Authenticated" },
+  "auth_status_missing": { "message": "Not ready" },
+  "auth_status_authenticated": { "message": "Ready" },
   "auth_status_expiring": { "message": "Expires soon" },
-  "auth_status_expired": { "message": "Authentication expired" },
-  "auth_status_unknown": { "message": "Status unknown" },
+  "auth_status_expired": { "message": "Expired" },
+  "auth_status_unknown": { "message": "Unknown" },
   "auth_description_missing": {
     "message": "Connect your current Chrome login before validating or running this capability."
   },
@@ -260,5 +291,41 @@
   },
   "auth_error_no_enabled_tab": {
     "message": "Enable Tabwright on a normal browser tab, then retry authentication."
-  }
+  },
+  "filter_status_label": { "message": "Filter by status" },
+  "filter_status_all": { "message": "All statuses" },
+  "filter_status_ready": { "message": "Ready" },
+  "filter_status_attention": { "message": "Needs attention" },
+  "filter_status_disabled": { "message": "Disabled" },
+  "status_service_ready": { "message": "Local service ready" },
+  "field_install_source": { "message": "Installed from" },
+  "field_saved_results": { "message": "Saved results" },
+  "skills_summary": {
+    "message": "$total$ Skills · $ready$ ready · $attention$ need attention",
+    "placeholders": {
+      "total": { "content": "$1" },
+      "ready": { "content": "$2" },
+      "attention": { "content": "$3" }
+    }
+  },
+  "status_ready": { "message": "Ready" },
+  "status_attention": { "message": "Needs attention" },
+  "status_disabled": { "message": "Disabled" },
+  "last_used": {
+    "message": "Last used $time$",
+    "placeholders": { "time": { "content": "$1" } }
+  },
+  "last_used_never": { "message": "Never used" },
+  "operations_title": { "message": "What it can do" },
+  "operation_group_read": { "message": "Read" },
+  "operation_group_write": { "message": "Changes data" },
+  "operation_group_dangerous": { "message": "High impact" },
+  "operation_confirmation": { "message": "Confirms before running" },
+  "recent_activity_title": { "message": "Recent activity" },
+  "recent_activity_empty": { "message": "No recent activity on this device." },
+  "runtime_conflict_title": { "message": "Installed copies differ" },
+  "runtime_conflict_description": {
+    "message": "This Skill has different runtime contracts across Agent managers. Check the installed copies before use."
+  },
+  "diagnostic_details": { "message": "Copy diagnostic details" }
 }

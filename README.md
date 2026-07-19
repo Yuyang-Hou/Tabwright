@@ -81,7 +81,7 @@ tabwright capability skill export my-capability --output ./skills/my-capability
 
 The exported directory contains a standard `SKILL.md`, optional `agents/openai.yaml`, and the machine-enforced Tabwright contract and entry script under `runtime/`. A fresh agent resolves that runtime relative to `SKILL.md` and executes it directly; it is never copied into a CLI capability directory. Agent-managed runtimes are ready on first run. Tabwright stores only device-local authentication, disable/quarantine state, run history, and artifacts under `~/.tabwright/capability-state/<id>/`.
 
-Cookie-authenticated capabilities refresh their declared browser authentication automatically when a run needs it. Cookie values stay in the capability's local `secrets.json` and are never shown in the extension Options page. The Options page stays focused on what an automation does, its side-effect level, and recent runs.
+Cookie-authenticated capabilities refresh their declared browser authentication automatically when a run needs it. Cookie values stay in the capability's local `secrets.json` and are never shown in the extension Options page. The read-only **Tabwright Skills** view discovers compatible skills installed by Codex, Claude, and other Agent Skills managers, uses each installed `SKILL.md` for its user-facing purpose, deduplicates the same capability across managers, and shows only safe local runtime summaries such as readiness, recent runs, and artifact counts. Set `TABWRIGHT_SKILL_DIRS` with platform-delimited extra skill roots when a manager uses a custom directory.
 
 ## CLI Usage
 

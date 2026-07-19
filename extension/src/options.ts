@@ -10,9 +10,12 @@ const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT) || 19988
 const RELAY_BASE_URL = `http://${RELAY_HOST}:${RELAY_PORT}`
 const LANGUAGE_STORAGE_KEY = 'playwriterOptionsLanguage'
+const UNSUPPORTED_LIFECYCLE_REASON = '__tabwright_unsupported_lifecycle__'
 
 type ActiveTab = 'recordings' | 'skills'
 type LanguageCode = 'en' | 'zh_CN'
+type CapabilityViewState = 'ready' | 'attention' | 'disabled'
+type CapabilityStatusFilter = 'all' | CapabilityViewState
 type RrwebEvent = eventWithTime
 type ReplayMetaEvent = Extract<RrwebEvent, { type: EventType.Meta }>
 
@@ -45,6 +48,7 @@ interface ReplayEventsResponse {
 
 interface CapabilityRunRecord {
   id: string
+  operation?: string
   status: string
   url?: string
   durationMs: number
@@ -64,6 +68,41 @@ interface CapabilityLifecycle {
   }
 }
 
+type AgentSkillManager = 'codex' | 'agents' | 'claude' | 'custom'
+type AgentSkillScope = 'project' | 'user' | 'custom'
+type CapabilityAuthStatus = 'not-required' | 'missing' | 'authenticated' | 'expiring' | 'expired' | 'unknown'
+
+interface AgentSkillInstallation {
+  manager: AgentSkillManager
+  scope: AgentSkillScope
+  skillDir: string
+  runtimeDir: string
+}
+
+interface AgentSkillMetadata {
+  installations: AgentSkillInstallation[]
+  hasRuntimeConflict?: boolean
+  localState: {
+    stateDir: string
+    auth: {
+      type: string
+      status: CapabilityAuthStatus
+      canRefresh: boolean
+      refreshedAt?: string
+      expiresAt?: string
+    }
+    artifactCount: number
+  }
+}
+
+interface CapabilityOperation {
+  title: string
+  description: string
+  permissions: string[]
+  sideEffect: string
+  requiresConfirmation: boolean
+}
+
 interface CapabilityContract {
   id: string
   title: string
@@ -75,6 +114,7 @@ interface CapabilityContract {
   permissions: string[]
   sideEffect: string
   requiresConfirmation: boolean
+  operations: Record<string, CapabilityOperation>
   whenToUse: string[]
   whenNotToUse: string[]
   tags: string[]
@@ -88,6 +128,7 @@ interface CapabilityContract {
   }
   recentRuns: CapabilityRunRecord[]
   lifecycle?: CapabilityLifecycle
+  agentSkill?: AgentSkillMetadata
 }
 
 interface CapabilitiesResponse {
@@ -101,9 +142,11 @@ interface RelayVersionUpdate {
 }
 
 type LoadError = { type: 'relay'; issue: RelayReviewIssue } | { type: 'message'; message: string }
-type CapabilityContractPayload = Omit<CapabilityContract, 'recentRuns' | 'lifecycle'> & {
+type CapabilityContractPayload = Omit<CapabilityContract, 'operations' | 'recentRuns' | 'lifecycle' | 'agentSkill'> & {
+  operations?: unknown
   recentRuns: unknown[]
   lifecycle?: unknown
+  agentSkill?: unknown
 }
 
 const messageFallbacks = {
@@ -113,7 +156,7 @@ const messageFallbacks = {
   status_loading_recordings: 'Loading recordings...',
   refresh_button: 'Refresh',
   recordings_tab: 'Recordings',
-  capabilities_tab: 'Capabilities',
+  capabilities_tab: 'Tabwright Skills',
   language_label: 'Language',
   language_switch_aria_label: 'Language switch',
   language_en: 'English',
@@ -121,23 +164,28 @@ const messageFallbacks = {
   recordings_eyebrow: 'Replay library',
   recordings_heading: 'DOM replays',
   recordings_description: 'Review saved page recordings and turn repeatable flows into capabilities.',
-  capabilities_eyebrow: 'Automation library',
-  capabilities_heading: 'Capabilities',
-  capabilities_description: 'Review local automations and recent runs.',
+  capabilities_eyebrow: 'Agent Skills',
+  capabilities_heading: 'Tabwright Skills',
+  capabilities_description: 'See installed Agent Skills and their safe local Tabwright runtime state.',
   search_label: 'Search',
   search_recordings_placeholder: 'Filter recordings',
-  search_capabilities_placeholder: 'Filter capabilities',
+  search_capabilities_placeholder: 'Filter Tabwright Skills',
+  filter_status_label: 'Filter by status',
+  filter_status_all: 'All statuses',
+  filter_status_ready: 'Ready',
+  filter_status_attention: 'Needs attention',
+  filter_status_disabled: 'Disabled',
   metric_replays: 'Replays',
   metric_total_duration: 'Total duration',
   metric_events: 'Events',
-  metric_capabilities: 'Capabilities',
+  metric_capabilities: 'Skills',
   metric_trusted: 'Available',
-  metric_runtimes: 'Runtime contracts',
+  metric_runtimes: 'Installations',
   detail_eyebrow: 'Detail',
   replay_detail_title: 'Replay preview',
-  capability_detail_title: 'Capability detail',
+  capability_detail_title: 'Tabwright Skill detail',
   select_replay: 'Select a DOM replay.',
-  select_capability: 'Select a capability.',
+  select_capability: 'Select a Tabwright Skill.',
   play_button: 'Play',
   pause_button: 'Pause',
   sections_aria_label: 'Options sections',
@@ -153,9 +201,10 @@ const messageFallbacks = {
   status_replay_ready: 'Replay ready $1',
   status_replay_count_one: '$1 replay',
   status_replay_count_other: '$1 replays',
-  status_loading_capabilities: 'Loading capabilities...',
-  status_capability_count_one: '$1 capability from $2',
-  status_capability_count_other: '$1 capabilities from $2',
+  status_loading_capabilities: 'Loading Tabwright Skills...',
+  status_service_ready: 'Local service ready',
+  status_capability_count_one: '$1 Tabwright Skill',
+  status_capability_count_other: '$1 Tabwright Skills and local capabilities',
   error_load_replay: 'Failed to load replay: $1',
   error_invalid_replay_events: 'Invalid replay events response',
   error_load_recordings: 'Failed to load recordings: $1',
@@ -172,11 +221,13 @@ const messageFallbacks = {
   lifecycle_unsupported:
     'This extension cannot interpret the capability lifecycle. Update Tabwright before running it.',
   empty_no_replays: 'No DOM replays yet.',
-  empty_no_capabilities: 'No capabilities yet.',
+  empty_no_capabilities: 'No installed Tabwright Skills or local capabilities found.',
   empty_no_matches: 'No matches for this search.',
   copy_for_ai: 'Copy for AI',
+  copy_skill_context: 'Copy details',
   copy_command: 'Copy command',
   label_ai_context: 'AI context',
+  label_skill_context: 'Skill details',
   label_next_command: 'CLI command',
   detail_id: 'ID',
   detail_path: 'Path',
@@ -190,7 +241,7 @@ const messageFallbacks = {
   events_count: '$1 events',
   tab_label: 'tab $1',
   no_fields_declared: 'No fields declared.',
-  field_description: 'Description',
+  field_description: 'Purpose',
   field_when_to_use: 'When to use',
   field_when_not_to_use: 'When not to use',
   field_match: 'Match',
@@ -199,14 +250,40 @@ const messageFallbacks = {
   field_output: 'Output',
   field_autonomy: 'Autonomy',
   field_recent_runs: 'Recent runs',
+  field_installed_by: 'Installed by',
+  field_installation_paths: 'Installation paths',
+  field_runtime_status: 'Local status',
+  field_last_run: 'Last run',
+  field_local_state: 'Local runtime state',
+  field_auth_status: 'Authentication',
+  field_artifacts: 'Artifacts',
+  field_install_source: 'Installed from',
+  field_saved_results: 'Saved results',
   field_runtime: 'Runtime',
   field_effect: 'Side effect',
+  skills_summary: '$1 Skills · $2 ready · $3 need attention',
+  status_ready: 'Ready',
+  status_attention: 'Needs attention',
+  status_disabled: 'Disabled',
+  last_used: 'Last used $1',
+  last_used_never: 'Never used',
+  operations_title: 'What it can do',
+  operation_group_read: 'Read',
+  operation_group_write: 'Changes data',
+  operation_group_dangerous: 'High impact',
+  operation_confirmation: 'Confirms before running',
+  recent_activity_title: 'Recent activity',
+  recent_activity_empty: 'No recent activity on this device.',
+  runtime_conflict_title: 'Installed copies differ',
+  runtime_conflict_description: 'This Skill has different runtime contracts across Agent managers. Check the installed copies before use.',
+  diagnostic_details: 'Copy diagnostic details',
   field_routing: 'Routing',
   field_location: 'Location',
   field_contract_health: 'Validation status',
   technical_details: 'Technical details',
   badge_auto_ready: 'Can run automatically',
   badge_needs_confirmation: 'Needs your confirmation',
+  badge_partial_confirmation: 'Some actions need confirmation',
   badge_local_draft: 'Local draft',
   badge_validation_expired: 'Needs update',
   badge_disabled: 'Disabled',
@@ -215,11 +292,37 @@ const messageFallbacks = {
   effect_read: 'Read only',
   effect_write: 'Modifies data',
   effect_dangerous: 'High-risk changes',
+  effect_mixed: 'Reads and modifies data',
   routing_exact: 'Exact match',
   routing_semantic: 'Semantic match',
   routing_manual: 'Manual',
   location_project: 'Project',
   location_global: 'Global',
+  location_skill: 'Agent Skill',
+  manager_codex: 'Codex',
+  manager_agents: 'Agent Skills',
+  manager_claude: 'Claude',
+  manager_custom: 'Custom directory',
+  scope_project: 'project',
+  scope_user: 'user',
+  scope_custom: 'custom',
+  auth_status_not_required: 'Not required',
+  auth_status_missing: 'Not ready',
+  auth_status_authenticated: 'Ready',
+  auth_status_expiring: 'Expires soon',
+  auth_status_expired: 'Expired',
+  auth_status_unknown: 'Unknown',
+  artifact_count_one: '$1 file',
+  artifact_count_other: '$1 files',
+  runtime_status_ready: 'Ready to run',
+  runtime_status_auto_auth: 'Authentication refreshes when needed',
+  runtime_status_auth_required: 'Authentication required',
+  runtime_status_auth_expiring: 'Ready · authentication expires soon',
+  runtime_status_disabled: 'Disabled locally',
+  runtime_status_update: 'Runtime contract needs attention',
+  run_never: 'Not run on this device',
+  run_success: 'Succeeded',
+  run_error: 'Failed',
   lifecycle_health_checked: '$1 · checked $2',
   lifecycle_health_not_checked: 'Not yet checked for usability',
   lifecycle_health_healthy: 'Contract healthy',
@@ -414,9 +517,11 @@ const relayReviewWarningText = document.querySelector<HTMLParagraphElement>('#re
 const relayReviewWarningCommand = document.querySelector<HTMLElement>('#relay-review-warning-command')
 const refreshButton = document.querySelector<HTMLButtonElement>('#refresh-button')
 const searchInput = document.querySelector<HTMLInputElement>('#search-input')
+const statusFilter = document.querySelector<HTMLSelectElement>('#status-filter')
 const viewEyebrow = document.querySelector<HTMLParagraphElement>('#view-eyebrow')
 const viewTitle = document.querySelector<HTMLHeadingElement>('#view-title')
 const viewDescription = document.querySelector<HTMLParagraphElement>('#view-description')
+const skillsSummary = document.querySelector<HTMLParagraphElement>('#skills-summary')
 const recordingsCount = document.querySelector<HTMLSpanElement>('#recordings-count')
 const skillsCount = document.querySelector<HTMLSpanElement>('#skills-count')
 const localeText = document.querySelector<HTMLElement>('#locale-text')
@@ -442,16 +547,16 @@ const replayWarning = document.querySelector<HTMLParagraphElement>('#replay-warn
 const replayDetails = document.querySelector<HTMLDivElement>('#replay-details')
 const toast = document.querySelector<HTMLDivElement>('#toast')
 
-let activeTab: ActiveTab = 'recordings'
+let activeTab: ActiveTab = 'skills'
 let selectedReplayId: string | null = null
 let selectedCapabilityId: string | null = null
 let replayRecordings: SavedReplayRecording[] = []
 let capabilities: CapabilityContract[] = []
-let capabilityCwd = ''
 let replayLoadError: LoadError | null = null
 let capabilityLoadError: LoadError | null = null
 let relayVersionUpdate: RelayVersionUpdate | null = null
 let searchQuery = ''
+let capabilityStatusFilter: CapabilityStatusFilter = 'all'
 let replayFitCleanup: (() => void) | null = null
 let activeReplayer: Replayer | null = null
 let replayIsPlaying = false
@@ -534,12 +639,46 @@ function isCapabilityRunRecord(value: unknown): value is CapabilityRunRecord {
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&
+    isStringOrUndefined(value.operation) &&
     typeof value.status === 'string' &&
     isStringOrUndefined(value.url) &&
     typeof value.durationMs === 'number' &&
     typeof value.inputHash === 'string' &&
     isStringOrUndefined(value.error) &&
     typeof value.createdAt === 'string'
+  )
+}
+
+function isCapabilityOperation(value: unknown): value is CapabilityOperation {
+  return (
+    isRecord(value) &&
+    typeof value.title === 'string' &&
+    typeof value.description === 'string' &&
+    (value.permissions === undefined || isStringArray(value.permissions)) &&
+    typeof value.sideEffect === 'string' &&
+    typeof value.requiresConfirmation === 'boolean'
+  )
+}
+
+function normalizeCapabilityOperations(value: unknown): Record<string, CapabilityOperation> {
+  if (!isRecord(value)) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([id, operation]) => {
+      if (!isCapabilityOperation(operation)) {
+        return []
+      }
+      return [
+        [
+          id,
+          {
+            ...operation,
+            permissions: operation.permissions || [],
+          },
+        ],
+      ]
+    }),
   )
 }
 
@@ -593,6 +732,55 @@ function isCapabilityLifecycle(value: unknown): value is CapabilityLifecycle {
   )
 }
 
+function isAgentSkillManager(value: unknown): value is AgentSkillManager {
+  return value === 'codex' || value === 'agents' || value === 'claude' || value === 'custom'
+}
+
+function isAgentSkillScope(value: unknown): value is AgentSkillScope {
+  return value === 'project' || value === 'user' || value === 'custom'
+}
+
+function isCapabilityAuthStatus(value: unknown): value is CapabilityAuthStatus {
+  return (
+    value === 'not-required' ||
+    value === 'missing' ||
+    value === 'authenticated' ||
+    value === 'expiring' ||
+    value === 'expired' ||
+    value === 'unknown'
+  )
+}
+
+function isAgentSkillInstallation(value: unknown): value is AgentSkillInstallation {
+  return (
+    isRecord(value) &&
+    isAgentSkillManager(value.manager) &&
+    isAgentSkillScope(value.scope) &&
+    typeof value.skillDir === 'string' &&
+    typeof value.runtimeDir === 'string'
+  )
+}
+
+function isAgentSkillMetadata(value: unknown): value is AgentSkillMetadata {
+  if (!isRecord(value) || !Array.isArray(value.installations) || !isRecord(value.localState)) {
+    return false
+  }
+  if (!isRecord(value.localState.auth)) {
+    return false
+  }
+  return (
+    value.installations.every(isAgentSkillInstallation) &&
+    (value.hasRuntimeConflict === undefined || typeof value.hasRuntimeConflict === 'boolean') &&
+    typeof value.localState.stateDir === 'string' &&
+    typeof value.localState.auth.type === 'string' &&
+    isCapabilityAuthStatus(value.localState.auth.status) &&
+    typeof value.localState.auth.canRefresh === 'boolean' &&
+    isStringOrUndefined(value.localState.auth.refreshedAt) &&
+    isStringOrUndefined(value.localState.auth.expiresAt) &&
+    typeof value.localState.artifactCount === 'number'
+  )
+}
+
 function isCapabilityContractPayload(value: unknown): value is CapabilityContractPayload {
   return (
     isRecord(value) &&
@@ -623,13 +811,17 @@ function normalizeCapabilityContract(value: unknown): CapabilityContract | null 
     return null
   }
   const hasUnsupportedLifecycle = value.lifecycle !== undefined && !isCapabilityLifecycle(value.lifecycle)
-  const unsupportedReason = msg('lifecycle_unsupported')
+  const unsupportedReason = UNSUPPORTED_LIFECYCLE_REASON
   return {
     ...value,
+    operations: normalizeCapabilityOperations(value.operations),
     autonomousInvocation: hasUnsupportedLifecycle
       ? { allowed: false, reasons: [unsupportedReason] }
       : value.autonomousInvocation,
     recentRuns: value.recentRuns.filter(isCapabilityRunRecord),
+    agentSkill: isAgentSkillMetadata(value.agentSkill)
+      ? { ...value.agentSkill, hasRuntimeConflict: value.agentSkill.hasRuntimeConflict || false }
+      : undefined,
     lifecycle: hasUnsupportedLifecycle
       ? {
           stage: 'drifted',
@@ -715,8 +907,7 @@ async function loadRelayVersion(): Promise<void> {
     const data: unknown = await response.json()
     const currentVersion = isRecord(data) && typeof data.version === 'string' ? data.version : null
     relayVersionUpdate =
-      currentVersion &&
-      isRelayVersionOutdated({ currentVersion, requiredVersion: __PLAYWRITER_VERSION__ })
+      currentVersion && isRelayVersionOutdated({ currentVersion, requiredVersion: __PLAYWRITER_VERSION__ })
         ? { currentVersion, requiredVersion: __PLAYWRITER_VERSION__ }
         : null
     updateRelayReviewWarning()
@@ -758,11 +949,6 @@ function replayCountText(count: number): string {
   return count === 1 ? msg('status_replay_count_one', String(count)) : msg('status_replay_count_other', String(count))
 }
 
-function capabilityCountText(count: number, cwd: string): string {
-  const key: MessageKey = count === 1 ? 'status_capability_count_one' : 'status_capability_count_other'
-  return msg(key, [String(count), cwd])
-}
-
 function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase()
 }
@@ -791,6 +977,9 @@ function capabilitySearchText(capability: CapabilityContract): string {
     capability.routingHint,
     capability.tags.join('\n'),
     capability.match.join('\n'),
+    ...(capability.agentSkill?.installations.flatMap((installation) => {
+      return [installation.manager, installation.scope, installation.skillDir, installation.runtimeDir]
+    }) || []),
   ].join('\n')
 }
 
@@ -804,11 +993,11 @@ function getFilteredRecordings(): SavedReplayRecording[] {
 }
 
 function getFilteredCapabilities(): CapabilityContract[] {
-  if (!searchQuery) {
-    return capabilities
-  }
   return capabilities.filter((capability) => {
-    return capabilitySearchText(capability).toLowerCase().includes(searchQuery)
+    const matchesSearch = !searchQuery || capabilitySearchText(capability).toLowerCase().includes(searchQuery)
+    const matchesStatus =
+      capabilityStatusFilter === 'all' || capabilityViewState(capability) === capabilityStatusFilter
+    return matchesSearch && matchesStatus
   })
 }
 
@@ -869,7 +1058,14 @@ function updateMetrics(): void {
   }).length
   setText(metricPrimaryValue, String(capabilities.length))
   setText(metricSecondaryValue, String(availableCount))
-  setText(metricTertiaryValue, String(capabilities.length))
+  const installationCount = capabilities.reduce((count, capability) => {
+    return count + (capability.agentSkill?.installations.length || 1)
+  }, 0)
+  setText(metricTertiaryValue, String(installationCount))
+  const readyCount = capabilities.filter((capability) => {
+    return capabilityViewState(capability) === 'ready'
+  }).length
+  setText(skillsSummary, msg('skills_summary', [String(capabilities.length), String(readyCount), String(capabilities.length - readyCount)]))
 }
 
 function languageLabel(language: LanguageCode): string {
@@ -910,7 +1106,7 @@ function rerenderLocalizedContent(): void {
   }
 
   renderCapabilities()
-  setStatus(loadErrorText(capabilityLoadError) || capabilityCountText(capabilities.length, capabilityCwd))
+  setStatus(loadErrorText(capabilityLoadError) || msg('status_service_ready'))
 }
 
 async function applyLanguage(language: LanguageCode): Promise<void> {
@@ -952,6 +1148,7 @@ function effectLabel(effect: string): string {
   if (effect === 'read') return msg('effect_read')
   if (effect === 'write') return msg('effect_write')
   if (effect === 'dangerous') return msg('effect_dangerous')
+  if (effect === 'mixed') return msg('effect_mixed')
   return effect
 }
 
@@ -964,25 +1161,117 @@ function routingLabel(routingHint: string): string {
 
 function locationLabel(location: string): string {
   if (location === 'project') return msg('location_project')
-  if (location === 'global') return msg('location_global')
+  if (location === 'global' || location === 'user') return msg('location_global')
+  if (location === 'skill') return msg('location_skill')
   return location
 }
 
-function capabilityReadinessBadge(capability: CapabilityContract): HTMLSpanElement {
+function agentSkillManagerLabel(manager: AgentSkillManager): string {
+  if (manager === 'codex') return msg('manager_codex')
+  if (manager === 'agents') return msg('manager_agents')
+  if (manager === 'claude') return msg('manager_claude')
+  return msg('manager_custom')
+}
+
+function agentSkillScopeLabel(scope: AgentSkillScope): string {
+  if (scope === 'project') return msg('scope_project')
+  if (scope === 'user') return msg('scope_user')
+  return msg('scope_custom')
+}
+
+function agentSkillInstallationSummary(capability: CapabilityContract): string {
+  if (!capability.agentSkill) {
+    return locationLabel(capability.location)
+  }
+  return capability.agentSkill.installations
+    .map((installation) => {
+      return `${agentSkillManagerLabel(installation.manager)} (${agentSkillScopeLabel(installation.scope)})`
+    })
+    .join(', ')
+}
+
+function agentSkillInstallationDetails(capability: CapabilityContract): string {
+  if (!capability.agentSkill) {
+    return locationLabel(capability.location)
+  }
+  return capability.agentSkill.installations
+    .map((installation) => {
+      return `${agentSkillManagerLabel(installation.manager)} (${agentSkillScopeLabel(installation.scope)})\n${installation.skillDir}`
+    })
+    .join('\n\n')
+}
+
+function capabilityAuthStatusLabel(status: CapabilityAuthStatus): string {
+  if (status === 'not-required') return msg('auth_status_not_required')
+  if (status === 'missing') return msg('auth_status_missing')
+  if (status === 'authenticated') return msg('auth_status_authenticated')
+  if (status === 'expiring') return msg('auth_status_expiring')
+  if (status === 'expired') return msg('auth_status_expired')
+  return msg('auth_status_unknown')
+}
+
+function artifactCountText(count: number): string {
+  return count === 1 ? msg('artifact_count_one', String(count)) : msg('artifact_count_other', String(count))
+}
+
+function capabilityViewState(capability: CapabilityContract): CapabilityViewState {
   const lifecycle = resolveCapabilityLifecycle(capability)
   if (lifecycle.stage === 'disabled') {
-    return createBadge(msg('badge_disabled'), 'disabled')
+    return 'disabled'
   }
-  if (lifecycle.stage === 'drifted') {
-    return createBadge(msg('badge_validation_expired'), 'drifted')
+  if (lifecycle.stage === 'drifted' || capability.agentSkill?.hasRuntimeConflict) {
+    return 'attention'
   }
-  if (lifecycle.stage === 'drafted' || lifecycle.stage === 'validated') {
-    return createBadge(msg('badge_local_draft'), 'draft')
+  const auth = capability.agentSkill?.localState.auth
+  if (auth && ['missing', 'expired', 'unknown'].includes(auth.status) && !auth.canRefresh) {
+    return 'attention'
   }
-  if (capability.requiresConfirmation) {
-    return createBadge(msg('badge_needs_confirmation'), 'write')
+  const lastTwoRuns = capability.recentRuns.slice(-2)
+  if (
+    lastTwoRuns.length === 2 &&
+    lastTwoRuns.every((run) => {
+      return run.status !== 'success'
+    })
+  ) {
+    return 'attention'
   }
-  return createBadge(msg('badge_auto_ready'), 'ready')
+  return 'ready'
+}
+
+function capabilityViewStateLabel(state: CapabilityViewState): string {
+  if (state === 'ready') return msg('status_ready')
+  if (state === 'disabled') return msg('status_disabled')
+  return msg('status_attention')
+}
+
+function capabilityLastRunText(capability: CapabilityContract): string {
+  const run = capability.recentRuns.at(-1)
+  if (!run) {
+    return msg('run_never')
+  }
+  const timestamp = Date.parse(run.createdAt)
+  const createdAt = Number.isNaN(timestamp)
+    ? run.createdAt
+    : new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
+  const status = run.status === 'success' ? msg('run_success') : msg('run_error')
+  return `${status} · ${createdAt} · ${formatDuration(run.durationMs)}`
+}
+
+function capabilityLastUsedText(capability: CapabilityContract): string {
+  const run = capability.recentRuns.at(-1)
+  if (!run) {
+    return msg('last_used_never')
+  }
+  const timestamp = Date.parse(run.createdAt)
+  const createdAt = Number.isNaN(timestamp)
+    ? run.createdAt
+    : new Date(timestamp).toLocaleDateString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
+  return msg('last_used', createdAt)
+}
+
+function capabilityReadinessBadge(capability: CapabilityContract): HTMLSpanElement {
+  const state = capabilityViewState(capability)
+  return createBadge(capabilityViewStateLabel(state), state)
 }
 
 function createBadge(text: string, tone = text): HTMLSpanElement {
@@ -1624,22 +1913,33 @@ function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityL
 }
 
 function capabilityAiContextText(capability: CapabilityContract): string {
+  const agentSkillContext = capability.agentSkill
+    ? [
+        `${isChineseLocale() ? '安装位置' : 'Installed by'}：${agentSkillInstallationSummary(capability)}`,
+        ...capability.agentSkill.installations.map((installation) => {
+          return `${agentSkillManagerLabel(installation.manager)}: ${installation.skillDir}`
+        }),
+        `${isChineseLocale() ? '本地运行态目录' : 'Local runtime state'}：${capability.agentSkill.localState.stateDir}`,
+      ]
+    : []
   if (isChineseLocale()) {
     return [
-      '这是一个 Tabwright capability。',
+      '这是一个 Tabwright Skill。',
       `Capability ID：${capability.id}`,
       `标题：${capability.title}`,
       `描述：${capability.description}`,
-      `目录：${capability.dir}`,
+      `运行契约目录：${capability.dir}`,
+      ...agentSkillContext,
     ].join('\n')
   }
 
   return [
-    'This is a Tabwright capability.',
+    'This is a Tabwright Skill.',
     `Capability ID: ${capability.id}`,
     `Title: ${capability.title}`,
     `Description: ${capability.description}`,
-    `Directory: ${capability.dir}`,
+    `Runtime contract directory: ${capability.dir}`,
+    ...agentSkillContext,
   ].join('\n')
 }
 
@@ -1697,22 +1997,224 @@ function lifecycleHealthMessage(lifecycle: CapabilityLifecycle): string {
       : new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')
     return msg('lifecycle_health_checked', [healthLabel, checkedAt])
   })()
-  return [summary, ...lifecycle.contractHealth.reasons].join('\n')
+  return [
+    summary,
+    ...lifecycle.contractHealth.reasons.map((reason) => {
+      return reason === UNSUPPORTED_LIFECYCLE_REASON ? msg('lifecycle_unsupported') : reason
+    }),
+  ].join('\n')
 }
 
-function createCapabilityActions(capability: CapabilityContract): HTMLDivElement {
+function createDiagnosticActions(capability: CapabilityContract): HTMLDivElement {
   const actions = document.createElement('div')
-  actions.className = 'skill-actions'
+  actions.className = 'technical-actions'
 
   const copyForAi = document.createElement('button')
   copyForAi.type = 'button'
-  copyForAi.textContent = msg('copy_for_ai')
+  copyForAi.textContent = msg('diagnostic_details')
   copyForAi.addEventListener('click', () => {
-    copyWithStatus({ label: msg('label_ai_context'), text: capabilityAiContextText(capability) })
+    copyWithStatus({ label: msg('label_skill_context'), text: capabilityAiContextText(capability) })
   })
 
   actions.replaceChildren(copyForAi)
   return actions
+}
+
+function capabilityOperationEntries(capability: CapabilityContract): Array<[string, CapabilityOperation]> {
+  const entries = Object.entries(capability.operations)
+  if (entries.length > 0) {
+    return entries
+  }
+  return [
+    [
+      capability.id,
+      {
+        title: capability.title,
+        description: capability.description,
+        permissions: capability.permissions,
+        sideEffect: capability.sideEffect,
+        requiresConfirmation: capability.requiresConfirmation,
+      },
+    ],
+  ]
+}
+
+function operationGroup(effect: string): 'read' | 'write' | 'dangerous' {
+  if (effect === 'dangerous') return 'dangerous'
+  if (effect === 'write' || effect === 'mixed') return 'write'
+  return 'read'
+}
+
+function createOperationsSection(capability: CapabilityContract): HTMLElement {
+  const section = document.createElement('section')
+  section.className = 'product-section'
+  const heading = document.createElement('h2')
+  heading.className = 'section-heading'
+  heading.textContent = msg('operations_title')
+
+  const groups = document.createElement('div')
+  groups.className = 'operation-groups'
+  const operationCount = capabilityOperationEntries(capability).length
+  const groupOrder: Array<'read' | 'write' | 'dangerous'> = ['read', 'write', 'dangerous']
+  groups.replaceChildren(
+    ...groupOrder.flatMap((group) => {
+      const entries = capabilityOperationEntries(capability).filter(([, operation]) => {
+        return operationGroup(operation.sideEffect) === group
+      })
+      if (entries.length === 0) {
+        return []
+      }
+      const groupElement = document.createElement('details')
+      groupElement.className = 'operation-group'
+      groupElement.open = operationCount <= 12
+      const groupHeading = document.createElement('summary')
+      groupHeading.className = 'operation-group-summary'
+      const groupTitle = document.createElement('strong')
+      groupTitle.textContent = msg(
+        group === 'read'
+          ? 'operation_group_read'
+          : group === 'write'
+            ? 'operation_group_write'
+            : 'operation_group_dangerous',
+      )
+      const count = document.createElement('span')
+      count.textContent = String(entries.length)
+      groupHeading.replaceChildren(groupTitle, count)
+      const list = document.createElement('div')
+      list.className = 'operation-list'
+      const createRows = (): HTMLDivElement[] => {
+        return entries.map(([id, operation]) => {
+          const row = document.createElement('div')
+          row.className = 'operation-row'
+          const content = document.createElement('div')
+          const title = document.createElement('strong')
+          title.textContent = operation.title || id
+          const description = document.createElement('p')
+          description.textContent = operation.description
+          content.replaceChildren(title, ...(operation.description ? [description] : []))
+          const badges = document.createElement('div')
+          badges.className = 'badge-row'
+          badges.replaceChildren(
+            createBadge(effectLabel(operation.sideEffect), operation.sideEffect),
+            ...(operation.requiresConfirmation ? [createBadge(msg('operation_confirmation'), 'write')] : []),
+          )
+          row.replaceChildren(content, badges)
+          return row
+        })
+      }
+      if (groupElement.open) {
+        list.replaceChildren(...createRows())
+      } else {
+        groupElement.addEventListener(
+          'toggle',
+          () => {
+            if (groupElement.open) {
+              list.replaceChildren(...createRows())
+            }
+          },
+          { once: true },
+        )
+      }
+      groupElement.replaceChildren(groupHeading, list)
+      return [groupElement]
+    }),
+  )
+  section.replaceChildren(heading, groups)
+  return section
+}
+
+function createRecentActivitySection(capability: CapabilityContract): HTMLElement {
+  const section = document.createElement('section')
+  section.className = 'product-section'
+  const heading = document.createElement('h2')
+  heading.className = 'section-heading'
+  heading.textContent = msg('recent_activity_title')
+  const list = document.createElement('div')
+  list.className = 'activity-list'
+  const runs = capability.recentRuns.slice(-5).reverse()
+  if (runs.length === 0) {
+    const empty = document.createElement('p')
+    empty.className = 'section-empty'
+    empty.textContent = msg('recent_activity_empty')
+    list.replaceChildren(empty)
+  } else {
+    list.replaceChildren(
+      ...runs.map((run) => {
+        const row = document.createElement('div')
+        row.className = 'activity-row'
+        const status = document.createElement('span')
+        status.className = `activity-status activity-status-${run.status === 'success' ? 'success' : 'error'}`
+        status.textContent = run.status === 'success' ? msg('run_success') : msg('run_error')
+        const operation = document.createElement('strong')
+        operation.textContent = run.operation
+          ? capability.operations[run.operation]?.title || run.operation
+          : capability.title
+        const timestamp = Date.parse(run.createdAt)
+        const time = document.createElement('span')
+        time.className = 'activity-meta'
+        time.textContent = `${Number.isNaN(timestamp) ? run.createdAt : new Date(timestamp).toLocaleString(activeLanguage === 'zh_CN' ? 'zh-CN' : 'en-US')} · ${formatDuration(run.durationMs)}`
+        row.replaceChildren(status, operation, time)
+        return row
+      }),
+    )
+  }
+  section.replaceChildren(heading, list)
+  return section
+}
+
+function createRuntimeConflictNotice(): HTMLElement {
+  const notice = document.createElement('div')
+  notice.className = 'skill-notice'
+  const title = document.createElement('strong')
+  title.textContent = msg('runtime_conflict_title')
+  const description = document.createElement('p')
+  description.textContent = msg('runtime_conflict_description')
+  notice.replaceChildren(title, description)
+  return notice
+}
+
+function createOverviewItem(options: { title: string; value: string }): HTMLDivElement {
+  const item = document.createElement('div')
+  item.className = 'overview-item'
+  const title = document.createElement('h3')
+  title.textContent = options.title
+  const value = document.createElement('div')
+  value.className = 'overview-value'
+  value.textContent = options.value
+  item.replaceChildren(title, value)
+  return item
+}
+
+function createCapabilityOverview(capability: CapabilityContract): HTMLElement {
+  const overview = document.createElement('section')
+  overview.className = 'capability-overview'
+
+  const purpose = document.createElement('div')
+  purpose.className = 'capability-purpose'
+  const purposeTitle = document.createElement('h3')
+  purposeTitle.textContent = msg('field_description')
+  const purposeValue = document.createElement('p')
+  purposeValue.textContent = capability.description || displayList(capability.whenToUse, '-')
+  purpose.replaceChildren(purposeTitle, purposeValue)
+
+  const summary = document.createElement('div')
+  summary.className = 'overview-grid'
+  summary.replaceChildren(
+    createOverviewItem({
+      title: msg('field_install_source'),
+      value: agentSkillInstallationSummary(capability),
+    }),
+    createOverviewItem({
+      title: msg('field_last_run'),
+      value: capabilityLastRunText(capability),
+    }),
+    createOverviewItem({
+      title: msg('field_saved_results'),
+      value: artifactCountText(capability.agentSkill?.localState.artifactCount || 0),
+    }),
+  )
+  overview.replaceChildren(purpose, summary)
+  return overview
 }
 
 function renderCapabilityDetail(capability: CapabilityContract): void {
@@ -1725,10 +2227,6 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   const title = document.createElement('h2')
   title.textContent = capability.title
 
-  const meta = document.createElement('div')
-  meta.className = 'detail-meta'
-  meta.textContent = capability.id
-
   const badges = document.createElement('div')
   badges.className = 'badge-row'
   badges.replaceChildren(
@@ -1736,14 +2234,7 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
     createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
   )
 
-  header.replaceChildren(title, meta, badges, createCapabilityActions(capability))
-
-  const primaryFields = document.createElement('div')
-  primaryFields.className = 'field-grid'
-  primaryFields.replaceChildren(
-    createField({ title: msg('field_description'), value: capability.description || '-', full: true }),
-    createField({ title: msg('field_when_to_use'), value: displayList(capability.whenToUse, '-'), full: true }),
-  )
+  header.replaceChildren(title, badges)
 
   const advancedDetails = document.createElement('details')
   advancedDetails.className = 'advanced-details'
@@ -1751,40 +2242,81 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
   advancedSummary.textContent = msg('technical_details')
   const advancedFields = document.createElement('div')
   advancedFields.className = 'field-grid'
+  const localStateFields: HTMLDivElement[] = capability.agentSkill
+    ? [
+        createField({
+          title: msg('field_auth_status'),
+          value: capabilityAuthStatusLabel(capability.agentSkill.localState.auth.status),
+        }),
+        createField({
+          title: msg('field_local_state'),
+          value: capability.agentSkill.localState.stateDir,
+          full: true,
+        }),
+      ]
+    : []
+  const installationFields: HTMLDivElement[] = capability.agentSkill
+    ? [
+        createField({
+          title: msg('field_installation_paths'),
+          value: agentSkillInstallationDetails(capability),
+          full: true,
+        }),
+      ]
+    : []
+  const commandFields: HTMLDivElement[] = capability.agentSkill
+    ? []
+    : [createCapabilityCommandField({ command: lifecycle.nextCommand })]
+  const registryFields: HTMLDivElement[] = capability.agentSkill
+    ? []
+    : [
+        createField({ title: msg('field_routing'), value: routingLabel(capability.routingHint) }),
+        createField({ title: msg('field_location'), value: locationLabel(capability.location) }),
+      ]
+  const optionalContractFields: HTMLDivElement[] = [
+    ...(capability.whenToUse.length > 0
+      ? [createField({ title: msg('field_when_to_use'), value: displayList(capability.whenToUse, '-'), full: true })]
+      : []),
+    ...(capability.whenNotToUse.length > 0
+      ? [
+          createField({
+            title: msg('field_when_not_to_use'),
+            value: displayList(capability.whenNotToUse, '-'),
+            full: true,
+          }),
+        ]
+      : []),
+    ...(capability.match.length > 0
+      ? [createField({ title: msg('field_match'), value: displayList(capability.match, '-') })]
+      : []),
+    ...(capability.permissions.length > 0
+      ? [createField({ title: msg('field_permissions'), value: displayList(capability.permissions, '-') })]
+      : []),
+  ]
   advancedFields.replaceChildren(
-    createCapabilityCommandField({ command: lifecycle.nextCommand }),
+    ...commandFields,
     createField({ title: msg('field_contract_health'), value: lifecycleHealthMessage(lifecycle), full: true }),
+    ...installationFields,
+    ...localStateFields,
     createField({ title: msg('field_runtime'), value: runtimeLabel(capability.runtime) }),
     createField({ title: msg('field_effect'), value: effectLabel(capability.sideEffect) }),
-    createField({ title: msg('field_routing'), value: routingLabel(capability.routingHint) }),
-    createField({ title: msg('detail_path'), value: capability.dir }),
-    createField({ title: msg('field_location'), value: locationLabel(capability.location) }),
-    createField({ title: msg('field_when_not_to_use'), value: displayList(capability.whenNotToUse, '-'), full: true }),
-    createField({ title: msg('field_match'), value: displayList(capability.match, '-') }),
-    createField({ title: msg('field_permissions'), value: displayList(capability.permissions, '-') }),
+    createField({ title: msg('detail_path'), value: capability.dir, full: true }),
+    ...registryFields,
+    ...optionalContractFields,
     createField({ title: msg('field_input'), value: schemaSummary(capability.inputSchema) }),
     createField({ title: msg('field_output'), value: schemaSummary(capability.outputSchema) }),
-    createField({
-      title: msg('field_autonomy'),
-      value: capability.autonomousInvocation.allowed
-        ? msg('autonomy_trusted_readonly')
-        : displayList(capability.autonomousInvocation.reasons, '-'),
-    }),
-    createField({
-      title: msg('field_recent_runs'),
-      value:
-        capability.recentRuns.length === 0
-          ? '-'
-          : capability.recentRuns
-              .map((run) => {
-                return `${run.status} ${formatDuration(run.durationMs)} ${run.createdAt}`
-              })
-              .join('\n'),
-    }),
   )
-  advancedDetails.replaceChildren(advancedSummary, advancedFields)
+  const diagnosticActions = createDiagnosticActions(capability)
+  advancedDetails.replaceChildren(advancedSummary, diagnosticActions, advancedFields)
 
-  skillDetail.replaceChildren(header, primaryFields, advancedDetails)
+  skillDetail.replaceChildren(
+    header,
+    ...(capability.agentSkill?.hasRuntimeConflict ? [createRuntimeConflictNotice()] : []),
+    createCapabilityOverview(capability),
+    createOperationsSection(capability),
+    createRecentActivitySection(capability),
+    advancedDetails,
+  )
 }
 
 function updateActiveCapability(): void {
@@ -1822,7 +2354,15 @@ function createCapabilityItem(capability: CapabilityContract): HTMLButtonElement
     createBadge(effectLabel(capability.sideEffect), capability.sideEffect),
   )
 
-  item.replaceChildren(title, meta, badges)
+  const footer = document.createElement('div')
+  footer.className = 'skill-list-footer'
+  const installation = document.createElement('span')
+  installation.textContent = agentSkillInstallationSummary(capability)
+  const lastUsed = document.createElement('span')
+  lastUsed.textContent = capabilityLastUsedText(capability)
+  footer.replaceChildren(installation, lastUsed)
+
+  item.replaceChildren(title, meta, badges, footer)
   item.addEventListener('click', () => {
     selectCapability(capability)
   })
@@ -1928,13 +2468,12 @@ async function loadCapabilities(options: { silent?: boolean } = {}): Promise<voi
     renderCapabilities()
     throw new Error(loadErrorText(capabilityLoadError))
   }
-  capabilityCwd = parsed.cwd
   capabilities = parsed.capabilities
   capabilityLoadError = null
   renderCapabilities()
   updateRelayReviewWarning()
   if (!options.silent) {
-    setStatus(capabilityCountText(parsed.capabilities.length, capabilityCwd))
+    setStatus(msg('status_service_ready'))
   }
 }
 
@@ -1967,6 +2506,15 @@ searchInput?.addEventListener('input', () => {
   renderCapabilities()
 })
 
+statusFilter?.addEventListener('change', () => {
+  const value = statusFilter.value
+  if (value !== 'all' && value !== 'ready' && value !== 'attention' && value !== 'disabled') {
+    return
+  }
+  capabilityStatusFilter = value
+  renderCapabilities()
+})
+
 languageButtons.forEach((button) => {
   button.addEventListener('click', () => {
     const language = button.dataset.language
@@ -1990,9 +2538,9 @@ document.querySelectorAll<HTMLButtonElement>('.tab-button').forEach((button) => 
 
 async function initializeOptionsPage(): Promise<void> {
   await initializeLanguage()
-  setActiveTab('recordings')
+  setActiveTab('skills')
   await loadRelayVersion()
-  await loadReplays()
+  await loadCapabilities()
 }
 
 initializeOptionsPage().catch((error: unknown) => {

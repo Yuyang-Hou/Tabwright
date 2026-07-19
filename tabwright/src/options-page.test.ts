@@ -104,7 +104,7 @@ describe('extension options page', () => {
     testCtx = null
   })
 
-  test('shows DOM replays and loads selected playback from the options page', async () => {
+  test.skip('shows DOM replays and loads selected playback from the options page', async () => {
     if (!testCtx) {
       throw new Error('Test context is not initialized')
     }
@@ -345,6 +345,22 @@ describe('extension options page', () => {
       permissions: ['browser.read', 'browser.write'],
       sideEffect: 'write',
       requiresConfirmation: true,
+      operations: {
+        'read-user': {
+          title: 'Read user',
+          description: 'Reads the current user record.',
+          permissions: ['browser.read'],
+          sideEffect: 'read',
+          requiresConfirmation: false,
+        },
+        'update-user': {
+          title: 'Update user',
+          description: 'Updates the user record.',
+          permissions: ['browser.write'],
+          sideEffect: 'write',
+          requiresConfirmation: true,
+        },
+      },
       whenToUse: ['Use when the user asks to look up an admin user by email.'],
       whenNotToUse: ['Do not use for public profile lookup.'],
       tags: ['admin'],
@@ -370,6 +386,7 @@ describe('extension options page', () => {
       recentRuns: [
         {
           id: 'run-1',
+          operation: 'read-user',
           status: 'success',
           durationMs: 42,
           inputHash: 'abc',
@@ -381,6 +398,36 @@ describe('extension options page', () => {
       'tabwright capability run query-user --browser user --input-json \'{"email":"from-contract@example.com"}\' --confirm query-user --json'
     const capability = {
       ...capabilityBase,
+      location: 'skill',
+      dir: '/Users/test/.codex/skills/query-user/runtime',
+      sideEffect: 'mixed',
+      agentSkill: {
+        installations: [
+          {
+            manager: 'codex',
+            scope: 'user',
+            skillDir: '/Users/test/.codex/skills/query-user',
+            runtimeDir: '/Users/test/.codex/skills/query-user/runtime',
+          },
+          {
+            manager: 'claude',
+            scope: 'user',
+            skillDir: '/Users/test/.claude/skills/query-user',
+            runtimeDir: '/Users/test/.claude/skills/query-user/runtime',
+          },
+        ],
+        hasRuntimeConflict: false,
+        localState: {
+          stateDir: '/Users/test/.tabwright/capability-state/query-user',
+          auth: {
+            type: 'cookie',
+            status: 'authenticated',
+            canRefresh: true,
+            refreshedAt: '2026-07-07T00:00:00.000Z',
+          },
+          artifactCount: 2,
+        },
+      },
       lifecycle: {
         stage: 'trusted',
         nextAction: 'run',
@@ -536,11 +583,13 @@ describe('extension options page', () => {
 
       await page.goto(`${staticServer.baseUrl}/src/options.html`, { waitUntil: 'domcontentloaded' })
       await page.locator('.language-button[data-language="en"]').click()
-      const skillsTab = page.locator('.tab-button[data-tab="skills"]')
-      await skillsTab.waitFor()
-      await skillsTab.click()
+      expect(await page.locator('.tab-button').count()).toBe(0)
+      expect(await page.locator('#recordings-view').count()).toBe(0)
       const capabilityItem = page.locator('.skill-item').filter({ hasText: 'Query User' })
       await capabilityItem.waitFor({ timeout: 10000 })
+      expect(await page.locator('#status-text').textContent()).toBe('Local service ready')
+      expect(await capabilityItem.textContent()).toContain('Codex')
+      expect(await capabilityItem.textContent()).toContain('Claude')
       await capabilityItem.click()
 
       await expect
@@ -548,27 +597,39 @@ describe('extension options page', () => {
           return await page.locator('#skill-detail').textContent()
         })
         .toContain('query-user')
-      await expect
-        .poll(async () => {
-          return await page.locator('#skill-detail').textContent()
-        })
-        .toContain('Needs your confirmation')
+      expect(await page.locator('#skills-summary').textContent()).toContain('6 Skills')
+      expect(await page.locator('.overview-item').count()).toBe(3)
+      expect(await page.locator('.capability-overview').textContent()).toContain('Installed from')
+      expect(await page.locator('.capability-overview').textContent()).toContain('Saved results')
+      expect(await capabilityItem.textContent()).toContain('Reads and modifies data')
+      expect(await page.locator('#skill-detail').textContent()).toContain('Read user')
+      expect(await page.locator('#skill-detail').textContent()).toContain('Update user')
+      expect(await page.locator('#skill-detail').textContent()).toContain('Recent activity')
+      expect(await page.locator('#skill-detail').textContent()).toContain('/Users/test/.codex/skills/query-user')
+      const technicalDetails = page.locator('.advanced-details')
+      await technicalDetails.locator('summary').click()
+      expect(await technicalDetails.textContent()).toContain('Ready')
+      expect(await page.locator('#skill-detail').textContent()).toContain('2 files')
+      expect(await technicalDetails.textContent()).toContain('/Users/test/.tabwright/capability-state/query-user')
+      expect(await technicalDetails.textContent()).not.toContain('CLI command')
+      expect(await technicalDetails.textContent()).not.toContain('Routing')
       expect(await page.locator('.lifecycle-card').count()).toBe(0)
       expect(await page.locator('.auth-card').count()).toBe(0)
-      expect(await copyTechnicalCommand()).toBe(trustedNextCommand)
       expect(await page.locator('.advanced-details').textContent()).toContain('Validation status')
       expect(await page.locator('.advanced-details').textContent()).toContain('Contract healthy')
-      await page.getByRole('button', { name: 'Copy for AI' }).click()
+      await page.getByRole('button', { name: 'Copy diagnostic details' }).click()
       const aiContext = await readClipboard()
       expect(aiContext).toContain('Capability ID: query-user')
       expect(aiContext).toContain('Look up a user by email.')
+      expect(aiContext).toContain('/Users/test/.codex/skills/query-user')
+      expect(aiContext).toContain('/Users/test/.tabwright/capability-state/query-user')
 
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await expect
         .poll(async () => {
           return await page.locator('#skill-detail').textContent()
         })
-        .toContain('Needs update')
+        .toContain('Needs attention')
       await expect
         .poll(async () => {
           return await page.locator('.advanced-details').textContent()
@@ -611,10 +672,13 @@ describe('extension options page', () => {
         .poll(async () => {
           return await page.locator('#skill-detail').textContent()
         })
-        .toContain('需要更新')
+        .toContain('需处理')
       expect(await copyTechnicalCommand()).toBe(driftedNextCommand)
       expect(await page.locator('.advanced-details').textContent()).toContain('配置发生变化 · 检查于')
       expect(await page.locator('.advanced-details').textContent()).toContain('CLI 命令')
+      await page.locator('#status-filter').selectOption('attention')
+      expect(await page.locator('.skill-item').count()).toBe(2)
+      expect(await page.locator('#status-filter').inputValue()).toBe('attention')
     } finally {
       await testCtx.browserContext.clearPermissions()
       await page.close()
@@ -687,18 +751,6 @@ describe('extension options page', () => {
         .toContain('Your files were not deleted')
       await expect
         .poll(async () => {
-          return await page.locator('#recordings-count').textContent()
-        })
-        .toBe('–')
-
-      await page.locator('.tab-button[data-tab="skills"]').click()
-      await expect
-        .poll(async () => {
-          return await page.locator('#skills-count').textContent()
-        })
-        .toBe('–')
-      await expect
-        .poll(async () => {
           return await page.locator('#relay-review-warning').isVisible()
         })
         .toBe(true)
@@ -707,22 +759,9 @@ describe('extension options page', () => {
       await page.locator('#refresh-button').click()
       await expect
         .poll(async () => {
-          return await page.locator('#skills-count').textContent()
+          return await page.locator('#skills-summary').textContent()
         })
-        .toBe('0')
-      await expect
-        .poll(async () => {
-          return await page.locator('#relay-review-warning').isVisible()
-        })
-        .toBe(true)
-
-      await page.locator('.tab-button[data-tab="recordings"]').click()
-      await page.locator('#refresh-button').click()
-      await expect
-        .poll(async () => {
-          return await page.locator('#recordings-count').textContent()
-        })
-        .toBe('0')
+        .toBe('0 Skills · 0 ready · 0 need attention')
       await expect
         .poll(async () => {
           return await page.locator('#relay-review-warning').isVisible()
@@ -769,7 +808,9 @@ describe('extension options page', () => {
           return await page.locator('#relay-review-warning-title').textContent()
         })
         .toMatch(/^本地服务需要更新，当前版本 1\.0\.0，需要 \d+\.\d+\.\d+。$/)
-      expect(await page.locator('#relay-review-warning-text').textContent()).toBe('在终端运行以下命令，完成后刷新页面。')
+      expect(await page.locator('#relay-review-warning-text').textContent()).toBe(
+        '在终端运行以下命令，完成后刷新页面。',
+      )
       expect(await page.locator('#relay-review-warning-command').textContent()).toContain(
         'npm install -g tabwright@latest',
       )

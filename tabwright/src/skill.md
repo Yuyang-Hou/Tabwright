@@ -303,6 +303,8 @@ tabwright capability skill export query-user --output ./skills/query-user
 
 The exported directory contains the standard root `SKILL.md`, optional `agents/openai.yaml`, and a bundled runtime under `runtime/`. A fresh agent resolves the runtime relative to `SKILL.md` and passes that directory directly to `capability run`. Agent-managed runtimes are ready immediately; Tabwright validates them and refreshes declared browser authentication automatically. It never copies the runtime and stores only device-local state under `~/.tabwright/capability-state/<id>/`.
 
+The extension Options page has a read-only **Tabwright Skills** view. It discovers installed skills containing both `SKILL.md` and `runtime/capability.json` under the current project's and user's `.codex/skills`, `.agents/skills`, and `.claude/skills` directories. Additional manager roots can be supplied with the platform-delimited `TABWRIGHT_SKILL_DIRS` environment variable. Tabwright never installs, updates, or removes these skills; it only joins their runtime contract with safe local status from `~/.tabwright/capability-state/<id>/` and never exposes Cookie, Token, or secret values.
+
 When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
 
 - Put agent-facing discovery, routing, workflow, and display semantics in the standard `SKILL.md`.
