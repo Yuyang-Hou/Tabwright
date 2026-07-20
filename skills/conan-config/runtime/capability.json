@@ -432,6 +432,309 @@
       "sideEffect": "read",
       "requiresConfirmation": false
     },
+    "search-schemas": {
+      "title": "搜索配置 Schema",
+      "description": "按 ID、名称和 bizKey 搜索 Schema，默认只返回紧凑元数据。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境。"
+          },
+          "id": {
+            "type": "number"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "bizKey": {
+            "type": "string",
+            "enum": [
+              "config"
+            ]
+          },
+          "page": {
+            "type": "number"
+          },
+          "pageSize": {
+            "type": "number"
+          },
+          "includeSchemaJson": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "schemas": {
+            "type": "array"
+          },
+          "pageInfo": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "count",
+          "total",
+          "schemas",
+          "pageInfo"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "prepare-create-schema": {
+      "title": "准备新建配置 Schema",
+      "description": "校验 Schema 元数据与完整 JSON，检查重名和环境风险并生成不可变预览。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "bizKey": {
+            "type": "string",
+            "enum": [
+              "config"
+            ]
+          },
+          "type": {
+            "type": "number",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "schemaJson": {
+            "type": [
+              "object",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "name",
+          "desc",
+          "schemaJson",
+          "type"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "object"
+          },
+          "schemaJson": {
+            "type": "object"
+          },
+          "schemaSha256": {
+            "type": "string"
+          },
+          "targetSha256": {
+            "type": "string"
+          },
+          "matchingSchemas": {
+            "type": "array"
+          },
+          "matchingSchemasSha256": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array"
+          },
+          "instruction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "environment",
+          "definition",
+          "schemaJson",
+          "schemaSha256",
+          "targetSha256",
+          "matchingSchemas",
+          "matchingSchemasSha256",
+          "warnings",
+          "instruction"
+        ]
+      },
+      "sideEffect": "read",
+      "requiresConfirmation": false
+    },
+    "create-schema": {
+      "title": "新建配置 Schema",
+      "description": "复核已准备的完整 Schema 和重复候选后创建，按返回的 schemaId 回读验证。",
+      "match": [],
+      "routingHint": "search-first",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "cn-prod",
+              "cn-test"
+            ],
+            "description": "国内正式或国内测试环境。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "bizKey": {
+            "type": "string",
+            "enum": [
+              "config"
+            ]
+          },
+          "type": {
+            "type": "number",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "schemaJson": {
+            "type": [
+              "object",
+              "string"
+            ]
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "name",
+          "desc",
+          "schemaJson",
+          "type",
+          "validationReport"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "definition": {
+            "type": "object"
+          },
+          "schemaSha256": {
+            "type": "string"
+          },
+          "targetSha256": {
+            "type": "string"
+          },
+          "verifiedSchemaSha256": {
+            "type": "string"
+          },
+          "schema": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "validationErrors": {
+            "type": "array"
+          },
+          "submitted": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "validationErrors",
+          "submitted",
+          "published",
+          "verified"
+        ]
+      },
+      "sideEffect": "write",
+      "requiresConfirmation": true
+    },
     "prepare-publish-draft": {
       "title": "准备发布草稿",
       "description": "读取当前线上值和草稿，计算哈希与语义 Diff，供 AI 校验后确认发布。",
@@ -1559,6 +1862,15 @@
         "action": "search",
         "query": "会员订单"
       }
+    },
+    {
+      "description": "按名称搜索可复用的配置 Schema",
+      "input": {
+        "action": "search-schemas",
+        "environment": "cn-prod",
+        "name": "会员订单",
+        "bizKey": "config"
+      }
     }
   ],
   "entry": "script.js",
@@ -1566,5 +1878,5 @@
   "status": "draft",
   "createdBy": "ai",
   "createdAt": "2026-07-13T07:33:35.350Z",
-  "updatedAt": "2026-07-16T02:52:50.541Z"
+  "updatedAt": "2026-07-20T03:10:49.000Z"
 }

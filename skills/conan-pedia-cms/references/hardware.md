@@ -1,6 +1,6 @@
 # 硬件管理
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `explore-task-activity-list` | 查询探索活动列表 | params 可选 | 只读 |
 | `explore-task-activity-detail` | 查询探索活动详情 | params: id | 只读 |

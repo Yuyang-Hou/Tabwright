@@ -285,7 +285,9 @@ tabwright capability describe bilibili-current-user --json
 tabwright capability show query-user
 ```
 
-Create and edit capabilities. Use `--runtime node` for API/HTTP capabilities that can run without a browser. Use `--contract-file` to update the AI-readable contract (`whenToUse`, `whenNotToUse`, `sideEffect`, `auth`, schemas, examples, tags).
+Create and edit capabilities. Use `--runtime node` for API/HTTP capabilities that can run without a browser. Use `--contract-file` to update the AI-readable contract (`whenToUse`, `whenNotToUse`, `sideEffect`, `auth`, `execution`, schemas, examples, tags).
+
+`execution` explains how the runtime completes the task without asking the user to understand the website's verification mechanism. Supported strategies are `direct-request`, `browser-request`, `browser-ui`, and `hybrid`. A hybrid workflow uses the real page to trigger a protected request and observes the matching network result. `requiresUserBrowser` means the capability must use the signed-in Chrome session. `humanAssistance` is `none`, `on-challenge`, or `required`; when a generated workflow returns `status: "needs_human"`, pause and ask the user to complete verification in the open browser, then rerun the same approved input.
 
 ```bash
 tabwright capability create query-user --project --title "Query user"
@@ -320,7 +322,7 @@ tabwright capability skill export query-user --output ./skills/query-user
 
 The export contains one semantic source, `SKILL.md`, plus a runtime-only contract under `runtime/`. The command refuses existing output directories; update and distribute the result through the user's agent-native skill or plugin manager.
 
-Run a registered capability id or an absolute Skill runtime directory with structured JSON input. `node` runtimes run locally without opening Chrome. `browser` runtimes create a headless session by default when `-s` is omitted; use `--browser user` when the capability needs the user's logged-in Chrome session.
+Run a registered capability id or an absolute Skill runtime directory with structured JSON input. `node` runtimes run locally without opening Chrome. Browser capabilities marked `execution.requiresUserBrowser: true` automatically select the signed-in user browser and reject `--browser headless`; other browser capabilities create a headless session by default when `-s` is omitted.
 
 ```bash
 tabwright capability run "/absolute/path/to/skill/runtime" --input-json '{"query":"example"}' --json
@@ -338,7 +340,7 @@ tabwright capability run bilibili-current-user --json
 
 When multiple Chrome extension connections exist, pass a browser key from `tabwright browser list` instead of `user`.
 
-When turning a user demonstration into a repeatable workflow, do not analyze during recording. Keep the recording/replay id as evidence, then generate a draft browser capability only after the user gives the id plus a concrete goal. Generated workflow scripts should run directly and return `needs_ai` with page context when the live page diverges.
+When turning a user demonstration into a repeatable workflow, do not analyze during recording. Keep the recording/replay id as evidence, then generate a draft browser capability only after the user gives the id plus a concrete goal. Prefer the cheapest verified strategy, but treat browser interaction as a valid final runtime rather than a failed API conversion. Generated workflow scripts should return `needs_ai` with page context when the live page diverges and `needs_human` when the live page presents a verification challenge.
 
 Cookie auth declared with `refresh: "from-browser"` is refreshed automatically before a run when it is missing, expired, unknown, or stale and expiring. A read-only operation that reports a declared auth failure is refreshed and retried once. Write and dangerous operations are refreshed but never retried automatically after a request may have started. Cookie values stay in local `secrets.json` and are never printed or shown in the extension Options page.
 
@@ -1126,7 +1128,7 @@ console.log(state.replayResult)
 // replay.events({ id: state.replayResult.id })
 ```
 
-**workflow.saveFromRecording / workflow.saveCapability** - after the user gives a demonstration replay id and a concrete goal, save the derived reusable flow as a project capability. Prefer `workflow.saveFromRecording()` when the flow can be represented as structured steps; use `workflow.saveCapability()` when you need to write a custom script. Saved workflows start as `draft`, have `sideEffect: "write"` and `requiresConfirmation: true` by default, and can later be inspected or run with `tabwright capability ...`. The generated script runs the live frontend flow, observes the expected final request when `finalRequest` is provided, and returns `needs_ai` with a snapshot when the page no longer matches the replay. Omit `finalRequest` for flows that do not have a real submit/request boundary.
+**workflow.saveFromRecording / workflow.saveCapability** - after the user gives a demonstration replay id and a concrete goal, save the derived reusable flow as a project capability. Prefer `workflow.saveFromRecording()` when the flow can be represented as structured steps; use `workflow.saveCapability()` when you need to write a custom script. Saved workflows start as `draft`, have `sideEffect: "write"` and `requiresConfirmation: true` by default, and can later be inspected or run with `tabwright capability ...`. Workflows with a `finalRequest` are marked as `hybrid`: the live frontend creates any required signature and the runtime observes the resulting request. The generated script returns `needs_ai` with a snapshot when the page no longer matches the replay, or `needs_human` when a CAPTCHA, SMS check, or similar challenge needs the user. Omit `finalRequest` for flows that do not have a real submit/request boundary.
 
 **replay list** - use `tabwright replay list --limit 10 --json` to discover saved demonstrations without connecting to the relay. Results are newest-first and include the exact inspect and make commands for each replay.
 

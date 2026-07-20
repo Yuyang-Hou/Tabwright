@@ -1,10 +1,32 @@
 ---
 title: Use Cases
-description: Practical examples of what you can do with Tabwright, from QA testing to task automation.
+description: Turn authenticated back-office and protected browser workflows into reusable Agent Skills.
 icon: lucide:lightbulb
 ---
 
-Tabwright gives agents and scripts access to your **real Chrome browser** with all your logins, extensions, and cookies. Here are some things people use it for.
+Tabwright turns work that is trapped in a website into a reusable Agent Skill. It is most valuable when
+the task depends on a signed-in browser, an internal admin UI, or a request the website verifies dynamically.
+
+## Internal operations without an API
+
+Demonstrate a task once in an authenticated admin console: look up an order, update a configuration,
+review a coupon, or export a report. Tabwright packages the demonstrated intent, input and output schemas,
+permissions, and confirmation policy into a Skill that a fresh agent session can call directly.
+
+The Skill does not force the user to explain SSO, cookies, or internal request headers. Its execution
+contract states whether it can run as a direct request, needs the signed-in browser, or may pause for a
+human verification checkpoint.
+
+## Protected product interactions
+
+Some websites expose a useful request but reject a copied HTTP call because the frontend adds a short-lived
+signature, device proof, or risk-control context. Tabwright treats this as a normal browser workflow, not a
+failed API conversion.
+
+For example, an image-generation Skill can fill the prompt and click the website's real Generate button,
+let the product frontend create the verified request, then observe the matching network response and return
+the generated asset ID and URL. If the site presents a CAPTCHA or SMS check, the Skill returns
+`needs_human`, waits for the user to complete it in Chrome, and can be run again with the same approved input.
 
 ## Web development
 

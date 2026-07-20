@@ -1,14 +1,7 @@
 ---
 name: cozy-pedia-order-refund
-description: "当用户明确要求通过后端 API 为指定 Cozy UID 退款近期尚未退款的百科订单时，使用此 Tabwright Skill。该操作会产生真实退款，只能在展示具体 UID 和影响后获得用户明确确认再执行。"
+description: "当用户明确要求通过后端 API 为指定 Cozy UID 退款近期尚未退款的百科订单时，使用此 Tabwright 技能。该操作会产生真实退款，只能在展示具体 UID 和影响后获得用户明确确认再执行。"
 ---
-
-## Tabwright Runtime
-
-Resolve `<runtime-dir>` to the absolute `runtime/` directory next to this `SKILL.md` and run it directly. Use `tabwright` when available; if it is missing or too old for Skill runtime paths, replace it with `npm exec --yes --package=tabwright@latest -- tabwright`. Ask the user only if Node.js or npm is unavailable.
-
-Tabwright validates the runtime and refreshes declared browser authentication automatically. Do not run `describe`, `trust`, `--force`, or `refresh-auth` as setup. Local readiness never replaces per-run confirmation. Pause only if Tabwright reports that the required Chrome login is unavailable.
-
 
 ## 使用场景
 
@@ -32,3 +25,11 @@ tabwright capability run "<runtime-dir>" --confirm cozy-pedia-order-refund --inp
 - 简要回复以下信息：UID、已退款订单 ID、存在时展示金额、操作人，以及已退款/已跳过/失败数量。
 - 如果 `refundedCount` 为零，优先展示后端错误或跳过原因。
 - 仅当用户要求查看原始输出，或存在多条结果需要检查时，才提及产物路径。
+
+## Tabwright 运行环境
+
+将本 `SKILL.md` 同级的 `runtime/` 目录解析为绝对路径，并通过 `tabwright capability run "<技能绝对路径>/runtime" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
+
+优先使用 `tabwright`。如命令不存在或不支持技能运行目录，改用 `npm exec --yes --package=tabwright@latest -- tabwright`。仅当 Node.js 或 npm 不可用时才询问用户。
+
+Tabwright 每次执行都会校验 `runtime/capability.json` 和 `runtime/script.js`，并按需自动刷新已声明的浏览器认证。不要将 `describe`、`trust`、`--force` 或 `refresh-auth` 作为初始化步骤。本地准备就绪不能替代每次操作前的明确确认。仅当 Tabwright 报告浏览器登录不可用，或所选操作需要明确确认时才暂停。

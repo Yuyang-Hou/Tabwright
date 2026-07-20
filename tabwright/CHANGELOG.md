@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.1.0
+
+### Minor Changes
+
+- Describe capability execution as direct requests, browser requests, UI interaction, or hybrid workflows, require the signed-in browser when declared, and return resumable human checkpoints for website verification challenges.
+- 9d12359: Discover agent-managed Tabwright Skills from standard Codex, Claude, and Agent Skills directories, read their user-facing purpose from `SKILL.md`, and turn the extension Options page into a focused local status center with status filtering, responsive summaries, readiness, safety, operation groups, recent activity, and installed-copy conflict warnings.
+
+### Patch Changes
+
+- Direct Skill discovery and installation to the central Skill manager instead of publishing a separate website installation feed.
+- Place exported Skill workflow instructions before shared runtime details and generate Chinese agent-facing copy for capabilities with Chinese metadata.
+
 ## 3.0.0
 
 ### Major Changes

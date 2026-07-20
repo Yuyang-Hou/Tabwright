@@ -1,4 +1,4 @@
 interface:
   display_name: "电商后台统一查询"
-  short_description: "电商后台统一查询 capability using the Tabwright runtime"
-  default_prompt: "Use $conan-commerce to complete the matching task with its bundled Tabwright runtime."
+  short_description: "只读查询电商后台的用户、群组、优惠券、商品、订单和价格策略"
+  default_prompt: "使用 $conan-commerce 完成匹配的电商后台只读查询任务。"

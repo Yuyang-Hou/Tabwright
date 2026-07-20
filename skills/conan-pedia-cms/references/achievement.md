@@ -1,6 +1,6 @@
 # 成就体系
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `medal-config-list` | 查询勋章配置 | params 可选 | 只读 |
 | `medal-config-detail` | 查询勋章配置详情 | params: id | 只读 |

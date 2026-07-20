@@ -1,4 +1,4 @@
 interface:
   display_name: "Cozy 百科订单退款"
   short_description: "通过后端 API 为指定 Cozy UID 退款近期尚未退款的百科订单。"
-  default_prompt: "Use $cozy-pedia-order-refund to complete the matching task with its bundled Tabwright runtime."
+  default_prompt: "使用 $cozy-pedia-order-refund 为指定 Cozy UID 处理近期未退款的百科订单。"

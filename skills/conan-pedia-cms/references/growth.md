@@ -1,6 +1,6 @@
 # 营销增长
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `invite-code-list` | 查询邀请码列表 | params 可选 | 只读 |
 | `invite-code-change-status` | 上下线邀请码 | data: JSON 请求体 | 写入确认 |

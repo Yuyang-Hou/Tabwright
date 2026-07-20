@@ -33,6 +33,7 @@ import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } 
 import { getCloudClient, loadCloudAuth, saveCloudAuth, CloudClient, buildLiveUrl } from './cloud-client.js'
 import {
   createCapability,
+  getCapabilityExecutionConfig,
   getCapabilitySafetySummary,
   listCapabilities,
   requireCapability,
@@ -189,7 +190,10 @@ cli
   .option('--host <host>', 'Remote relay server host to connect to (or use TABWRIGHT_HOST env var)')
   .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
   .option('-s, --session <name>', 'Session ID (required for -e, get one with `tabwright session new`)')
-  .option('-e, --eval <code>', 'Execute JavaScript code and exit, read https://playwriter.dev/SKILL.md for usage')
+  .option(
+    '-e, --eval <code>',
+    'Execute JavaScript code and exit; manage skills at https://rush.zhenguanyu.com/next/skills/groups/3dbf7257-cc03-492e-aa71-11cc736e0876',
+  )
   .option('-f, --file <path>', 'Execute JavaScript from a file and exit')
   .option('--patchright', 'Use @playwriter/patchright-core for stealth mode (bypasses bot detection)')
   .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
@@ -565,11 +569,20 @@ function printCapabilityList(options: { capabilities: CapabilityRecord[]; json?:
   }
   const idWidth = Math.max(2, ...options.capabilities.map((capability) => capability.manifest.id.length))
   const statusWidth = Math.max(6, ...options.capabilities.map((capability) => capability.manifest.status.length))
-  console.log(`${'ID'.padEnd(idWidth)}  ${'Status'.padEnd(statusWidth)}  Runtime  Location  Title`)
-  console.log(`${'-'.repeat(idWidth)}  ${'-'.repeat(statusWidth)}  -------  --------  -----`)
+  const strategyWidth = Math.max(
+    9,
+    ...options.capabilities.map((capability) => getCapabilityExecutionConfig(capability).strategy.length),
+  )
+  console.log(
+    `${'ID'.padEnd(idWidth)}  ${'Status'.padEnd(statusWidth)}  Runtime  ${'Execution'.padEnd(strategyWidth)}  Location  Title`,
+  )
+  console.log(
+    `${'-'.repeat(idWidth)}  ${'-'.repeat(statusWidth)}  -------  ${'-'.repeat(strategyWidth)}  --------  -----`,
+  )
   options.capabilities.forEach((capability) => {
+    const strategy = getCapabilityExecutionConfig(capability).strategy
     console.log(
-      `${capability.manifest.id.padEnd(idWidth)}  ${capability.manifest.status.padEnd(statusWidth)}  ${capability.manifest.runtime.padEnd(7)}  ${capability.location.padEnd(8)}  ${capability.manifest.title}`,
+      `${capability.manifest.id.padEnd(idWidth)}  ${capability.manifest.status.padEnd(statusWidth)}  ${capability.manifest.runtime.padEnd(7)}  ${strategy.padEnd(strategyWidth)}  ${capability.location.padEnd(8)}  ${capability.manifest.title}`,
     )
   })
 }
@@ -850,10 +863,17 @@ async function runCapabilityFromCliOnce(options: {
   }
 
   const session = options.cliOptions.session || process.env.TABWRIGHT_SESSION
+  const execution = getCapabilityExecutionConfig(prepared.capability)
+  if (!session && execution.requiresUserBrowser && options.cliOptions.browser === 'headless') {
+    throw new Error(
+      `Capability ${prepared.capability.manifest.id} requires the signed-in user browser and cannot run with --browser headless. Use --browser user or an explicit browser key.`,
+    )
+  }
+  const defaultBrowser = execution.requiresUserBrowser ? 'user' : 'headless'
   const sessionInfo = session
     ? { sessionId: session, autoCreated: false }
     : await createCapabilityRunSession({
-        browser: options.cliOptions.browser || 'headless',
+        browser: options.cliOptions.browser || defaultBrowser,
         host: options.cliOptions.host,
         token: options.cliOptions.token,
       })

@@ -1,6 +1,6 @@
 # 向量知识库
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `vdb-knowledge-base-list` | 查询向量知识库 | params 可选 | 只读 |
 | `vdb-knowledge-base-detail` | 查询向量知识库详情 | params: id | 只读 |

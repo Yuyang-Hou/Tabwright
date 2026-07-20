@@ -1,7 +1,7 @@
 {
   "name": "tabwright",
-  "description": "Let AI agents control your existing Chrome through a local CLI and MCP server.",
-  "version": "3.0.0",
+  "description": "Turn signed-in browser workflows into portable, verified Agent Skills.",
+  "version": "3.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,7 +34,9 @@
     "chrome",
     "mcp",
     "playwright",
-    "ai-agent"
+    "ai-agent",
+    "agent-skills",
+    "workflow-automation"
   ],
   "author": "Yuyang Hou",
   "license": "Apache-2.0",

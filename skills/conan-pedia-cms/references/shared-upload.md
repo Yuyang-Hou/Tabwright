@@ -1,6 +1,6 @@
 # 公共支撑
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `asset-upload` | 上传 CMS 页面资产文件 | file: name + text/contentBase64 | 写入确认 |
 

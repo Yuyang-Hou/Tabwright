@@ -24,6 +24,18 @@ User demonstration or successful browser task
   -> route and run from a fresh AI session
 ```
 
+An executable capability is not synonymous with a server-side API. The manifest records the verified
+execution strategy separately from the runtime environment:
+
+- `direct-request`: call an API without opening a browser.
+- `browser-request`: call from page context when browser state or origin is required.
+- `browser-ui`: complete the task through semantic page interaction.
+- `hybrid`: use the UI to let the website create a protected request, then read the network result.
+
+`humanAssistance` is orthogonal to the strategy. A capability may declare `on-challenge` or `required` and
+return `needs_human` with a resumable checkpoint. Users should never be asked to identify a website's
+Cookie, signature, device proof, or risk-control mechanism before the compiler can proceed.
+
 The product is successful only when the final fresh-session route works. Saving a script is an intermediate state, not the completion condition.
 
 ## Product Lifecycle
@@ -51,6 +63,8 @@ The lifecycle must preserve these invariants:
 - Search and route outputs are compact by default; full contracts and scripts are fetched only for the selected candidate.
 - A task owns its session and page. Existing sessions are health evidence, not safe defaults for another agent.
 - Unsupported replay types produce a structured AI handoff and never a fake runnable capability.
+- A failed naked HTTP replay is not a failed capability. The compiler may select browser request, UI, or hybrid execution.
+- Protected mutations should use the website's own frontend path instead of reproducing undocumented signatures.
 
 ## Runtime Types
 

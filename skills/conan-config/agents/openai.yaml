@@ -1,4 +1,4 @@
 interface:
   display_name: "Conan 文案配置"
-  short_description: "Conan 文案配置 capability using the Tabwright runtime"
-  default_prompt: "Use $conan-config to complete the matching task with its bundled Tabwright runtime."
+  short_description: "安全查询、创建和管理 Conan 配置及其 Formily Schema"
+  default_prompt: "使用 $conan-config 查询或安全创建、管理匹配的 Conan 配置及其 Schema。"

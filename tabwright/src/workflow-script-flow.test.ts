@@ -53,11 +53,12 @@ type WorkflowItemResult = {
 }
 
 type WorkflowRunResult = {
-  status: 'completed' | 'failed' | 'needs_ai'
+  status: 'completed' | 'failed' | 'needs_ai' | 'needs_human'
   total: number
   completed: number
   failed: number
   needsAi: WorkflowItemResult | null
+  needsHuman: WorkflowItemResult | null
   results: WorkflowItemResult[]
 }
 
@@ -177,6 +178,11 @@ async function createMaterialServer(): Promise<MaterialServer> {
     }
 
     if (req.url === '/api/materials' && req.method === 'POST') {
+      if (req.headers['x-form-case'] !== 'generated-workflow') {
+        res.writeHead(406, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'frontend-verification-required' }))
+        return
+      }
       const chunks: Buffer[] = []
       req.on('data', (chunk: Buffer) => {
         chunks.push(chunk)
@@ -280,6 +286,19 @@ describe('recording-generated workflow scripts', () => {
     const page = await browser.newPage()
 
     try {
+      const directResponse = await fetch(`${materialServer.baseUrl}/api/materials`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          title: 'direct-call',
+          publishDate: '2026-07-05',
+          slug: 'direct-call',
+          clientValidated: true,
+          generatedMonth: '2026-07',
+        }),
+      })
+      expect(directResponse.status).toBe(406)
+
       const saved = saveWorkflowFromRecording({
         id: 'generated-material-flow',
         title: 'Generated Material Flow',
@@ -378,6 +397,31 @@ describe('recording-generated workflow scripts', () => {
         step: { locator: 'button[data-missing="submit"]' },
       })
       expect(driftResult.needsAi?.context?.snapshot).toContain('Publish')
+      expect(materialServer.getRequests()).toHaveLength(2)
+
+      await page.setContent('<main><h1>安全验证</h1><div id="captcha">请完成滑块验证</div></main>')
+      saveWorkflowFromRecording({
+        id: 'generated-material-flow-challenge',
+        title: 'Generated Material Flow Challenge',
+        cwd,
+        recordingId: '2026-07-05T09-40-58-371Z-0cb7c28e',
+        steps: [],
+        finalRequest: {
+          url: `${materialServer.baseUrl}/api/materials`,
+          method: 'POST',
+          trigger: { action: 'click', locator: 'button[type="submit"]' },
+        },
+      })
+      const challengeRunner = createRunner(
+        readCapabilityScript({ id: 'generated-material-flow-challenge', cwd }),
+      )
+      const challengeResult = await challengeRunner(page, { title: 'test5' }, snapshotBodyText, recordingApi)
+
+      expect(challengeResult.status).toBe('needs_human')
+      expect(challengeResult.needsHuman).toMatchObject({
+        status: 'needs_human',
+        phase: 'final-request',
+      })
       expect(materialServer.getRequests()).toHaveLength(2)
     } finally {
       await page.close()

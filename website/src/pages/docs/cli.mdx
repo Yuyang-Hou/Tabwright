@@ -158,7 +158,21 @@ tabwright capability describe update-user --json
 tabwright capability run update-user --browser user --input-json '{"email":"a@example.com"}' --confirm update-user --json
 ```
 
-`--force` only allows draft execution or bypasses a browser URL match. It never bypasses confirmation. Browser capabilities that depend on the user's login must use `--browser user` or an explicit browser key; the default is headless.
+`--force` only allows draft execution or bypasses a browser URL match. It never bypasses confirmation. Browser capabilities that declare `execution.requiresUserBrowser` automatically use the signed-in browser; other browser capabilities default to headless.
+
+### Execution strategy
+
+Capabilities describe *how* they complete a task separately from where they run:
+
+- `direct-request`: a normal API call without a browser.
+- `browser-request`: a request made inside the browser's authenticated page context.
+- `browser-ui`: semantic interaction with the real product interface.
+- `hybrid`: use the UI to trigger a protected request, then return its structured network result.
+
+When `execution.requiresUserBrowser` is true, the CLI selects the signed-in user browser automatically and
+rejects `--browser headless`. If a workflow returns `status: "needs_human"`, complete the CAPTCHA, SMS code,
+or other verification in the open browser, then rerun the same approved input. The user does not need to
+identify or reproduce the website's verification algorithm.
 
 ## Replay to capability
 

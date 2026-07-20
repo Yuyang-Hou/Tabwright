@@ -103,6 +103,14 @@ interface CapabilityOperation {
   requiresConfirmation: boolean
 }
 
+interface CapabilityExecutionConfig {
+  strategy: 'direct-request' | 'browser-request' | 'browser-ui' | 'hybrid'
+  requiresUserBrowser: boolean
+  humanAssistance: 'none' | 'on-challenge' | 'required'
+  requirements: string[]
+  observedRequestPatterns: string[]
+}
+
 interface CapabilityContract {
   id: string
   title: string
@@ -114,6 +122,7 @@ interface CapabilityContract {
   permissions: string[]
   sideEffect: string
   requiresConfirmation: boolean
+  execution: CapabilityExecutionConfig
   operations: Record<string, CapabilityOperation>
   whenToUse: string[]
   whenNotToUse: string[]
@@ -142,8 +151,12 @@ interface RelayVersionUpdate {
 }
 
 type LoadError = { type: 'relay'; issue: RelayReviewIssue } | { type: 'message'; message: string }
-type CapabilityContractPayload = Omit<CapabilityContract, 'operations' | 'recentRuns' | 'lifecycle' | 'agentSkill'> & {
+type CapabilityContractPayload = Omit<
+  CapabilityContract,
+  'operations' | 'recentRuns' | 'lifecycle' | 'agentSkill' | 'execution'
+> & {
   operations?: unknown
+  execution?: unknown
   recentRuns: unknown[]
   lifecycle?: unknown
   agentSkill?: unknown
@@ -151,7 +164,7 @@ type CapabilityContractPayload = Omit<CapabilityContract, 'operations' | 'recent
 
 const messageFallbacks = {
   app_title: 'Tabwright',
-  app_subtitle: 'Local browser automation cockpit',
+  app_subtitle: 'Turn browser work into Agent Skills',
   status_label: 'Status',
   status_loading_recordings: 'Loading recordings...',
   refresh_button: 'Refresh',
@@ -260,6 +273,11 @@ const messageFallbacks = {
   field_install_source: 'Installed from',
   field_saved_results: 'Saved results',
   field_runtime: 'Runtime',
+  field_execution_strategy: 'How it runs',
+  field_browser_requirement: 'Browser session',
+  field_human_assistance: 'Human assistance',
+  field_execution_requirements: 'Run requirements',
+  field_observed_requests: 'Observed requests',
   field_effect: 'Side effect',
   skills_summary: '$1 Skills · $2 ready · $3 need attention',
   status_ready: 'Ready',
@@ -289,6 +307,15 @@ const messageFallbacks = {
   badge_disabled: 'Disabled',
   runtime_browser: 'Browser',
   runtime_node: 'Node.js',
+  execution_direct_request: 'Direct API request',
+  execution_browser_request: 'Request inside the browser',
+  execution_browser_ui: 'Browser interaction',
+  execution_hybrid: 'Browser interaction + network result',
+  browser_requirement_user: 'Signed-in user browser required',
+  browser_requirement_any: 'Headless or user browser',
+  human_assistance_none: 'Not expected',
+  human_assistance_on_challenge: 'Only when the website asks for verification',
+  human_assistance_required: 'Required for this workflow',
   effect_read: 'Read only',
   effect_write: 'Modifies data',
   effect_dangerous: 'High-risk changes',
@@ -682,6 +709,43 @@ function normalizeCapabilityOperations(value: unknown): Record<string, Capabilit
   )
 }
 
+function normalizeCapabilityExecution(value: unknown, runtime: string): CapabilityExecutionConfig {
+  if (isRecord(value)) {
+    const strategy = value.strategy
+    const humanAssistance = value.humanAssistance
+    if (
+      (strategy === 'direct-request' ||
+        strategy === 'browser-request' ||
+        strategy === 'browser-ui' ||
+        strategy === 'hybrid') &&
+      (humanAssistance === 'none' || humanAssistance === 'on-challenge' || humanAssistance === 'required')
+    ) {
+      return {
+        strategy,
+        requiresUserBrowser: value.requiresUserBrowser === true,
+        humanAssistance,
+        requirements: isStringArray(value.requirements) ? value.requirements : [],
+        observedRequestPatterns: isStringArray(value.observedRequestPatterns) ? value.observedRequestPatterns : [],
+      }
+    }
+  }
+  return runtime === 'node'
+    ? {
+        strategy: 'direct-request',
+        requiresUserBrowser: false,
+        humanAssistance: 'none',
+        requirements: [],
+        observedRequestPatterns: [],
+      }
+    : {
+        strategy: 'browser-ui',
+        requiresUserBrowser: false,
+        humanAssistance: 'on-challenge',
+        requirements: [],
+        observedRequestPatterns: [],
+      }
+}
+
 function isAutonomousInvocation(value: unknown): value is CapabilityContract['autonomousInvocation'] {
   return isRecord(value) && typeof value.allowed === 'boolean' && isStringArray(value.reasons)
 }
@@ -814,6 +878,7 @@ function normalizeCapabilityContract(value: unknown): CapabilityContract | null 
   const unsupportedReason = UNSUPPORTED_LIFECYCLE_REASON
   return {
     ...value,
+    execution: normalizeCapabilityExecution(value.execution, value.runtime),
     operations: normalizeCapabilityOperations(value.operations),
     autonomousInvocation: hasUnsupportedLifecycle
       ? { allowed: false, reasons: [unsupportedReason] }
@@ -975,6 +1040,10 @@ function capabilitySearchText(capability: CapabilityContract): string {
     capability.location,
     capability.sideEffect,
     capability.routingHint,
+    capability.execution.strategy,
+    capability.execution.humanAssistance,
+    ...capability.execution.requirements,
+    ...capability.execution.observedRequestPatterns,
     capability.tags.join('\n'),
     capability.match.join('\n'),
     ...(capability.agentSkill?.installations.flatMap((installation) => {
@@ -1142,6 +1211,23 @@ function runtimeLabel(runtime: string): string {
   if (runtime === 'browser') return msg('runtime_browser')
   if (runtime === 'node') return msg('runtime_node')
   return runtime
+}
+
+function executionStrategyLabel(strategy: CapabilityExecutionConfig['strategy']): string {
+  if (strategy === 'direct-request') return msg('execution_direct_request')
+  if (strategy === 'browser-request') return msg('execution_browser_request')
+  if (strategy === 'browser-ui') return msg('execution_browser_ui')
+  return msg('execution_hybrid')
+}
+
+function browserRequirementLabel(execution: CapabilityExecutionConfig): string {
+  return execution.requiresUserBrowser ? msg('browser_requirement_user') : msg('browser_requirement_any')
+}
+
+function humanAssistanceLabel(assistance: CapabilityExecutionConfig['humanAssistance']): string {
+  if (assistance === 'none') return msg('human_assistance_none')
+  if (assistance === 'required') return msg('human_assistance_required')
+  return msg('human_assistance_on_challenge')
 }
 
 function effectLabel(effect: string): string {
@@ -1928,6 +2014,9 @@ function capabilityAiContextText(capability: CapabilityContract): string {
       `Capability ID：${capability.id}`,
       `标题：${capability.title}`,
       `描述：${capability.description}`,
+      `执行方式：${executionStrategyLabel(capability.execution.strategy)}`,
+      `浏览器要求：${browserRequirementLabel(capability.execution)}`,
+      `人工介入：${humanAssistanceLabel(capability.execution.humanAssistance)}`,
       `运行契约目录：${capability.dir}`,
       ...agentSkillContext,
     ].join('\n')
@@ -1938,6 +2027,9 @@ function capabilityAiContextText(capability: CapabilityContract): string {
     `Capability ID: ${capability.id}`,
     `Title: ${capability.title}`,
     `Description: ${capability.description}`,
+    `Execution: ${executionStrategyLabel(capability.execution.strategy)}`,
+    `Browser requirement: ${browserRequirementLabel(capability.execution)}`,
+    `Human assistance: ${humanAssistanceLabel(capability.execution.humanAssistance)}`,
     `Runtime contract directory: ${capability.dir}`,
     ...agentSkillContext,
   ].join('\n')
@@ -2212,6 +2304,14 @@ function createCapabilityOverview(capability: CapabilityContract): HTMLElement {
       title: msg('field_saved_results'),
       value: artifactCountText(capability.agentSkill?.localState.artifactCount || 0),
     }),
+    createOverviewItem({
+      title: msg('field_execution_strategy'),
+      value: executionStrategyLabel(capability.execution.strategy),
+    }),
+    createOverviewItem({
+      title: msg('field_human_assistance'),
+      value: humanAssistanceLabel(capability.execution.humanAssistance),
+    }),
   )
   overview.replaceChildren(purpose, summary)
   return overview
@@ -2299,6 +2399,27 @@ function renderCapabilityDetail(capability: CapabilityContract): void {
     ...installationFields,
     ...localStateFields,
     createField({ title: msg('field_runtime'), value: runtimeLabel(capability.runtime) }),
+    createField({ title: msg('field_execution_strategy'), value: executionStrategyLabel(capability.execution.strategy) }),
+    createField({ title: msg('field_browser_requirement'), value: browserRequirementLabel(capability.execution) }),
+    createField({ title: msg('field_human_assistance'), value: humanAssistanceLabel(capability.execution.humanAssistance) }),
+    ...(capability.execution.requirements.length > 0
+      ? [
+          createField({
+            title: msg('field_execution_requirements'),
+            value: displayList(capability.execution.requirements, '-'),
+            full: true,
+          }),
+        ]
+      : []),
+    ...(capability.execution.observedRequestPatterns.length > 0
+      ? [
+          createField({
+            title: msg('field_observed_requests'),
+            value: displayList(capability.execution.observedRequestPatterns, '-'),
+            full: true,
+          }),
+        ]
+      : []),
     createField({ title: msg('field_effect'), value: effectLabel(capability.sideEffect) }),
     createField({ title: msg('detail_path'), value: capability.dir, full: true }),
     ...registryFields,

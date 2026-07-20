@@ -1,7 +1,7 @@
 ---
-title: Let Agents Control Your Real Chrome Browser
+title: Turn Browser Work Into Agent Skills
 sidebarTitle: Home
-description: Control your real Chrome browser with Playwright from an agent, CLI, or MCP server.
+description: Show Tabwright a workflow once and turn it into a portable, verified Agent Skill.
 icon: lucide:home
 rendering: static
 prompt: |
@@ -19,8 +19,9 @@ import { HeroSection } from '../components/hero-section.tsx'
 
 </Above>
 
-A Chrome extension and CLI that let your agents control **your actual browser** with
-logins, extensions, and cookies already there. No headless instance, no bot detection, no extra memory.
+Show Tabwright a workflow once in your signed-in Chrome. It turns the interaction into a
+**portable, verified Agent Skill** with structured inputs, safety rules, browser requirements,
+and an explicit path for human verification.
 
 <Aside>
 <Tip>
@@ -37,17 +38,41 @@ If Tabwright is useful to you, [star it on GitHub](https://github.com/Yuyang-Hou
 />
 
 
-Other browser MCPs either **spawn a fresh Chrome** or give agents a fixed set of tools. New Chrome
-means no logins, no extensions, instant bot detection, and double the memory. Fixed tools mean the agent
-can't profile performance, can't set breakpoints, can't intercept network requests.
+Many valuable tasks have no public API. They live behind SSO, dynamic signatures, risk controls,
+and interfaces only an experienced operator understands. Asking an agent to rediscover those pages on
+every run is slow and unreliable. Asking the user to explain the website's authentication is worse.
 
-Tabwright gives agents the **full Playwright API** through a single `execute` tool. One
-tool, any Playwright code, no wrappers. Low context usage because there's no schema bloat from dozens of
-tool definitions. And it runs in your existing browser, so **nothing extra gets spawned**.
+Tabwright captures a successful browser task, verifies how it can safely run again, and packages it as
+an Agent Skill. The runtime chooses the right execution strategy: a direct request when possible,
+a request inside the browser when page context is required, real UI interaction when the website must
+produce its own verification, or a hybrid flow that triggers through the UI and reads the network result.
+
+## From demonstration to durable skill
+
+```diagram
+User demonstrates a task in signed-in Chrome
+  -> Tabwright captures actions and request evidence
+  -> compile the safest verified execution strategy
+  -> validate inputs, outputs, permissions, and side effects
+  -> export a portable Agent Skill
+  -> a fresh agent session calls it directly
+```
+
+The user never needs to know whether the website uses a Cookie, short-lived token, device fingerprint,
+or dynamic request signature. When a CAPTCHA, SMS code, or risk challenge appears, the Skill returns a
+human checkpoint. The user completes verification in the open browser, then the same task resumes.
+
+<Aside>
+<Note>
+For protected mutations, Tabwright can use the UI to let the website create its legitimate request,
+then observe the matching response to return structured data. It does not need to counterfeit the site's
+verification algorithm.
+</Note>
+</Aside>
 
 ## Getting started
 
-**Four steps** and your agent is browsing.
+**Four steps** and your first browser workflow is ready to become a Skill.
 
 ### Install the extension
 
@@ -62,22 +87,20 @@ Install the CLI, then add the skill so your agent knows the good Tabwright workf
 npm i -g tabwright
 ```
 
-Then import the **Tabwright skill** with your agent's official Agent Skills-compatible manager. It teaches your agent which selectors to use, how to avoid timeouts, how to read snapshots, and all available utilities. Tabwright intentionally does not write into an agent's private skill directory.
+Then open the [Skill manager](https://rush.zhenguanyu.com/next/skills/groups/3dbf7257-cc03-492e-aa71-11cc736e0876) to view the available skills and follow the installation instructions. The Skill manager is the source of truth for discovery, installation, and updates; this website does not maintain a separate installation list.
 
-### First commands
+### Capture and compile
 
-The extension connects your browser to a **local WebSocket relay** on
-`localhost:19988`. The CLI sends Playwright code through the relay. No remote servers, no
-accounts, nothing leaves your machine.
+Record the workflow in the browser, inspect the saved evidence, and compile a draft capability.
 
 ```bash
-tabwright session new              # new sandbox, outputs id (e.g. 1)
-tabwright -s 1 -e "page.goto('https://example.com')"
-tabwright -s 1 -e "snapshot({ page })"
-tabwright -s 1 -e "page.locator('aria-ref=e5').click()"
+tabwright replay list --limit 10 --json
+tabwright replay index <replay-id> --json
+tabwright replay make <replay-id> <capability-id> --goal "repeat this workflow" --force --json
+tabwright capability run <capability-id> --browser user --force --confirm <capability-id> --json
 ```
 
-## How it works
+## The runtime behind each Skill
 
 <Aside>
 <Note>
@@ -112,15 +135,14 @@ browser at the same time.
 
 ## Why it exists
 
-Other browser MCPs usually launch a **new Chrome**. That means no login state, no
-extensions, extra memory usage, and more bot detection. Tabwright keeps the
-browser human by using your real Chrome session.
+Browser control is the foundation, not the finished product. A one-off agent can complete a page once;
+Tabwright preserves the successful work as a verified Skill that a fresh session can route to and call.
 
 - **Logged-in sites:** fresh browser MCPs start logged out. Tabwright uses your cookies.
 - **Extensions:** fresh browser MCPs run without your extensions. Tabwright uses the ones already installed.
 - **Captchas:** fresh browser MCPs get stuck. With Tabwright, you can solve them in the shared browser.
-- **API surface:** fresh browser MCPs expose fixed tools. Tabwright exposes full Playwright.
-- **Debugging:** fresh browser MCPs are limited. Tabwright can use CDP, breakpoints, and network inspection.
+- **Execution strategy:** direct request, browser request, UI interaction, or hybrid execution is recorded in the contract.
+- **Safety:** side effects and human checkpoints remain attached to the reusable Skill.
 
 ## Collaboration
 
@@ -289,7 +311,7 @@ without saving with `cancelRecording`.
 See how Tabwright compares to other browser automation tools:
 
 - [**vs Chrome Direct CDP**](./docs/vs-chrome-cdp.mdx) — Chrome's permission dialog blocks autonomous agents. Tabwright's extension avoids it entirely.
-- [**vs Playwright MCP**](./docs/vs-playwright-mcp.mdx) — Fresh browser vs your real Chrome with logins and extensions.
+- [**vs Playwright MCP**](./docs/vs-playwright-mcp.mdx) — Browser tools for one task vs portable, verified Agent Skills.
 - [**vs Playwright CLI**](./docs/vs-playwright-cli.mdx) — Same Playwright API, but running in your existing browser with CDP access.
 - [**vs BrowserMCP**](./docs/vs-browser-mcp.mdx) — One execute tool vs 12+ fixed tools with high context overhead.
 - [**vs Claude Extension**](./docs/vs-claude-extension.mdx) — Any MCP client, text snapshots instead of screenshots, full CDP access.

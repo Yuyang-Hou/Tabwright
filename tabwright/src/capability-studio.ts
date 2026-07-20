@@ -6,6 +6,7 @@ import {
   toCapabilitySummary,
   updateCapabilityManifest,
   updateCapabilityScript,
+  type CapabilityExecutionConfig,
   type CapabilityManifestPatch,
   type CapabilityOperation,
   type CapabilityRoutingHint,
@@ -204,6 +205,10 @@ function buildManifestPatch(body: Record<string, unknown>): CapabilityManifestPa
         : [],
     }
   }
+  const execution = parseCapabilityExecution(body.execution)
+  if (execution) {
+    patch.execution = execution
+  }
   if (Array.isArray(body.examples)) {
     patch.examples = body.examples
       .filter((item) => {
@@ -228,6 +233,40 @@ function buildManifestPatch(body: Record<string, unknown>): CapabilityManifestPa
     patch.operations = operations
   }
   return patch
+}
+
+function parseCapabilityExecution(value: unknown): CapabilityExecutionConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const strategy = value.strategy
+  const humanAssistance = value.humanAssistance
+  if (
+    strategy !== 'direct-request' &&
+    strategy !== 'browser-request' &&
+    strategy !== 'browser-ui' &&
+    strategy !== 'hybrid'
+  ) {
+    throw new Error('Capability execution strategy is invalid')
+  }
+  if (humanAssistance !== 'none' && humanAssistance !== 'on-challenge' && humanAssistance !== 'required') {
+    throw new Error('Capability human assistance policy is invalid')
+  }
+  return {
+    strategy,
+    requiresUserBrowser: value.requiresUserBrowser === true,
+    humanAssistance,
+    requirements: Array.isArray(value.requirements)
+      ? value.requirements.filter((item): item is string => {
+          return typeof item === 'string'
+        })
+      : [],
+    observedRequestPatterns: Array.isArray(value.observedRequestPatterns)
+      ? value.observedRequestPatterns.filter((item): item is string => {
+          return typeof item === 'string'
+        })
+      : [],
+  }
 }
 
 function parseCapabilityOperations(value: unknown): Record<string, CapabilityOperation> | undefined {
@@ -507,6 +546,7 @@ function renderStudioHtml(): string {
             </label>
             <label>Match patterns<textarea id="match" style="min-height: 90px;"></textarea></label>
             <label>Permissions<textarea id="permissions" style="min-height: 90px;"></textarea></label>
+            <label>Execution contract<textarea id="execution" style="min-height: 170px;"></textarea></label>
             <label>Input schema<textarea id="inputSchema" style="min-height: 140px;"></textarea></label>
             <label>Output schema<textarea id="outputSchema" style="min-height: 140px;"></textarea></label>
             <label>Operations<textarea id="operations" style="min-height: 220px;"></textarea></label>
@@ -541,7 +581,7 @@ function renderStudioHtml(): string {
         button.className = 'item' + (capability.id === state.selectedId ? ' active' : '')
         button.innerHTML = '<div class="title">' + escapeHtml(capability.title) + '</div>' +
           '<div class="meta"><span class="status-' + capability.status + '">' + capability.status + '</span> · ' +
-          escapeHtml(capability.location) + ' · ' + escapeHtml(capability.id) + '</div>'
+          escapeHtml(capability.location) + ' · ' + escapeHtml(capability.execution?.strategy || capability.runtime) + ' · ' + escapeHtml(capability.id) + '</div>'
         button.onclick = () => { selectCapability(capability.id) }
         el('list').appendChild(button)
       }
@@ -569,6 +609,7 @@ function renderStudioHtml(): string {
       el('routingHint').value = capability.routingHint || 'search-first'
       el('match').value = (capability.match || []).join('\\n')
       el('permissions').value = (capability.permissions || []).join('\\n')
+      el('execution').value = JSON.stringify(capability.execution || {}, null, 2)
       el('inputSchema').value = JSON.stringify(capability.inputSchema || {}, null, 2)
       el('outputSchema').value = JSON.stringify(capability.outputSchema || {}, null, 2)
       el('operations').value = JSON.stringify(capability.operations || {}, null, 2)
@@ -598,6 +639,7 @@ function renderStudioHtml(): string {
           routingHint: el('routingHint').value,
           match: lines(el('match').value),
           permissions: lines(el('permissions').value),
+          execution: JSON.parse(el('execution').value || '{}'),
           inputSchema: JSON.parse(el('inputSchema').value || '{}'),
           outputSchema: JSON.parse(el('outputSchema').value || '{}'),
           operations: JSON.parse(el('operations').value || '{}'),

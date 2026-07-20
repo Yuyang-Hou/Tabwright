@@ -1,8 +1,8 @@
 {
   "app_title": { "message": "Tabwright" },
-  "app_subtitle": { "message": "本地浏览器自动化工作台" },
+  "app_subtitle": { "message": "把网页工作变成 Agent Skill" },
   "extension_description": {
-    "message": "用 Cursor、Claude、VS Code 自动化你的浏览器。比 Playwright MCP 更强，也更省上下文。"
+    "message": "把登录后的网页流程变成可供 Codex、Claude 等 Agent 调用的 Skill。"
   },
   "action_default_title": { "message": "点击以附加调试器" },
   "status_label": { "message": "状态" },
@@ -151,6 +151,11 @@
   "field_auth_status": { "message": "认证状态" },
   "field_artifacts": { "message": "产物" },
   "field_runtime": { "message": "运行方式" },
+  "field_execution_strategy": { "message": "完成方式" },
+  "field_browser_requirement": { "message": "浏览器要求" },
+  "field_human_assistance": { "message": "人工介入" },
+  "field_execution_requirements": { "message": "运行条件" },
+  "field_observed_requests": { "message": "监听请求" },
   "field_effect": { "message": "数据影响" },
   "field_routing": { "message": "匹配方式" },
   "field_location": { "message": "来源" },
@@ -167,6 +172,15 @@
   "badge_disabled": { "message": "已停用" },
   "runtime_browser": { "message": "浏览器" },
   "runtime_node": { "message": "Node.js" },
+  "execution_direct_request": { "message": "直接调用接口" },
+  "execution_browser_request": { "message": "在浏览器内调用接口" },
+  "execution_browser_ui": { "message": "操作真实网页" },
+  "execution_hybrid": { "message": "网页操作 + 网络结果" },
+  "browser_requirement_user": { "message": "需要已登录的用户浏览器" },
+  "browser_requirement_any": { "message": "无头或用户浏览器均可" },
+  "human_assistance_none": { "message": "通常不需要" },
+  "human_assistance_on_challenge": { "message": "网站要求验证时需要" },
+  "human_assistance_required": { "message": "该流程需要人工参与" },
   "effect_read": { "message": "只读" },
   "effect_write": { "message": "会修改数据" },
   "effect_dangerous": { "message": "高风险操作" },

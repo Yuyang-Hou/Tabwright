@@ -1,6 +1,6 @@
 # 内容体验
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `encyclopedia-tv-column-list` | 查询探索内容栏目 | params 可选 | 只读 |
 | `encyclopedia-tv-column-create` | 创建探索内容栏目 | data: JSON 请求体 | 写入确认 |

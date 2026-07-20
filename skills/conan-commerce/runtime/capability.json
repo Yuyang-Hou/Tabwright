@@ -155,6 +155,17 @@
       "login"
     ]
   },
+  "execution": {
+    "strategy": "browser-request",
+    "requiresUserBrowser": true,
+    "humanAssistance": "none",
+    "requirements": [
+      "需要已登录 Deal/Conan 后台的用户浏览器。"
+    ],
+    "observedRequestPatterns": [
+      "**/conan-commerce-admin/api/**"
+    ]
+  },
   "examples": [
     {
       "description": "查询用户群组详情",
@@ -210,5 +221,5 @@
   "status": "draft",
   "createdBy": "ai",
   "createdAt": "2026-07-15T11:58:11.980Z",
-  "updatedAt": "2026-07-16T02:50:00.000Z"
+  "updatedAt": "2026-07-20T03:48:12.000Z"
 }

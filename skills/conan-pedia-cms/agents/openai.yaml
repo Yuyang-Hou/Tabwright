@@ -1,4 +1,4 @@
 interface:
   display_name: "百科 CMS 后台统一能力"
-  short_description: "百科 CMS 后台统一能力 capability using the Tabwright runtime"
-  default_prompt: "Use $conan-pedia-cms to complete the matching task with its bundled Tabwright runtime."
+  short_description: "查询和安全管理百科 CMS 的硬件、增长、内容、图书及 AI 配置"
+  default_prompt: "使用 $conan-pedia-cms 查询或安全管理匹配的百科 CMS 后台数据。"

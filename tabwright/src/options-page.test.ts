@@ -345,6 +345,13 @@ describe('extension options page', () => {
       permissions: ['browser.read', 'browser.write'],
       sideEffect: 'write',
       requiresConfirmation: true,
+      execution: {
+        strategy: 'hybrid',
+        requiresUserBrowser: true,
+        humanAssistance: 'on-challenge',
+        requirements: ['A signed-in admin browser.'],
+        observedRequestPatterns: ['**/api/users/**'],
+      },
       operations: {
         'read-user': {
           title: 'Read user',
@@ -582,12 +589,16 @@ describe('extension options page', () => {
       })
 
       await page.goto(`${staticServer.baseUrl}/src/options.html`, { waitUntil: 'domcontentloaded' })
-      await page.locator('.language-button[data-language="en"]').click()
       expect(await page.locator('.tab-button').count()).toBe(0)
       expect(await page.locator('#recordings-view').count()).toBe(0)
       const capabilityItem = page.locator('.skill-item').filter({ hasText: 'Query User' })
       await capabilityItem.waitFor({ timeout: 10000 })
-      expect(await page.locator('#status-text').textContent()).toBe('Local service ready')
+      await page.locator('.language-button[data-language="en"]').click()
+      await expect
+        .poll(async () => {
+          return await page.locator('#status-text').textContent()
+        })
+        .toBe('Local service ready')
       expect(await capabilityItem.textContent()).toContain('Codex')
       expect(await capabilityItem.textContent()).toContain('Claude')
       await capabilityItem.click()
@@ -598,9 +609,11 @@ describe('extension options page', () => {
         })
         .toContain('query-user')
       expect(await page.locator('#skills-summary').textContent()).toContain('6 Skills')
-      expect(await page.locator('.overview-item').count()).toBe(3)
+      expect(await page.locator('.overview-item').count()).toBe(5)
       expect(await page.locator('.capability-overview').textContent()).toContain('Installed from')
       expect(await page.locator('.capability-overview').textContent()).toContain('Saved results')
+      expect(await page.locator('.capability-overview').textContent()).toContain('Browser interaction + network result')
+      expect(await page.locator('.capability-overview').textContent()).toContain('website asks for verification')
       expect(await capabilityItem.textContent()).toContain('Reads and modifies data')
       expect(await page.locator('#skill-detail').textContent()).toContain('Read user')
       expect(await page.locator('#skill-detail').textContent()).toContain('Update user')
@@ -617,10 +630,13 @@ describe('extension options page', () => {
       expect(await page.locator('.auth-card').count()).toBe(0)
       expect(await page.locator('.advanced-details').textContent()).toContain('Validation status')
       expect(await page.locator('.advanced-details').textContent()).toContain('Contract healthy')
+      expect(await page.locator('.advanced-details').textContent()).toContain('Signed-in user browser required')
+      expect(await page.locator('.advanced-details').textContent()).toContain('**/api/users/**')
       await page.getByRole('button', { name: 'Copy diagnostic details' }).click()
       const aiContext = await readClipboard()
       expect(aiContext).toContain('Capability ID: query-user')
       expect(aiContext).toContain('Look up a user by email.')
+      expect(aiContext).toContain('Execution: Browser interaction + network result')
       expect(aiContext).toContain('/Users/test/.codex/skills/query-user')
       expect(aiContext).toContain('/Users/test/.tabwright/capability-state/query-user')
 

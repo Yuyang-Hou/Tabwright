@@ -1,0 +1,4 @@
+interface:
+  display_name: "ZGY Conan WebApp 发布记录"
+  short_description: "查询 Conan WebApp 项目的最新版本与发布状态"
+  default_prompt: "Use $zgy-conan-webapp-release-list to query the latest Conan WebApp release records."

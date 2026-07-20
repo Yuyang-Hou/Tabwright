@@ -11,6 +11,16 @@ export type CapabilitySideEffect = 'read' | 'write' | 'dangerous'
 export type CapabilityAuthType = 'none' | 'cookie' | 'token' | 'custom'
 export type CapabilityAuthRefresh = 'none' | 'manual' | 'from-browser'
 export type CapabilityRoutingHint = 'search-first' | 'exact-match-direct-run'
+export type CapabilityExecutionStrategy = 'direct-request' | 'browser-request' | 'browser-ui' | 'hybrid'
+export type CapabilityHumanAssistance = 'none' | 'on-challenge' | 'required'
+
+export interface CapabilityExecutionConfig {
+  strategy: CapabilityExecutionStrategy
+  requiresUserBrowser: boolean
+  humanAssistance: CapabilityHumanAssistance
+  requirements: string[]
+  observedRequestPatterns: string[]
+}
 
 export interface CapabilityAuthConfig {
   type: CapabilityAuthType
@@ -62,6 +72,7 @@ export interface CapabilityManifest {
   requiresConfirmation: boolean
   operations: Record<string, CapabilityOperation>
   auth: CapabilityAuthConfig
+  execution?: CapabilityExecutionConfig
   examples: CapabilityExample[]
   entry: string
   runtime: CapabilityRuntime
@@ -173,6 +184,15 @@ const CAPABILITY_RUNTIME_STATE_FILENAME = 'runtime-state.json'
 const CapabilityRuntimeSchema = z.enum(['browser', 'node'])
 const CapabilitySideEffectSchema = z.enum(['read', 'write', 'dangerous'])
 const CapabilityRoutingHintSchema = z.enum(['search-first', 'exact-match-direct-run'])
+const CapabilityExecutionConfigSchema = z
+  .object({
+    strategy: z.enum(['direct-request', 'browser-request', 'browser-ui', 'hybrid']),
+    requiresUserBrowser: z.boolean().default(false),
+    humanAssistance: z.enum(['none', 'on-challenge', 'required']).default('none'),
+    requirements: z.array(z.string()).default([]),
+    observedRequestPatterns: z.array(z.string()).default([]),
+  })
+  .passthrough()
 const CapabilityAuthConfigSchema = z
   .object({
     type: z.enum(['none', 'cookie', 'token', 'custom']).default('none'),
@@ -267,6 +287,7 @@ const CapabilityManifestSchema = z
       .record(z.string().regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/), CapabilityOperationSchema)
       .default({}),
     auth: CapabilityAuthConfigSchema,
+    execution: CapabilityExecutionConfigSchema.optional(),
     examples: z.array(CapabilityExampleSchema).default([]),
     entry: z.string().default('script.js'),
     runtime: CapabilityRuntimeSchema.default('browser'),
@@ -279,6 +300,28 @@ const CapabilityManifestSchema = z
 
 export function parseCapabilityManifest(value: unknown): CapabilityManifest {
   return CapabilityManifestSchema.parse(value)
+}
+
+export function getCapabilityExecutionConfig(capability: CapabilityRecord): CapabilityExecutionConfig {
+  if (capability.manifest.execution) {
+    return capability.manifest.execution
+  }
+  if (capability.manifest.runtime === 'node') {
+    return {
+      strategy: 'direct-request',
+      requiresUserBrowser: false,
+      humanAssistance: 'none',
+      requirements: [],
+      observedRequestPatterns: [],
+    }
+  }
+  return {
+    strategy: 'browser-ui',
+    requiresUserBrowser: false,
+    humanAssistance: 'on-challenge',
+    requirements: [],
+    observedRequestPatterns: [],
+  }
 }
 
 export function getUserCapabilitiesDir(): string {
@@ -686,6 +729,22 @@ export function createCapability(options: {
       requiredCookieNames: [],
       failureSignals: [],
     },
+    execution:
+      options.runtime === 'node'
+        ? {
+            strategy: 'direct-request',
+            requiresUserBrowser: false,
+            humanAssistance: 'none',
+            requirements: [],
+            observedRequestPatterns: [],
+          }
+        : {
+            strategy: 'browser-ui',
+            requiresUserBrowser: false,
+            humanAssistance: 'on-challenge',
+            requirements: [],
+            observedRequestPatterns: [],
+          },
     examples: [],
     entry: 'script.js',
     runtime: options.runtime || 'browser',
@@ -1044,10 +1103,12 @@ export function getCapabilityAutonomy(
   operation?: ResolvedCapabilityOperation,
 ): { allowed: boolean; reasons: string[] } {
   const contractHealth = getCapabilityContractHealth(capability)
+  const execution = getCapabilityExecutionConfig(capability)
   const operations = operation ? [operation] : getCapabilityOperations(capability)
   const blockers = [
     capability.manifest.status === 'trusted' ? '' : `status is ${capability.manifest.status}`,
     contractHealth.state === 'drifted' ? 'current contract failed conformance' : '',
+    execution.humanAssistance === 'required' ? 'execution requires human assistance' : '',
     ...operations.flatMap((candidate) => {
       return [
         candidate.sideEffect === 'read'
@@ -1101,6 +1162,7 @@ export function toCapabilityContract(capability: CapabilityRecord): Record<strin
     sideEffect: safety.sideEffect,
     requiresConfirmation: safety.requiresConfirmation,
     auth: capability.manifest.auth,
+    execution: getCapabilityExecutionConfig(capability),
     examples: capability.manifest.examples,
     autonomousInvocation: getCapabilityAutonomy(capability),
     operations,
@@ -1266,6 +1328,7 @@ export function toCapabilitySummary(capability: CapabilityRecord): Record<string
     whenNotToUse: capability.manifest.whenNotToUse,
     tags: capability.manifest.tags,
     auth: capability.manifest.auth,
+    execution: getCapabilityExecutionConfig(capability),
     inputSchema: capability.manifest.inputSchema,
     outputSchema: capability.manifest.outputSchema,
     location: capability.location,

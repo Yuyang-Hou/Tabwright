@@ -1,8 +1,8 @@
 {
   "app_title": { "message": "Tabwright" },
-  "app_subtitle": { "message": "Local browser automation cockpit" },
+  "app_subtitle": { "message": "Turn browser work into Agent Skills" },
   "extension_description": {
-    "message": "Automate your browser using Cursor, Claude, VS Code. More capable and context efficient than Playwright MCP."
+    "message": "Turn signed-in browser workflows into portable Agent Skills for Codex, Claude, and other agents."
   },
   "action_default_title": { "message": "Click to attach debugger" },
   "status_label": { "message": "Status" },
@@ -153,6 +153,11 @@
   "field_auth_status": { "message": "Authentication" },
   "field_artifacts": { "message": "Artifacts" },
   "field_runtime": { "message": "Runtime" },
+  "field_execution_strategy": { "message": "How it runs" },
+  "field_browser_requirement": { "message": "Browser session" },
+  "field_human_assistance": { "message": "Human assistance" },
+  "field_execution_requirements": { "message": "Run requirements" },
+  "field_observed_requests": { "message": "Observed requests" },
   "field_effect": { "message": "Side effect" },
   "field_routing": { "message": "Routing" },
   "field_location": { "message": "Location" },
@@ -169,6 +174,15 @@
   "badge_disabled": { "message": "Disabled" },
   "runtime_browser": { "message": "Browser" },
   "runtime_node": { "message": "Node.js" },
+  "execution_direct_request": { "message": "Direct API request" },
+  "execution_browser_request": { "message": "Request inside the browser" },
+  "execution_browser_ui": { "message": "Browser interaction" },
+  "execution_hybrid": { "message": "Browser interaction + network result" },
+  "browser_requirement_user": { "message": "Signed-in user browser required" },
+  "browser_requirement_any": { "message": "Headless or user browser" },
+  "human_assistance_none": { "message": "Not expected" },
+  "human_assistance_on_challenge": { "message": "Only when the website asks for verification" },
+  "human_assistance_required": { "message": "Required for this workflow" },
   "effect_read": { "message": "Read only" },
   "effect_write": { "message": "Modifies data" },
   "effect_dangerous": { "message": "High-risk changes" },

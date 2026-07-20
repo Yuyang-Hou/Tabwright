@@ -21,10 +21,6 @@ tabwright/src/assets/framer.html
 *-snapshot.txt
 claude-extension
 
-# generated skill docs (source of truth: tabwright/src/skill.md)
-website/public/SKILL.md
-website/public/.well-known/skills/tabwright/SKILL.md
-
 # opensrc - source code for packages
 opensrc/
 

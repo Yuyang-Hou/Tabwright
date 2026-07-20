@@ -1,6 +1,6 @@
 # 图书
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `books-book-list` | 查询图书列表 | params 可选 | 只读 |
 | `books-book-detail` | 查询图书详情 | params: id | 只读 |

@@ -1033,7 +1033,7 @@ return {
 };
 
 })() }
-if (["list-spaces", "history", "get-schema", "prepare-publish-draft", "prepare-create", "prepare-copy", "prepare-rollback"].includes(input.action)) { return await (async () => {
+if (["search-schemas", "list-spaces", "history", "get-schema", "prepare-create-schema", "prepare-publish-draft", "prepare-create", "prepare-copy", "prepare-rollback"].includes(input.action)) { return await (async () => {
 
 const CONFIG_ENVIRONMENTS = {
   "cn-prod": "https://conan.zhenguanyu.com",
@@ -1101,6 +1101,106 @@ async function sha256(value) {
   const bytes = new TextEncoder().encode(canonicalJson(value));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function normalizeSchemaDocument(rawInput) {
+  const rawSchemaJson = rawInput.schemaJson;
+  const schemaDocument = typeof rawSchemaJson === "string" ? JSON.parse(rawSchemaJson) : rawSchemaJson;
+  if (!schemaDocument || typeof schemaDocument !== "object" || Array.isArray(schemaDocument)) {
+    throw new Error("schemaJson must be a JSON object or a string containing a JSON object.");
+  }
+  const type = Number(rawInput.type ?? 2);
+  if (![1, 2].includes(type)) throw new Error("type must be 1 (legacy) or 2 (Formily).");
+  if (type === 2 && (!schemaDocument.schema || typeof schemaDocument.schema !== "object" || Array.isArray(schemaDocument.schema))) {
+    throw new Error("Formily schemaJson must contain a schema object.");
+  }
+  if (type === 2 && schemaDocument.form !== undefined && (typeof schemaDocument.form !== "object" || Array.isArray(schemaDocument.form))) {
+    throw new Error("Formily schemaJson.form must be an object when provided.");
+  }
+  return schemaDocument;
+}
+
+function normalizeSchemaDefinition(rawInput) {
+  const definition = {
+    bizKey: String(rawInput.bizKey || "config").trim(),
+    name: String(rawInput.name || "").trim(),
+    desc: String(rawInput.desc || "").trim(),
+    type: Number(rawInput.type ?? 2),
+  };
+  const errors = [
+    definition.bizKey === "config" ? "" : "bizKey must be config for Conan config schemas.",
+    definition.name ? "" : "name is required.",
+    definition.desc ? "" : "desc is required.",
+    [1, 2].includes(definition.type) ? "" : "type must be 1 (legacy) or 2 (Formily).",
+  ].filter(Boolean);
+  if (errors.length) throw new Error(errors.join(" "));
+  return definition;
+}
+
+function compactSchemaRow(row) {
+  return {
+    id: row.id,
+    schemaId: row.id,
+    name: row.name || "",
+    desc: row.desc || "",
+    bizKey: row.bizKey || "",
+    type: row.type,
+    createdLdap: row.createdLdap || "",
+    updatedLdap: row.updatedLdap || "",
+    createdTime: row.createdTime,
+    updatedTime: row.updatedTime,
+  };
+}
+
+async function searchSchemas(rawInput) {
+  const params = new URLSearchParams({
+    page: String(Number.isInteger(rawInput.page) && rawInput.page >= 0 ? rawInput.page : 0),
+    pageSize: String(Number.isInteger(rawInput.pageSize) && rawInput.pageSize > 0 ? rawInput.pageSize : 100),
+    bizKey: String(rawInput.bizKey || "config").trim(),
+  });
+  const id = Number(rawInput.schemaId || rawInput.id);
+  const name = String(rawInput.name || rawInput.query || "").trim();
+  if (Number.isInteger(id) && id > 0) params.set("id", String(id));
+  if (name) params.set("name", name);
+  const body = await requestJson("/conan-config/api/schema/search?" + params.toString());
+  const data = body?.data || body;
+  const rows = Array.isArray(data) ? data : data?.list || [];
+  return {
+    rows,
+    pageInfo: Array.isArray(data) ? { totalItem: data.length } : data?.pageInfo || { totalItem: rows.length },
+  };
+}
+
+async function prepareSchemaDefinition(rawInput) {
+  const definition = normalizeSchemaDefinition(rawInput);
+  const schemaJson = normalizeSchemaDocument(rawInput);
+  const searched = await searchSchemas({ name: definition.name, bizKey: definition.bizKey, page: 0, pageSize: 100 });
+  const matchingSchemas = searched.rows
+    .filter((row) => {
+      return row.name === definition.name && row.bizKey === definition.bizKey;
+    })
+    .map((row) => {
+      return compactSchemaRow(row);
+    });
+  const schemaText = canonicalJson(schemaJson).toLowerCase();
+  const environmentWarnings = environment === "cn-prod"
+    ? ["ytk", ".biz", "test"].filter((marker) => schemaText.includes(marker)).map((marker) => {
+        return "Schema contains a possible test-environment marker: " + marker;
+      })
+    : [];
+  const warnings = [
+    ...environmentWarnings,
+    ...(matchingSchemas.length ? ["Schemas with the same name and bizKey already exist; review them before creating another."] : []),
+  ];
+  return {
+    definition,
+    schemaJson,
+    schemaSha256: await sha256(schemaJson),
+    targetSha256: await sha256({ definition, schemaJson }),
+    matchingSchemas,
+    matchingSchemasSha256: await sha256(matchingSchemas),
+    warnings,
+  };
 }
 
 function collectDiff(before, after, path = "$") {
@@ -1215,6 +1315,22 @@ async function prepareDefinition(rawInput, overrides = {}) {
   };
 }
 
+if (input.action === "search-schemas") {
+  const searched = await searchSchemas(input);
+  const includeSchemaJson = input.includeSchemaJson === true;
+  const schemas = searched.rows.map((row) => {
+    return includeSchemaJson ? row : compactSchemaRow(row);
+  });
+  return {
+    action: "search-schemas",
+    environment,
+    count: schemas.length,
+    total: searched.pageInfo.totalItem ?? schemas.length,
+    schemas,
+    pageInfo: searched.pageInfo,
+  };
+}
+
 if (input.action === "list-spaces") {
   const body = await requestJson("/conan-config/api/enhancedConfigGroupings/rootGrouping");
   const spaces = body?.data || [];
@@ -1250,6 +1366,16 @@ if (input.action === "get-schema") {
     metadata: loaded.row,
     schema: loaded.schema,
     form: loaded.form,
+  };
+}
+
+if (input.action === "prepare-create-schema") {
+  const prepared = await prepareSchemaDefinition(input);
+  return {
+    action: "prepare-create-schema",
+    environment,
+    ...prepared,
+    instruction: "Validate the complete schemaJson and metadata, show matching schemas and warnings, then obtain confirmation before create-schema.",
   };
 }
 
@@ -1366,7 +1492,7 @@ if (input.action === "prepare-rollback") {
 throw new Error("Unsupported Conan config read action: " + input.action);
 
 })() }
-if (["save-draft", "publish-draft", "discard-draft", "create", "copy", "rollback"].includes(input.action)) { return await (async () => {
+if (["save-draft", "publish-draft", "discard-draft", "create-schema", "create", "copy", "rollback"].includes(input.action)) { return await (async () => {
 
 const CONFIG_ENVIRONMENTS = {
   "cn-prod": "https://conan.zhenguanyu.com",
@@ -1434,6 +1560,103 @@ async function sha256(value) {
   const bytes = new TextEncoder().encode(canonicalJson(value));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function normalizeSchemaDocument(rawInput) {
+  const rawSchemaJson = rawInput.schemaJson;
+  const schemaDocument = typeof rawSchemaJson === "string" ? JSON.parse(rawSchemaJson) : rawSchemaJson;
+  if (!schemaDocument || typeof schemaDocument !== "object" || Array.isArray(schemaDocument)) {
+    throw new Error("schemaJson must be a JSON object or a string containing a JSON object.");
+  }
+  const type = Number(rawInput.type ?? 2);
+  if (![1, 2].includes(type)) throw new Error("type must be 1 (legacy) or 2 (Formily).");
+  if (type === 2 && (!schemaDocument.schema || typeof schemaDocument.schema !== "object" || Array.isArray(schemaDocument.schema))) {
+    throw new Error("Formily schemaJson must contain a schema object.");
+  }
+  if (type === 2 && schemaDocument.form !== undefined && (typeof schemaDocument.form !== "object" || Array.isArray(schemaDocument.form))) {
+    throw new Error("Formily schemaJson.form must be an object when provided.");
+  }
+  return schemaDocument;
+}
+
+function normalizeSchemaDefinition(rawInput) {
+  const definition = {
+    bizKey: String(rawInput.bizKey || "config").trim(),
+    name: String(rawInput.name || "").trim(),
+    desc: String(rawInput.desc || "").trim(),
+    type: Number(rawInput.type ?? 2),
+  };
+  const errors = [
+    definition.bizKey === "config" ? "" : "bizKey must be config for Conan config schemas.",
+    definition.name ? "" : "name is required.",
+    definition.desc ? "" : "desc is required.",
+    [1, 2].includes(definition.type) ? "" : "type must be 1 (legacy) or 2 (Formily).",
+  ].filter(Boolean);
+  if (errors.length) throw new Error(errors.join(" "));
+  return definition;
+}
+
+function compactSchemaRow(row) {
+  return {
+    id: row.id,
+    schemaId: row.id,
+    name: row.name || "",
+    desc: row.desc || "",
+    bizKey: row.bizKey || "",
+    type: row.type,
+    createdLdap: row.createdLdap || "",
+    updatedLdap: row.updatedLdap || "",
+    createdTime: row.createdTime,
+    updatedTime: row.updatedTime,
+  };
+}
+
+async function searchSchemas(rawInput) {
+  const params = new URLSearchParams({
+    page: String(Number.isInteger(rawInput.page) && rawInput.page >= 0 ? rawInput.page : 0),
+    pageSize: String(Number.isInteger(rawInput.pageSize) && rawInput.pageSize > 0 ? rawInput.pageSize : 100),
+    bizKey: String(rawInput.bizKey || "config").trim(),
+  });
+  const id = Number(rawInput.schemaId || rawInput.id);
+  const name = String(rawInput.name || rawInput.query || "").trim();
+  if (Number.isInteger(id) && id > 0) params.set("id", String(id));
+  if (name) params.set("name", name);
+  const body = await requestJson("/conan-config/api/schema/search?" + params.toString());
+  const data = body?.data || body;
+  const rows = Array.isArray(data) ? data : data?.list || [];
+  return { rows };
+}
+
+async function prepareSchemaDefinition(rawInput) {
+  const definition = normalizeSchemaDefinition(rawInput);
+  const schemaJson = normalizeSchemaDocument(rawInput);
+  const searched = await searchSchemas({ name: definition.name, bizKey: definition.bizKey, page: 0, pageSize: 100 });
+  const matchingSchemas = searched.rows
+    .filter((row) => {
+      return row.name === definition.name && row.bizKey === definition.bizKey;
+    })
+    .map((row) => {
+      return compactSchemaRow(row);
+    });
+  const schemaText = canonicalJson(schemaJson).toLowerCase();
+  const environmentWarnings = environment === "cn-prod"
+    ? ["ytk", ".biz", "test"].filter((marker) => schemaText.includes(marker)).map((marker) => {
+        return "Schema contains a possible test-environment marker: " + marker;
+      })
+    : [];
+  const warnings = [
+    ...environmentWarnings,
+    ...(matchingSchemas.length ? ["Schemas with the same name and bizKey already exist; review them before creating another."] : []),
+  ];
+  return {
+    definition,
+    schemaJson,
+    schemaSha256: await sha256(schemaJson),
+    targetSha256: await sha256({ definition, schemaJson }),
+    matchingSchemas,
+    matchingSchemasSha256: await sha256(matchingSchemas),
+    warnings,
+  };
 }
 
 const environment = resolveEnvironment(input);
@@ -1570,6 +1793,92 @@ async function publishDraft(configId, configDraftId) {
     body: JSON.stringify({ configId, configDraftId }),
   });
   if (!body?.data) throw new Error("Publish API did not return success.");
+}
+
+if (input.action === "create-schema") {
+  const prepared = await prepareSchemaDefinition(input);
+  const expected = {
+    environment,
+    schemaSha256: prepared.schemaSha256,
+    targetSha256: prepared.targetSha256,
+    matchingSchemasSha256: prepared.matchingSchemasSha256,
+  };
+  const validationErrors = reportErrors(input.validationReport, expected);
+  if (prepared.warnings.length && input.validationReport?.warningsAccepted !== true) {
+    validationErrors.push(...prepared.warnings);
+  }
+  if (validationErrors.length) {
+    return failure("validation_failed", { bizKey: prepared.definition.bizKey, name: prepared.definition.name }, [...new Set(validationErrors)]);
+  }
+  const creation = await (async () => {
+    try {
+      const body = await requestJson("/conan-config/api/schema", {
+        method: "POST",
+        body: JSON.stringify({
+          ...prepared.definition,
+          schemaJson: JSON.stringify(prepared.schemaJson),
+        }),
+      });
+      return { schemaId: Number(body?.data ?? body), error: "" };
+    } catch (cause) {
+      return { schemaId: null, error: cause instanceof Error ? cause.message : String(cause) };
+    }
+  })();
+  const schemaId = creation.schemaId;
+  if (!Number.isInteger(schemaId) || schemaId <= 0) {
+    return {
+      status: "creation_result_unknown",
+      environment,
+      definition: prepared.definition,
+      schemaId: null,
+      schemaSha256: prepared.schemaSha256,
+      targetSha256: prepared.targetSha256,
+      validationErrors: [
+        creation.error || "Schema API did not return a valid schemaId.",
+        "Schema may already exist. Do not retry automatically; inspect the schema list first.",
+      ],
+      submitted: true,
+      published: false,
+      verified: false,
+    };
+  }
+  const verification = await (async () => {
+    try {
+      const rows = await requestJson("/conan-config/api/schema?ids=" + encodeURIComponent(schemaId));
+      const row = Array.isArray(rows) ? rows[0] : undefined;
+      if (!row?.schemaJson) return { verified: false, row: null, verifiedSchemaSha256: "", error: "Created Schema was not returned by the read-back API." };
+      const verifiedSchemaSha256 = await sha256(JSON.parse(row.schemaJson));
+      const verified =
+        row.id === schemaId &&
+        row.bizKey === prepared.definition.bizKey &&
+        row.name === prepared.definition.name &&
+        row.desc === prepared.definition.desc &&
+        Number(row.type) === prepared.definition.type &&
+        verifiedSchemaSha256 === prepared.schemaSha256;
+      return { verified, row: compactSchemaRow(row), verifiedSchemaSha256, error: verified ? "" : "Created Schema did not match the prepared definition." };
+    } catch (cause) {
+      return {
+        verified: false,
+        row: null,
+        verifiedSchemaSha256: "",
+        error: cause instanceof Error ? cause.message : String(cause),
+      };
+    }
+  })();
+  return {
+    status: verification.verified ? "created" : "created_verification_failed",
+    environment,
+    schemaId,
+    definition: prepared.definition,
+    schemaSha256: prepared.schemaSha256,
+    targetSha256: prepared.targetSha256,
+    verifiedSchemaSha256: verification.verifiedSchemaSha256,
+    schema: verification.row,
+    validationErrors: verification.error ? [verification.error, "Schema may already exist. Do not retry automatically."] : [],
+    submitted: true,
+    published: true,
+    verified: verification.verified,
+  };
 }
 
 if (input.action === "save-draft") {

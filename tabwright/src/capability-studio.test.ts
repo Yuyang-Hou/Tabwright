@@ -26,14 +26,20 @@ describe('capability studio', () => {
       const pageHtml = await pageResponse.text()
       expect(pageHtml).toContain('Tabwright Studio')
       expect(pageHtml).toContain('Operations')
+      expect(pageHtml).toContain('Execution contract')
 
       const apiResponse = await fetch(`http://${server.host}:${server.port}/api/capabilities`)
-      const capabilities = (await apiResponse.json()) as Array<{ id: string; title: string }>
+      const capabilities = (await apiResponse.json()) as Array<{
+        id: string
+        title: string
+        execution: { strategy: string }
+      }>
       expect(capabilities).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             id: 'studio-tool',
             title: 'Studio Tool',
+            execution: expect.objectContaining({ strategy: 'browser-ui' }),
           }),
         ]),
       )

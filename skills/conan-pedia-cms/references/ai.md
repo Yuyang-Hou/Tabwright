@@ -1,6 +1,6 @@
 # 百科AI
 
-| Action | 用途 | 输入 | 安全 |
+| 操作 | 用途 | 输入 | 安全 |
 | --- | --- | --- | --- |
 | `prompt-evaluation-task-list` | 查询 AI 评测任务 | params 可选 | 只读 |
 | `prompt-evaluation-task-create` | 创建 AI 评测任务 | data: JSON 请求体 | 写入确认 |

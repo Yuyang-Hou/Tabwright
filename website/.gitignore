@@ -4,6 +4,5 @@ node_modules
 /dist
 .env
 .DS_Store
-public/SKILL.md
 public/prompt.md
 .vercel

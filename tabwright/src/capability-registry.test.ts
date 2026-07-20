@@ -130,6 +130,13 @@ describe('capability registry', () => {
 
       expect(capability.manifest.runtime).toBe('node')
       expect(capability.manifest.permissions).toEqual(['network'])
+      expect(capability.manifest.execution).toEqual({
+        strategy: 'direct-request',
+        requiresUserBrowser: false,
+        humanAssistance: 'none',
+        requirements: [],
+        observedRequestPatterns: [],
+      })
       expect(readCapabilityScript({ id: 'api-tool', cwd })).toContain('secrets')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
@@ -201,6 +208,10 @@ describe('capability registry', () => {
       expect(exportedSkill).toContain('Ask the user only when Node.js or npm is unavailable')
       expect(exportedSkill).toContain('Use for admin user lookup requests that include an email address.')
       expect(exportedSkill).toContain('runtime/capability.json')
+      expect(exportedSkill.indexOf('## Scope Limits')).toBeGreaterThan(-1)
+      expect(exportedSkill.indexOf('## Tabwright Runtime')).toBeGreaterThan(
+        exportedSkill.indexOf('## Workflow'),
+      )
       expect(exportedSkill).toContain('runtime/script.js')
       expect(exportedSkill).toContain('npm exec --yes --package=tabwright@latest -- tabwright')
       expect(exportedSkill).toContain('"<absolute-skill-directory>/runtime"')
@@ -273,6 +284,44 @@ describe('capability registry', () => {
     }
   })
 
+  test('uses Chinese agent-facing copy for capabilities with Chinese metadata', () => {
+    const cwd = createTempDir('capability-agent-skill-zh-')
+    try {
+      createCapability({
+        id: 'query-cn-user',
+        title: '用户查询',
+        description: '查询国内管理后台的用户资料和账号状态',
+        location: 'project',
+        cwd,
+        runtime: 'node',
+      })
+      updateCapabilityManifest({
+        id: 'query-cn-user',
+        cwd,
+        patch: {
+          whenToUse: ['用户要求查询指定账号时'],
+          whenNotToUse: ['不要用于修改用户资料'],
+        },
+      })
+
+      const exportDir = path.join(cwd, 'exports', 'query-cn-user')
+      exportCapabilityAgentSkill({ id: 'query-cn-user', cwd, output: exportDir })
+      const exportedSkill = fs.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf-8')
+      const openAiMetadata = fs.readFileSync(path.join(exportDir, 'agents', 'openai.yaml'), 'utf-8')
+
+      expect(exportedSkill).toContain('## 适用边界')
+      expect(exportedSkill).toContain('## 操作流程')
+      expect(exportedSkill).toContain('## Tabwright 运行环境')
+      expect(exportedSkill).toContain('仅当 Node.js 或 npm 不可用时才询问用户')
+      expect(exportedSkill).not.toContain('## Scope Limits')
+      expect(exportedSkill).not.toContain('## Tabwright Runtime')
+      expect(openAiMetadata).toContain('default_prompt: "使用 $query-cn-user')
+      expect(openAiMetadata).not.toContain('complete the matching task')
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   test('creates AI-readable capability contracts', () => {
     const cwd = createTempDir('capability-contract-')
     try {
@@ -334,6 +383,36 @@ describe('capability registry', () => {
     expect(result.valid).toBe(true)
   })
 
+  test('does not route a capability autonomously when a person is always required', () => {
+    const cwd = createTempDir('capability-human-required-')
+    try {
+      createCapability({ id: 'approve-in-browser', location: 'project', cwd, runtime: 'browser' })
+      const capability = updateCapabilityManifest({
+        id: 'approve-in-browser',
+        cwd,
+        patch: {
+          status: 'trusted',
+          execution: {
+            strategy: 'browser-ui',
+            requiresUserBrowser: true,
+            humanAssistance: 'required',
+            requirements: ['A person must review the final screen.'],
+            observedRequestPatterns: [],
+          },
+        },
+      })
+
+      expect(toCapabilityContract(capability)).toMatchObject({
+        autonomousInvocation: {
+          allowed: false,
+          reasons: expect.arrayContaining(['execution requires human assistance']),
+        },
+      })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   test('saves recording-derived workflows as draft write capabilities', () => {
     const cwd = createTempDir('workflow-capability-')
     try {
@@ -360,6 +439,11 @@ describe('capability registry', () => {
         runtime: 'browser',
         sideEffect: 'write',
         requiresConfirmation: true,
+        execution: {
+          strategy: 'browser-ui',
+          requiresUserBrowser: true,
+          humanAssistance: 'on-challenge',
+        },
         tags: expect.arrayContaining(['workflow', 'recording-derived', 'recording:recording-123']),
       })
       expect(readCapabilityScript({ id: 'create-material-from-demo', cwd })).toBe('return { title: input.title }')
@@ -414,6 +498,7 @@ describe('capability registry', () => {
       })
 
       expect(script).toContain('needs_ai')
+      expect(script).toContain('needs_human')
       expect(script).toContain('runOneWorkflowItem')
       expect(script).not.toContain('taskQueue.run')
       expect(script).not.toContain('approval.captureAndSubmit')
@@ -421,6 +506,13 @@ describe('capability registry', () => {
       expect(capability?.manifest.tags).toEqual(
         expect.arrayContaining(['workflow', 'recording-derived', 'recording:recording-456']),
       )
+      expect(capability?.manifest.execution).toEqual({
+        strategy: 'hybrid',
+        requiresUserBrowser: true,
+        humanAssistance: 'on-challenge',
+        requirements: ['A signed-in user browser for the recorded website.'],
+        observedRequestPatterns: ['**/api/materials/**'],
+      })
       expect(saved.capability).toMatchObject({ id: 'batch-create-material-from-demo', requiresConfirmation: true })
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
@@ -442,10 +534,12 @@ describe('capability registry', () => {
       })
 
       const script = readCapabilityScript({ id: 'draft-page-cleanup-from-demo', cwd })
+      const capability = requireCapability({ id: 'draft-page-cleanup-from-demo', cwd })
 
       expect(script).toContain('const finalRequest = undefined')
       expect(script).toContain('if (!finalRequest || !finalRequest.trigger)')
       expect(script).not.toContain('approval.captureAndSubmit')
+      expect(capability.manifest.execution?.strategy).toBe('browser-ui')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }

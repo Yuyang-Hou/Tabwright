@@ -3,11 +3,13 @@
     <img src="website/public/logo-square.svg" alt="Tabwright" width="112" height="112" />
     <h1>Tabwright</h1>
     <br/>
-    <p>Let your agents control your own Chrome, via CLI or MCP. Your logins, extensions, cookies — already there.</p>
+    <p>Turn work in your signed-in Chrome into portable, verified Agent Skills.</p>
     <br/>
 </div>
 
-Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly flagged by bot detectors, double the memory. Tabwright connects to **your running browser** instead. One Chrome extension, full Playwright API, everything you're already logged into.
+Many important workflows only exist in a website: no public API, protected by SSO, dynamic signatures, or risk controls. Tabwright captures a successful task in your signed-in Chrome and packages it as a reusable Agent Skill with structured inputs, safety rules, and explicit human checkpoints.
+
+Each Skill records how it actually runs: direct request, request inside the browser, real UI interaction, or a hybrid flow that uses the UI to trigger a protected request and the network response as structured output. Users never need to identify the website's verification mechanism themselves.
 
 ## Installation
 
@@ -178,23 +180,23 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Playwright MCP
 
-|               | Playwright MCP    | Tabwright                        |
-| ------------- | ----------------- | --------------------------------- |
-| Browser       | Spawns new Chrome | **Uses your Chrome**              |
-| Extensions    | None              | Your existing ones                |
-| Login state   | Fresh             | Already logged in                 |
-| Bot detection | Always detected   | Can bypass (disconnect extension) |
-| Collaboration | Separate window   | Same browser as user              |
+|                         | Playwright MCP                         | Tabwright                                      |
+| ----------------------- | -------------------------------------- | ---------------------------------------------- |
+| Existing signed-in tabs | Supported with its browser extension   | Supported with per-tab extension control       |
+| Product boundary        | Browser tools for the current task     | Browser runtime plus reusable Agent Skills      |
+| Workflow contract       | Agent prompt or external code          | Inputs, outputs, safety, auth, execution method |
+| Protected requests      | Operate the page                       | UI trigger + structured network result          |
+| Human verification      | Calling agent handles it               | Explicit resumable `needs_human` checkpoint     |
+| Distribution            | MCP configuration                      | Portable Agent Skill                            |
 
-|                 | Playwright CLI      | Tabwright                    |
-| --------------- | ------------------- | ----------------------------- |
-| Browser         | Spawns new browser  | **Uses your Chrome**          |
-| Login state     | Fresh               | Already logged in             |
-| Extensions      | None                | Your existing ones            |
-| Captchas        | Always blocked      | Bypass (disconnect extension) |
-| Collaboration   | Separate window     | Same browser as user          |
-| Capabilities    | Limited command set | Anything Playwright can do    |
-| Raw CDP access  | No                  | Yes                           |
+|                    | Playwright CLI                 | Tabwright                                  |
+| ------------------ | ------------------------------ | ------------------------------------------ |
+| Primary use         | Browser tests and one-off commands | Reusable tools for agent workflows     |
+| Existing browser    | Depends on connection mode     | Per-tab signed-in Chrome control           |
+| Durable contract    | Test or script                  | Skill intent, schemas, safety, auth, execution |
+| Human checkpoints  | Implement in the caller         | Standard `needs_human` result              |
+| Agent distribution | Share scripts/configuration     | Export a portable Agent Skill              |
+| Raw CDP helpers     | Not the main CLI surface        | Built-in debugging and inspection helpers |
 
 ### vs BrowserMCP
 

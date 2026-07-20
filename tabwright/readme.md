@@ -1,6 +1,12 @@
 # Tabwright
 
-Let AI agents control your existing Chrome through a local CLI and MCP server. Your logins, extensions, and cookies stay available because Tabwright connects to the browser you already use.
+Turn work in your signed-in Chrome into portable, verified Agent Skills. Tabwright records a successful
+workflow, describes how it must run, and gives future agent sessions a durable tool instead of making them
+rediscover the website.
+
+Skills can use direct requests, requests inside the browser, real UI interaction, or hybrid execution that
+lets the website create a protected request and then reads the structured network result. When the website
+requires a CAPTCHA, SMS code, or other human verification, the Skill returns an explicit checkpoint.
 
 ## Install
 
@@ -15,7 +21,7 @@ tabwright doctor
 
 Install the Tabwright skill with your agent's official Agent Skills-compatible manager. The agent manager owns skill discovery and updates; the CLI owns runtime execution.
 
-## First browser task
+## First workflow
 
 ```bash
 tabwright session new
@@ -32,3 +38,11 @@ npx tabwright@latest session new
 ```
 
 Run `tabwright skill` for the complete CLI and browser automation reference. See the [GitHub repository](https://github.com/Yuyang-Hou/tabwright) for architecture, development, remote access, and release documentation.
+
+Record and compile a repeatable workflow:
+
+```bash
+tabwright replay list --limit 10 --json
+tabwright replay index <replay-id> --json
+tabwright replay make <replay-id> <capability-id> --goal "repeat this workflow" --force --json
+```

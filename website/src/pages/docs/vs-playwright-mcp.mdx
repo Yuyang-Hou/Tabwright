@@ -1,56 +1,46 @@
 ---
 title: Tabwright vs Playwright MCP
 sidebarTitle: vs Playwright MCP
-description: Why connecting to your existing Chrome beats spawning a fresh one.
+description: Browser control versus turning successful browser work into reusable Agent Skills.
 icon: lucide:drama
 ---
 
-Playwright MCP is the official MCP server from the Playwright team. It spawns a **new
-Chromium instance** every time it starts. This means a clean browser with no login state,
-no extensions, and no cookies.
+Playwright MCP is the official browser tool server from the Playwright team. It can launch a managed
+browser, connect over CDP, or use its browser extension to work with existing signed-in tabs.
 
-Tabwright connects to your **running Chrome** instead. Same browser you're already using,
-with everything already set up.
+Tabwright also provides live browser control, but its product boundary extends beyond the current agent
+session: it captures successful work, records the verified execution strategy and safety contract, and
+exports the result as a portable Agent Skill.
 
 ## Comparison
 
 |  | Playwright MCP | Tabwright |
 |---|---|---|
-| Browser | Spawns new Chrome | Uses your Chrome |
-| Extensions | None | Your existing ones |
-| Login state | Fresh (logged out) | Already logged in |
-| Bot detection | Always detected | Can bypass |
-| Collaboration | Separate window | Same browser as user |
-| Memory usage | Double (two browsers) | No extra browser |
-| CDP access | No | Yes |
+| Existing signed-in Chrome | Supported with extension mode | Supported with per-tab extension control |
+| Primary abstraction | Browser tools for the current agent task | Browser runtime plus reusable Agent Skills |
+| Reusable workflow contract | Agent prompt or external code | Inputs, outputs, permissions, side effects, auth, execution strategy |
+| Protected interactions | Agent operates the page | Skill can use UI trigger + network result as a hybrid workflow |
+| Human verification | Handled by the calling agent | Declared `needs_human` checkpoint with resume guidance |
+| Distribution | MCP configuration | Portable Agent Skill for compatible managers |
+| Low-level access | Playwright browser tools | Full Playwright execution and raw CDP helpers |
 
-## The fresh browser problem
+## The difference is what survives the session
 
-When Playwright MCP spawns a new browser, you start from zero:
-
-- **No logins.** Gmail, GitHub, Slack, your internal tools; all logged out. The agent can't
-  access anything that requires authentication unless you script a full login flow.
-- **No extensions.** Ad blockers, password managers, cookie consent auto-accepters; all gone.
-  The agent sees the raw, unfiltered web.
-- **Bot detection.** A fresh Chromium instance with no history, no extensions, and default
-  fingerprints is trivially detected as a bot. CAPTCHAs appear immediately.
-- **Extra memory.** Running two Chrome instances eats 500MB-1GB of additional RAM.
+Browser tools help an agent complete one task. A Tabwright capability is successful only when a fresh
+agent session can route to the saved Skill, provide structured input, respect its confirmation boundary,
+and complete the same work without rediscovering the site.
 
 ## How Tabwright is different
 
-Tabwright runs in your existing Chrome session. Your cookies, extensions, and browsing
-history are all there. Sites that require login just work. CAPTCHAs are rare because
-your browser looks like a real user's browser; it **is** a real user's browser.
-
-When the agent hits something it can't handle (a CAPTCHA, a consent wall, a two-factor
-prompt), you see it in your own browser and can step in to help. The agent picks up
-where you left off.
+Tabwright treats direct HTTP calls as an optimization, not the product goal. If a website needs its own
+frontend to produce a dynamic signature, the Skill remains browser-backed. It can trigger the legitimate
+request through the UI, observe its response, and return structured output. CAPTCHA and two-factor screens
+become explicit human checkpoints instead of generic automation failures.
 
 ```bash
-# Playwright MCP: agent is alone in a fresh browser
-# Tabwright: agent works in your browser, you collaborate in real time
-
-tabwright session new
-tabwright -s 1 -e "page.goto('https://gmail.com')"
-# Already logged in, no credentials needed
+tabwright replay make <replay-id> protected-generation --goal "generate an asset" --force --json
+tabwright capability describe protected-generation --json
+# execution.strategy: hybrid
+# execution.requiresUserBrowser: true
+# execution.humanAssistance: on-challenge
 ```

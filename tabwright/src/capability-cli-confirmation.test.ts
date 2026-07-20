@@ -31,6 +31,54 @@ function runCli(options: { cwd: string; args: string[] }): Promise<{ stdout: str
 }
 
 describe('capability CLI confirmation', () => {
+  test('rejects headless execution when a capability requires the signed-in user browser', async () => {
+    const cwd = createTempDir('capability-cli-user-browser-')
+    try {
+      const capability = createCapability({
+        id: 'signed-in-browser-only',
+        location: 'project',
+        cwd,
+        runtime: 'browser',
+      })
+      updateCapabilityManifest({
+        id: capability.manifest.id,
+        cwd,
+        allowUnvalidatedTrust: true,
+        patch: {
+          status: 'trusted',
+          execution: {
+            strategy: 'hybrid',
+            requiresUserBrowser: true,
+            humanAssistance: 'on-challenge',
+            requirements: ['A signed-in browser is required.'],
+            observedRequestPatterns: ['**/api/protected/**'],
+          },
+        },
+      })
+
+      await expect(
+        runCli({
+          cwd,
+          args: [
+            'capability',
+            'run',
+            capability.manifest.id,
+            '--browser',
+            'headless',
+            '--input-json',
+            '{}',
+            '--json',
+          ],
+        }),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining('requires the signed-in user browser'),
+      })
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   test('force cannot execute a confirmation-required script without the exact id', async () => {
     const cwd = createTempDir('capability-cli-confirmation-')
     try {

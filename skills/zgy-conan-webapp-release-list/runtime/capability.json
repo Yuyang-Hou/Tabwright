@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "id": "zgy-conan-webapp-release-list",
+  "title": "ZGY Conan WebApp Release List",
+  "description": "",
+  "whenToUse": [],
+  "whenNotToUse": [],
+  "tags": [],
+  "match": [],
+  "routingHint": "search-first",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectName": {
+        "type": "string",
+        "description": "Console project name. Defaults to conan-pedia-web."
+      },
+      "project": {
+        "type": "string",
+        "description": "Alias for projectName."
+      },
+      "key": {
+        "type": "string",
+        "description": "Specific WebAppKey. Defaults to the first key returned by the project."
+      },
+      "webAppKey": {
+        "type": "string",
+        "description": "Alias for key."
+      },
+      "page": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Zero-based page index. Defaults to 0."
+      },
+      "pageSize": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Number of releases to return. Defaults to 10."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "projectName": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string"
+      },
+      "availableKeys": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "pageInfo": {
+        "type": "object"
+      },
+      "latestFullVersion": {},
+      "keySummary": {
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "releases": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "deployStatus": {
+              "type": "integer"
+            },
+            "deployStatusLabel": {
+              "type": "string"
+            },
+            "latestFullVersion": {
+              "type": "boolean"
+            },
+            "latestGrayscaleVersion": {
+              "type": "boolean"
+            },
+            "commitAuthor": {
+              "type": "string"
+            },
+            "commitMessage": {
+              "type": "string"
+            },
+            "commitInfo": {
+              "type": "string"
+            },
+            "commitId": {
+              "type": "string"
+            },
+            "creatorLdap": {
+              "type": "string"
+            },
+            "createTime": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "deployLdap": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "deployTime": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "buildId": {},
+            "locked": {
+              "type": "boolean"
+            },
+            "previewUrl": {
+              "type": "string"
+            },
+            "entry": {
+              "type": "string"
+            },
+            "grayscaleData": {}
+          }
+        }
+      }
+    },
+    "required": [
+      "projectName",
+      "key",
+      "availableKeys",
+      "pageInfo",
+      "releases"
+    ]
+  },
+  "permissions": [
+    "browser.read"
+  ],
+  "sideEffect": "read",
+  "requiresConfirmation": false,
+  "operations": {},
+  "auth": {
+    "type": "none",
+    "refresh": "none",
+    "browserUrls": [
+      "https://console.zhenguanyu.com/",
+      "https://conan-webapp.zhenguanyu.com/",
+      "https://ytkconan.zhenguanyu.com/"
+    ],
+    "requiredCookieNames": [],
+    "failureSignals": [
+      "401",
+      "403",
+      "login",
+      "unauthorized"
+    ]
+  },
+  "examples": [
+    {
+      "input": {
+        "projectName": "conan-pedia-web",
+        "key": "conan-pedia-web-member-manage",
+        "pageSize": 10
+      },
+      "output": {
+        "projectName": "conan-pedia-web",
+        "key": "conan-pedia-web-member-manage",
+        "releases": [
+          {
+            "version": "0.0.488",
+            "deployStatusLabel": "待发布",
+            "commitMessage": "MOD: 委托代扣区分百科端内渠道"
+          }
+        ]
+      }
+    }
+  ],
+  "entry": "script.js",
+  "runtime": "browser",
+  "status": "draft",
+  "createdBy": "ai",
+  "createdAt": "2026-06-26T06:44:39.923Z",
+  "updatedAt": "2026-06-26T06:44:39.923Z"
+}
