@@ -1,3 +1,6 @@
 [submodule "playwright"]
 	path = playwright
 	url = https://github.com/remorses/playwright.git
+[submodule "spark-lab-site"]
+	path = spark-lab-site
+	url = https://git.chatgpt-team.site/de578f62-92aa-4dd3-ad06-82eb73044474/appgprj_6a5492cb93a48191aab17ceb60b3f8b3.git
