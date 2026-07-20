@@ -190,10 +190,7 @@ cli
   .option('--host <host>', 'Remote relay server host to connect to (or use TABWRIGHT_HOST env var)')
   .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
   .option('-s, --session <name>', 'Session ID (required for -e, get one with `tabwright session new`)')
-  .option(
-    '-e, --eval <code>',
-    'Execute JavaScript code and exit; manage skills at https://rush.zhenguanyu.com/next/skills/groups/3dbf7257-cc03-492e-aa71-11cc736e0876',
-  )
+  .option('-e, --eval <code>', 'Execute JavaScript code and exit, read https://playwriter.dev/SKILL.md for usage')
   .option('-f, --file <path>', 'Execute JavaScript from a file and exit')
   .option('--patchright', 'Use @playwriter/patchright-core for stealth mode (bypasses bot detection)')
   .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))

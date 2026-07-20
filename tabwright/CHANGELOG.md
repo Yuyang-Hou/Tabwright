@@ -9,7 +9,6 @@
 
 ### Patch Changes
 
-- Direct Skill discovery and installation to the central Skill manager instead of publishing a separate website installation feed.
 - Place exported Skill workflow instructions before shared runtime details and generate Chinese agent-facing copy for capabilities with Chinese metadata.
 
 ## 3.0.0
