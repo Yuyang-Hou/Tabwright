@@ -32,6 +32,7 @@ import bippyBundleCode from '../../tabwright/dist/bippy.js?raw'
 import {
   handleStartRrwebRecording,
   handleStopRrwebRecording,
+  handleFlushRrwebRecording,
   handleIsRrwebRecording,
   handleCancelRrwebRecording,
   cleanupRrwebRecordingForTab,
@@ -776,6 +777,18 @@ class ConnectionManager {
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error('Failed to stop rrweb recording:', error)
+          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
+        }
+        return
+      }
+
+      if (message.method === 'flushRrwebRecording') {
+        try {
+          const result = await handleFlushRrwebRecording(message.params)
+          sendCurrentSocketMessage({ id: message.id, result })
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          logger.error('Failed to flush rrweb recording:', error)
           sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
         }
         return

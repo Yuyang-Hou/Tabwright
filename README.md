@@ -3,11 +3,11 @@
     <img src="website/public/logo-square.svg" alt="Tabwright" width="112" height="112" />
     <h1>Tabwright</h1>
     <br/>
-    <p>Turn work in your signed-in Chrome into portable, verified Agent Skills.</p>
+    <p>Give any web app a CLI.</p>
     <br/>
 </div>
 
-Many important workflows only exist in a website: no public API, protected by SSO, dynamic signatures, or risk controls. Tabwright captures a successful task in your signed-in Chrome and packages it as a reusable Agent Skill with structured inputs, safety rules, and explicit human checkpoints.
+Many important workflows only exist in a website: no public API, protected by SSO, dynamic signatures, or risk controls. Attach Tabwright to a signed-in tab and work normally. An Agent can select the relevant part of your recent activity and turn it into a reusable CLI workflow and Agent Skill with structured inputs, safety rules, and explicit human checkpoints.
 
 Each Skill records how it actually runs: direct request, request inside the browser, real UI interaction, or a hybrid flow that uses the UI to trigger a protected request and the network response as structured output. Users never need to identify the website's verification mechanism themselves.
 
@@ -46,9 +46,19 @@ tabwright -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Learn
 
 > **Tip:** Always use single quotes for `-e` to prevent bash from interpreting `$`, backticks, and `\` in your JS code. Use double quotes for strings inside the JS.
 
-## Replay to Capability
+## Recent Activity to CLI Workflow
 
-List saved demonstrations, inspect compact evidence, then turn one into a runnable draft capability:
+Attaching a tab keeps a rolling local activity stream. Nothing needs to be saved in advance. When the Agent needs to understand something you just did, it can inspect the recent timeline and copy only the relevant event range into a replay:
+
+```bash
+tabwright activity list --json
+tabwright activity inspect --last 5m --json
+tabwright activity save --from <timestamp> --to <timestamp> --json
+```
+
+Saving creates a replay copy; observation continues without interruption. With multiple attached tabs, pass the `sessionId` returned by `activity list` using `--session`.
+
+Then inspect the saved evidence and turn it into a runnable draft capability:
 
 ```bash
 tabwright replay list --limit 10 --json

@@ -96,4 +96,69 @@ describe('RrwebRecordingRelay', () => {
     const replay = getSavedRrwebRecordingWithEvents(saved[0].id)
     expect(replay?.events).toEqual(events)
   })
+
+  test('copies a selected activity range without stopping ongoing observation', async () => {
+    useTempHome()
+
+    const startedAt = Date.now() - 5000
+    const events: RrwebEvent[] = [
+      {
+        type: 2,
+        timestamp: startedAt,
+        data: { node: { id: 1, type: 0, childNodes: [] } },
+      },
+      {
+        type: 3,
+        timestamp: startedAt + 1000,
+        data: { source: 2, type: 2, id: 10 },
+      },
+      {
+        type: 3,
+        timestamp: startedAt + 3000,
+        data: { source: 2, type: 2, id: 20 },
+      },
+    ]
+    let stopCallCount = 0
+    const relayRef: { current?: RrwebRecordingRelay } = {}
+    const relay = new RrwebRecordingRelay(
+      async ({ method }) => {
+        if (method === 'startRrwebRecording') {
+          return { success: true, tabId: 42, startedAt, url: 'https://example.com/work' }
+        }
+        if (method === 'flushRrwebRecording') {
+          relayRef.current?.handleRrwebRecordingData({
+            method: 'rrwebRecordingData',
+            params: { tabId: 42, events },
+          })
+          return { success: true, tabId: 42, eventCount: events.length }
+        }
+        if (method === 'stopRrwebRecording') {
+          stopCallCount += 1
+        }
+        throw new Error(`Unexpected method: ${method}`)
+      },
+      () => {
+        return true
+      },
+    )
+    relayRef.current = relay
+
+    const startResult = await relay.ensureActivityRecording({ sessionId: 'pw-tab-activity' })
+    expect(startResult.success).toBe(true)
+
+    const saveResult = await relay.saveRecentActivity({
+      sessionId: 'pw-tab-activity',
+      from: startedAt + 2000,
+      to: startedAt + 4000,
+    })
+    expect(saveResult.success).toBe(true)
+    expect(stopCallCount).toBe(0)
+    expect(relay.listRecentActivities()).toHaveLength(1)
+
+    const saved = listSavedRrwebRecordings({ limit: 1 })[0]
+    expect(saved.source).toBe('activity')
+    expect(saved.selectionStart).toBe(startedAt + 2000)
+    expect(saved.selectionEnd).toBe(startedAt + 3000)
+    expect(getSavedRrwebRecordingWithEvents(saved.id)?.events).toEqual(events)
+  })
 })

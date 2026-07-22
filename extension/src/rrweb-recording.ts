@@ -2,6 +2,8 @@ import type {
   CancelRrwebRecordingParams,
   CancelRrwebRecordingResult,
   ExtensionStopRrwebRecordingResult,
+  FlushRrwebRecordingParams,
+  FlushRrwebRecordingResult,
   IsRrwebRecordingParams,
   IsRrwebRecordingResult,
   RrwebEvent,
@@ -320,6 +322,29 @@ export async function handleStopRrwebRecording(params: StopRrwebRecordingParams)
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logger.error('Failed to stop rrweb recording:', error)
+    return { success: false, error: errorMessage }
+  }
+}
+
+export async function handleFlushRrwebRecording(params: FlushRrwebRecordingParams): Promise<FlushRrwebRecordingResult> {
+  const tabId = resolveTabIdFromSessionId(params.sessionId)
+  if (!tabId) {
+    return { success: false, error: 'No connected tab found' }
+  }
+  if (!activeRrwebRecordings.has(tabId)) {
+    return { success: false, error: 'No active rrweb recording for this tab' }
+  }
+
+  try {
+    const results = await sendTabMessageToAllFrames({ tabId, message: { action: 'playwriterRrwebFlush' } })
+    const response = pickPrimaryRecorderResponse(results)
+    if (!response.success) {
+      return { success: false, error: response.error || 'Failed to flush rrweb recorder' }
+    }
+    return { success: true, tabId, eventCount: response.eventCount || 0 }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    logger.error('Failed to flush rrweb recording:', error)
     return { success: false, error: errorMessage }
   }
 }

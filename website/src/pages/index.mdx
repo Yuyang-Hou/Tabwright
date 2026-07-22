@@ -1,7 +1,7 @@
 ---
-title: Turn Browser Work Into Agent Skills
+title: Give Any Web App a CLI
 sidebarTitle: Home
-description: Show Tabwright a workflow once and turn it into a portable, verified Agent Skill.
+description: Attach a tab, work normally, and turn recent web activity into a reusable CLI workflow and Agent Skill.
 icon: lucide:home
 rendering: static
 prompt: |
@@ -19,9 +19,9 @@ import { HeroSection } from '../components/hero-section.tsx'
 
 </Above>
 
-Show Tabwright a workflow once in your signed-in Chrome. It turns the interaction into a
-**portable, verified Agent Skill** with structured inputs, safety rules, browser requirements,
-and an explicit path for human verification.
+Attach Tabwright to your signed-in Chrome and work normally. When needed, an Agent selects the relevant
+part of your recent activity and turns it into a **reusable CLI workflow and portable Agent Skill** with
+structured inputs, safety rules, browser requirements, and an explicit path for human verification.
 
 <Aside>
 <Tip>
@@ -50,8 +50,9 @@ produce its own verification, or a hybrid flow that triggers through the UI and 
 ## From demonstration to durable skill
 
 ```diagram
-User demonstrates a task in signed-in Chrome
-  -> Tabwright captures actions and request evidence
+User works normally in an attached signed-in tab
+  -> Agent selects the relevant recent event range
+  -> Tabwright saves a replay copy without stopping observation
   -> compile the safest verified execution strategy
   -> validate inputs, outputs, permissions, and side effects
   -> export a portable Agent Skill
@@ -72,7 +73,7 @@ verification algorithm.
 
 ## Getting started
 
-**Four steps** and your first browser workflow is ready to become a Skill.
+**Three steps** and your first browser workflow is ready to become a CLI and Skill.
 
 ### Install the extension
 
@@ -89,11 +90,14 @@ npm i -g tabwright
 
 Then import the **Tabwright skill** with your agent's official Agent Skills-compatible manager. It teaches your agent which selectors to use, how to avoid timeouts, how to read snapshots, and all available utilities. Tabwright intentionally does not write into an agent's private skill directory.
 
-### Capture and compile
+### Select recent activity and compile
 
-Record the workflow in the browser, inspect the saved evidence, and compile a draft capability.
+Work normally in the attached tab. The Agent can inspect the rolling local activity stream, save only the
+relevant event range, and compile it into a draft workflow. Saving a range never interrupts observation.
 
 ```bash
+tabwright activity inspect --last 5m --json
+tabwright activity save --from <timestamp> --to <timestamp> --json
 tabwright replay list --limit 10 --json
 tabwright replay index <replay-id> --json
 tabwright replay make <replay-id> <capability-id> --goal "repeat this workflow" --force --json

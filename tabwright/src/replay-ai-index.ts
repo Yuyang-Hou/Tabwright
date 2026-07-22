@@ -641,9 +641,10 @@ export function buildReplayAiIndex(options: {
   replayId: string
   url?: string
   events: RrwebEvent[]
+  actionRange?: { from: number; to: number }
 }): ReplayAiIndex {
   const state: ReplayDomState = { nodes: new Map<number, ReplayDomNode>() }
-  const firstTimestamp = getFirstTimestamp(options.events)
+  const firstTimestamp = options.actionRange?.from ?? getFirstTimestamp(options.events)
   const stats: ReplayAiIndexStats = {
     eventCount: options.events.length,
     fullSnapshotCount: 0,
@@ -675,6 +676,9 @@ export function buildReplayAiIndex(options: {
         warnings.push('Ignored rrweb custom event without timestamp.')
         return
       }
+      if (options.actionRange && (timestamp < options.actionRange.from || timestamp > options.actionRange.to)) {
+        return
+      }
       const deletedAnnotationId = readAnnotationDeleteEvent({ data })
       if (deletedAnnotationId) {
         annotationsById.delete(deletedAnnotationId)
@@ -704,8 +708,10 @@ export function buildReplayAiIndex(options: {
       return
     }
 
+    const isSelectedAction =
+      !options.actionRange || (timestamp >= options.actionRange.from && timestamp <= options.actionRange.to)
+
     if (source === 5) {
-      stats.inputEventCount += 1
       const nodeId = numberValue(data.id)
       const value = optionalString(data.text) || optionalString(data.value) || ''
       const checked = typeof data.isChecked === 'boolean' ? data.isChecked : undefined
@@ -716,6 +722,10 @@ export function buildReplayAiIndex(options: {
           value,
         }
       }
+      if (!isSelectedAction) {
+        return
+      }
+      stats.inputEventCount += 1
       const summary = nodeId === undefined ? undefined : summarizeNode(state, nodeId)
       actions.push({
         kind: 'input',
@@ -736,6 +746,9 @@ export function buildReplayAiIndex(options: {
     }
 
     if (source === 2 && data.type === 2) {
+      if (!isSelectedAction) {
+        return
+      }
       stats.clickEventCount += 1
       const nodeId = numberValue(data.id)
       const summary = nodeId === undefined ? undefined : summarizeNode(state, nodeId)
@@ -800,6 +813,10 @@ export function createReplayAiIndexFromRecording(replayId: string): ReplayAiInde
     replayId,
     url: replay.recording.url,
     events: replay.events,
+    actionRange:
+      replay.recording.selectionStart !== undefined && replay.recording.selectionEnd !== undefined
+        ? { from: replay.recording.selectionStart, to: replay.recording.selectionEnd }
+        : undefined,
   })
 }
 

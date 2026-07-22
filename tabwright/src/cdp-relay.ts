@@ -48,6 +48,8 @@ import { getCapabilityOptionsDetail, listCapabilityOptions } from './capability-
 import { appendSessionToWsUrl } from './chrome-discovery.js'
 import * as relayState from './relay-state.js'
 import { getTabwrightUserDataDir } from './product-paths.js'
+import { buildReplayAiIndex } from './replay-ai-index.js'
+import { toCompactReplayAiIndex } from './replay-handoff.js'
 
 /**
  * Checks if a target should be filtered out (not exposed to Playwright).
@@ -563,6 +565,32 @@ export async function startTabwrightCDPRelayServer({
       )
     }
     return rrwebRecordingRelays.get(connId) || null
+  }
+
+  const listRecentActivities = () => {
+    return Array.from(store.getState().extensions.keys()).flatMap((extensionId) => {
+      const relay = getRrwebRecordingRelay(extensionId)
+      return (relay?.listRecentActivities() || []).map((activity) => {
+        return { ...activity, extensionId }
+      })
+    })
+  }
+
+  const resolveActivityRelay = (options: { sessionId: string | null }): RrwebRecordingRelay | null => {
+    if (options.sessionId) {
+      return getRrwebRecordingRelay(findExtensionIdByCdpSession(options.sessionId))
+    }
+    const activities = listRecentActivities()
+    if (activities.length !== 1) {
+      return null
+    }
+    return getRrwebRecordingRelay(activities[0].extensionId)
+  }
+
+  const listRecentActivitySummaries = () => {
+    return listRecentActivities().map(({ extensionId: _extensionId, ...activity }) => {
+      return activity
+    })
   }
 
   const handleToolbarRecordingRequest = async (
@@ -1768,6 +1796,29 @@ export async function startTabwrightCDPRelayServer({
                 }),
               )
 
+              if (
+                targetParams.targetInfo.type === 'page' &&
+                extensionSupportsFeature({
+                  extensionId: connectionId,
+                  feature: EXTENSION_FEATURE.activityObservation,
+                })
+              ) {
+                const activityRelay = getRrwebRecordingRelay(connectionId)
+                if (activityRelay) {
+                  void activityRelay
+                    .ensureActivityRecording({ sessionId: targetParams.sessionId })
+                    .then((result) => {
+                      if (!result.success) {
+                        logger?.log(pc.yellow(`[Activity] Could not observe attached tab: ${result.error}`))
+                      }
+                    })
+                    .catch((error: unknown) => {
+                      const message = error instanceof Error ? error.message : String(error)
+                      logger?.log(pc.yellow(`[Activity] Could not observe attached tab: ${message}`))
+                    })
+                }
+              }
+
               const cachedDownloadBehavior = extensionDownloadBehavior.get(connectionId)
               if (cachedDownloadBehavior && targetParams.targetInfo.type === 'page') {
                 void applyDownloadBehaviorToTargets({
@@ -2086,6 +2137,7 @@ export async function startTabwrightCDPRelayServer({
   app.use('/cli/*', privilegedRouteMiddleware)
   app.use('/recording/*', privilegedRouteMiddleware)
   app.use('/rrweb-recording/*', privilegedRouteMiddleware)
+  app.use('/activity/*', privilegedRouteMiddleware)
   app.use('/mcp-log', privilegedRouteMiddleware)
 
   const reviewRouteMiddleware = async (
@@ -2221,6 +2273,87 @@ export async function startTabwrightCDPRelayServer({
     const rawLimit = Number(c.req.query('limit') || 50)
     const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(200, Math.floor(rawLimit))) : 50
     return c.json({ recordings: listSavedRrwebRecordings({ limit }) })
+  })
+
+  app.get('/activity/list', (c) => {
+    return c.json({ activities: listRecentActivitySummaries() })
+  })
+
+  app.post('/activity/inspect', async (c) => {
+    const body = (await c.req.json()) as {
+      sessionId?: string | number
+      from?: number
+      to?: number
+      lastMs?: number
+    }
+    const sessionId = normalizeSessionId(body.sessionId)
+    const relay = resolveActivityRelay({ sessionId })
+    if (!relay) {
+      return c.json(
+        {
+          success: false,
+          error: 'No unique attached activity stream found',
+          activities: listRecentActivitySummaries(),
+        },
+        409,
+      )
+    }
+    try {
+      const activity = await relay.getRecentActivity({
+        sessionId: sessionId || undefined,
+        from: body.from,
+        to: body.to,
+        lastMs: body.lastMs,
+      })
+      const index = buildReplayAiIndex({
+        replayId: 'recent-activity',
+        url: activity.url,
+        events: activity.events,
+        actionRange: { from: activity.selectionStart, to: activity.selectionEnd },
+      })
+      const { events: _events, ...activitySummary } = activity
+      return c.json({ success: true, activity: activitySummary, timeline: toCompactReplayAiIndex(index) })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      return c.json({ success: false, error: message, activities: listRecentActivitySummaries() }, 400)
+    }
+  })
+
+  app.post('/activity/save', async (c) => {
+    const body = (await c.req.json()) as {
+      sessionId?: string | number
+      from?: number
+      to?: number
+      lastMs?: number
+    }
+    const sessionId = normalizeSessionId(body.sessionId)
+    const relay = resolveActivityRelay({ sessionId })
+    if (!relay) {
+      return c.json(
+        {
+          success: false,
+          error: 'No unique attached activity stream found',
+          activities: listRecentActivitySummaries(),
+        },
+        409,
+      )
+    }
+    try {
+      const result = await relay.saveRecentActivity({
+        sessionId: sessionId || undefined,
+        from: body.from,
+        to: body.to,
+        lastMs: body.lastMs,
+      })
+      if (!result.success) {
+        return c.json(result, 400)
+      }
+      const saved = result.id ? getSavedRrwebRecording(result.id) : null
+      return c.json({ success: true, replay: saved, observing: true })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      return c.json({ success: false, error: message, activities: listRecentActivitySummaries() }, 400)
+    }
   })
 
   app.get('/rrweb-recordings/:id', (c) => {

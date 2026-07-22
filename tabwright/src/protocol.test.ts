@@ -47,6 +47,9 @@ describe('extension feature negotiation', () => {
     expect(requiredExtensionFeatureForMethod('startRrwebRecording')).toBe(
       EXTENSION_FEATURE.rrwebRecording,
     )
+    expect(requiredExtensionFeatureForMethod('flushRrwebRecording')).toBe(
+      EXTENSION_FEATURE.activityObservation,
+    )
     expect(requiredExtensionFeatureForMethod('forwardCDPCommand')).toBeUndefined()
   })
 })

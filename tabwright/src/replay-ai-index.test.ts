@@ -248,6 +248,19 @@ describe('replay ai index', () => {
     expect(fs.existsSync(saved.path)).toBe(true)
   })
 
+  test('uses pre-range DOM context while exposing only actions inside an activity selection', () => {
+    const index = buildReplayAiIndex({
+      replayId: 'activity-selection',
+      events: createReplayEvents(),
+      actionRange: { from: 1350, to: 1550 },
+    })
+
+    expect(index.actions.map((action) => action.kind)).toEqual(['input', 'click'])
+    expect(index.actions.map((action) => action.timestamp)).toEqual([1400, 1500])
+    expect(index.annotations.map((annotation) => annotation.timestamp)).toEqual([1450])
+    expect(index.fields).toHaveLength(1)
+  })
+
   test('removes deleted recording annotations from the ai index', () => {
     const index = buildReplayAiIndex({
       replayId: 'replay-ai-index-deleted-annotation',

@@ -159,13 +159,13 @@ export function HeroSection() {
               className='text-[28px] sm:text-[36px] md:text-[44px] text-foreground'
               style={{ fontFamily: HERO_FONT }}
             >
-              turn browser work
+              give any web app
             </span>
             <span
               className='text-[28px] sm:text-[36px] md:text-[44px] text-foreground -mt-1 sm:-mt-2'
               style={{ fontFamily: HERO_FONT }}
             >
-              into agent skills
+              a CLI
             </span>
           </h1>
 

@@ -340,7 +340,23 @@ tabwright capability run bilibili-current-user --json
 
 When multiple Chrome extension connections exist, pass a browser key from `tabwright browser list` instead of `user`.
 
-When turning a user demonstration into a repeatable workflow, do not analyze during recording. Keep the recording/replay id as evidence, then generate a draft browser capability only after the user gives the id plus a concrete goal. Prefer the cheapest verified strategy, but treat browser interaction as a valid final runtime rather than a failed API conversion. Generated workflow scripts should return `needs_ai` with page context when the live page diverges and `needs_human` when the live page presents a verification challenge.
+### Recent attached activity
+
+Attaching Tabwright to a tab starts a local rolling activity stream. The stream is not itself a saved replay: it keeps the latest browser events available so an Agent can understand work the user just performed without asking them to start and stop a separate recording.
+
+When the user refers to something they just did, use this sequence:
+
+```bash
+tabwright activity list --json
+tabwright activity inspect --session <pw-tab-session-id> --last 5m --json
+tabwright activity save --session <pw-tab-session-id> --from <timestamp> --to <timestamp> --json
+```
+
+`activity inspect` returns a compact action timeline without saving it. Select only the event range that represents the requested task, excluding exploration, corrections, and unrelated work. `activity save` copies that range into a normal replay and returns its replay id; the attached activity stream continues without interruption. When exactly one attached activity stream exists, omit `--session`. For a simple immediate request, `activity save --last 5m --json` is acceptable, but inspect first when the recent window contains unrelated work.
+
+Saving recent activity is a device-local evidence operation, so the Agent may invoke it autonomously when needed to fulfill the user's request. Do not save activity speculatively or upload replay evidence. Treat captured input values as potentially sensitive and reveal only what the task requires.
+
+When turning recent activity or an explicit user demonstration into a repeatable workflow, do not analyze during the user's interaction. Save the relevant event range as evidence, then generate a draft browser capability only after the user gives a concrete goal. Prefer the cheapest verified strategy, but treat browser interaction as a valid final runtime rather than a failed API conversion. Generated workflow scripts should return `needs_ai` with page context when the live page diverges and `needs_human` when the live page presents a verification challenge.
 
 Cookie auth declared with `refresh: "from-browser"` is refreshed automatically before a run when it is missing, expired, unknown, or stale and expiring. A read-only operation that reports a declared auth failure is refreshed and retried once. Write and dangerous operations are refreshed but never retried automatically after a request may have started. Cookie values stay in local `secrets.json` and are never printed or shown in the extension Options page.
 

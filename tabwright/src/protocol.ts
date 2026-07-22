@@ -8,6 +8,7 @@ export const EXTENSION_FEATURE = {
   rrwebRecording: 'rrweb-recording-v1',
   toolbarRecording: 'toolbar-recording-v1',
   multiExtension: 'multi-extension-v1',
+  activityObservation: 'activity-observation-v1',
 } as const
 
 export type ExtensionFeature = (typeof EXTENSION_FEATURE)[keyof typeof EXTENSION_FEATURE]
@@ -21,6 +22,7 @@ export const RELAY_FEATURE = {
   capabilityAuthAutoTab: 'capability-auth-auto-tab-v1',
   rrwebRecording: 'rrweb-recording-v1',
   multiExtension: 'multi-extension-v1',
+  activityObservation: 'activity-observation-v1',
 } as const
 
 export type RelayFeature = (typeof RELAY_FEATURE)[keyof typeof RELAY_FEATURE]
@@ -31,6 +33,7 @@ export const RELAY_REVIEW_FEATURES: RelayFeature[] = [
   RELAY_FEATURE.capabilityAuth,
   RELAY_FEATURE.capabilityAuthAutoTab,
   RELAY_FEATURE.rrwebRecording,
+  RELAY_FEATURE.activityObservation,
 ]
 
 export function supportsExtensionFeature(options: {
@@ -69,6 +72,9 @@ export function parseExtensionFeatures(value: string | undefined): string[] | un
 export function requiredExtensionFeatureForMethod(method: string): ExtensionFeature | undefined {
   if (method === 'createInitialTab') {
     return EXTENSION_FEATURE.createInitialTab
+  }
+  if (method === 'flushRrwebRecording') {
+    return EXTENSION_FEATURE.activityObservation
   }
   if (
     method === 'startRrwebRecording' ||
@@ -164,6 +170,7 @@ export type ToolbarRecordingResult =
   | {
       success: true
       isRecording: boolean
+      mode?: RrwebRecordingMode
       startedAt?: number
       tabId?: number
       id?: string
@@ -222,7 +229,13 @@ export type StartRrwebRecordingParams = {
   inlineImages?: boolean
   collectFonts?: boolean
   mousemoveWait?: number
+  /** Manual demonstrations stop after one save; activity recordings resume after an Agent checkpoint. */
+  mode?: RrwebRecordingMode
+  /** Relay-side rolling window for attached activity. The extension ignores this field. */
+  maxDurationMs?: number
 }
+
+export type RrwebRecordingMode = 'manual' | 'activity'
 
 /** HTTP body for /rrweb-recording/start endpoint */
 export type StartRrwebRecordingBody = StartRrwebRecordingParams & {
@@ -241,6 +254,11 @@ export type IsRrwebRecordingParams = {
 
 export type CancelRrwebRecordingParams = {
   /** CDP tab session ID (pw-tab-*) to identify which tab to cancel. */
+  sessionId?: string
+}
+
+export type FlushRrwebRecordingParams = {
+  /** CDP tab session ID (pw-tab-*) whose pending events should be flushed. */
   sessionId?: string
 }
 
@@ -268,11 +286,29 @@ export type CancelRrwebRecordingMessage = {
   params: CancelRrwebRecordingParams
 }
 
+export type FlushRrwebRecordingMessage = {
+  id: number
+  method: 'flushRrwebRecording'
+  params: FlushRrwebRecordingParams
+}
+
 export type RrwebRecordingCommandMessage =
   | StartRrwebRecordingMessage
   | StopRrwebRecordingMessage
   | IsRrwebRecordingMessage
   | CancelRrwebRecordingMessage
+  | FlushRrwebRecordingMessage
+
+export type FlushRrwebRecordingResult =
+  | {
+      success: true
+      tabId: number
+      eventCount: number
+    }
+  | {
+      success: false
+      error: string
+    }
 
 export type StartRrwebRecordingResult =
   | {

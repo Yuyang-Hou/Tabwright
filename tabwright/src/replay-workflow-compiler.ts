@@ -365,6 +365,7 @@ export function analyzeReplayWorkflow(options: {
   replayId: string
   url?: string
   events: RrwebEvent[]
+  actionRange?: { from: number; to: number }
 }): ReplayWorkflowAnalysis {
   const aiIndex = buildReplayAiIndex(options)
   const clickedTexts = uniqueStrings(
@@ -680,6 +681,10 @@ export function compileReplayWorkflow(options: CompileReplayWorkflowOptions): Co
     replayId: options.replayId,
     url: replay.recording.url,
     events: replay.events,
+    actionRange:
+      replay.recording.selectionStart !== undefined && replay.recording.selectionEnd !== undefined
+        ? { from: replay.recording.selectionStart, to: replay.recording.selectionEnd }
+        : undefined,
   })
   if (analysis.actionKind !== 'list-append') {
     throw new UnsupportedReplayWorkflowError({ analysis })

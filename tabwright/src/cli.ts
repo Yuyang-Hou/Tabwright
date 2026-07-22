@@ -1048,6 +1048,191 @@ function printReplayNeedsAiHandoff(options: {
   console.log(`Create a browser scaffold: ${options.handoff.next.createCommand}`)
 }
 
+function parseActivityDuration(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined
+  }
+  const match = /^(\d+)(ms|s|m|h)?$/.exec(value.trim())
+  if (!match) {
+    throw new Error(`Invalid duration: ${value}. Use values such as 30s, 5m, or 1h.`)
+  }
+  const amount = Number(match[1])
+  const unit = match[2] || 'ms'
+  const multipliers: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }
+  return amount * multipliers[unit]
+}
+
+async function activityRequest(options: {
+  pathname: '/activity/list' | '/activity/inspect' | '/activity/save'
+  method: 'GET' | 'POST'
+  host?: string
+  token?: string
+  body?: Record<string, unknown>
+}): Promise<{ response: Response; result: unknown }> {
+  if (!options.host && !process.env.TABWRIGHT_HOST) {
+    await ensureRelayServer({ logger: console })
+    await waitForConnectedExtensions({ timeoutMs: 5000, pollIntervalMs: 200, settleMs: 300, logger: console })
+  }
+  const serverUrl = await getServerUrl(options.host)
+  const response = await fetch(new URL(options.pathname, serverUrl), {
+    method: options.method,
+    headers: buildAuthHeaders({ token: options.token, json: options.method === 'POST' }),
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  })
+  return { response, result: (await response.json()) as unknown }
+}
+
+function activitySelectionBody(options: {
+  session?: string
+  last?: string
+  from?: number
+  to?: number
+}): Record<string, unknown> {
+  return {
+    ...(options.session ? { sessionId: options.session } : {}),
+    ...(options.last ? { lastMs: parseActivityDuration(options.last) } : {}),
+    ...(options.from !== undefined ? { from: options.from } : {}),
+    ...(options.to !== undefined ? { to: options.to } : {}),
+  }
+}
+
+cli
+  .command('activity list', 'List attached tabs whose recent activity is available to the Agent')
+  .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
+  .option('--json', 'Print JSON')
+  .action(async (options: { host?: string; token?: string; json?: boolean }) => {
+    try {
+      const { response, result } = await activityRequest({
+        pathname: '/activity/list',
+        method: 'GET',
+        host: options.host,
+        token: options.token,
+      })
+      if (!response.ok || !isRecord(result) || !Array.isArray(result.activities)) {
+        throw new Error(`Failed to list recent browser activity: ${response.status}`)
+      }
+      if (options.json) {
+        console.log(JSON.stringify({ activities: result.activities }, null, 2))
+        return
+      }
+      if (result.activities.length === 0) {
+        console.log('No attached browser activity is available yet.')
+        return
+      }
+      result.activities.forEach((activity) => {
+        if (!isRecord(activity)) {
+          return
+        }
+        console.log(`${String(activity.sessionId || '-')}  ${String(activity.url || '-')}`)
+      })
+    } catch (error: unknown) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('activity inspect', 'Inspect an AI-readable timeline without saving the attached activity stream')
+  .option('--session <sessionId>', 'Attached tab CDP session ID')
+  .option('--last <duration>', 'Inspect the latest duration, for example 30s or 5m')
+  .option('--from <timestamp>', z.number().describe('Start rrweb timestamp in milliseconds'))
+  .option('--to <timestamp>', z.number().describe('End rrweb timestamp in milliseconds'))
+  .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
+  .option('--json', 'Print JSON')
+  .action(
+    async (options: {
+      session?: string
+      last?: string
+      from?: number
+      to?: number
+      host?: string
+      token?: string
+      json?: boolean
+    }) => {
+      try {
+        const { response, result } = await activityRequest({
+          pathname: '/activity/inspect',
+          method: 'POST',
+          host: options.host,
+          token: options.token,
+          body: activitySelectionBody(options),
+        })
+        if (!response.ok || !isRecord(result) || result.success !== true) {
+          const message = isRecord(result) && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`
+          throw new Error(message)
+        }
+        console.log(JSON.stringify(result, null, 2))
+      } catch (error: unknown) {
+        exitWithError(error)
+      }
+    },
+  )
+
+cli
+  .command('activity save', 'Copy a selected event range from ongoing attached activity into a reusable replay')
+  .option('--session <sessionId>', 'Attached tab CDP session ID')
+  .option('--last <duration>', 'Save the latest duration, for example 30s or 5m')
+  .option('--from <timestamp>', z.number().describe('Start rrweb timestamp in milliseconds'))
+  .option('--to <timestamp>', z.number().describe('End rrweb timestamp in milliseconds'))
+  .option('--host <host>', 'Remote relay server host')
+  .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
+  .option('--json', 'Print JSON')
+  .action(
+    async (options: {
+      session?: string
+      last?: string
+      from?: number
+      to?: number
+      host?: string
+      token?: string
+      json?: boolean
+    }) => {
+      try {
+        const { response, result } = await activityRequest({
+          pathname: '/activity/save',
+          method: 'POST',
+          host: options.host,
+          token: options.token,
+          body: activitySelectionBody(options),
+        })
+        if (!response.ok || !isRecord(result) || result.success !== true || !isRecord(result.replay)) {
+          const message = isRecord(result) && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`
+          throw new Error(message)
+        }
+        const replayId = typeof result.replay.id === 'string' ? result.replay.id : undefined
+        if (!replayId) {
+          throw new Error('Recent activity was saved without a replay ID')
+        }
+        const output = {
+          success: true,
+          observing: true,
+          replay: {
+            id: replayId,
+            url: result.replay.url,
+            savedAt: result.replay.savedAt,
+            durationMs: result.replay.duration,
+            eventCount: result.replay.eventCount,
+            selectionStart: result.replay.selectionStart,
+            selectionEnd: result.replay.selectionEnd,
+          },
+          next: {
+            inspectCommand: buildReplayIndexCommand({ replayId }),
+            makeCommand: buildReplayMakeCommand({ replayId, capabilityId: replayCapabilityId(replayId) }),
+          },
+        }
+        if (options.json) {
+          console.log(JSON.stringify(output, null, 2))
+          return
+        }
+        console.log(`Recent activity saved as ${replayId}. Observation is still running.`)
+        console.log(`Inspect: ${output.next.inspectCommand}`)
+      } catch (error: unknown) {
+        exitWithError(error)
+      }
+    },
+  )
+
 cli
   .command('replay list', 'List saved rrweb replays and the next commands for each recording')
   .option('--limit <n>', z.number().default(10).describe('Maximum number of recordings'))

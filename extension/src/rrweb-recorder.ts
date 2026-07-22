@@ -16,6 +16,10 @@ type RrwebRecorderStopMessage = {
   action: 'playwriterRrwebStop'
 }
 
+type RrwebRecorderFlushMessage = {
+  action: 'playwriterRrwebFlush'
+}
+
 type RrwebRecorderStatusMessage = {
   action: 'playwriterRrwebStatus'
 }
@@ -33,6 +37,7 @@ type TabwrightAnnotationMessage = {
 type RrwebRecorderMessage =
   | RrwebRecorderStartMessage
   | RrwebRecorderStopMessage
+  | RrwebRecorderFlushMessage
   | RrwebRecorderStatusMessage
   | RrwebRecorderCancelMessage
 
@@ -73,6 +78,7 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
     return (
       candidate.action === 'playwriterRrwebStart' ||
       candidate.action === 'playwriterRrwebStop' ||
+      candidate.action === 'playwriterRrwebFlush' ||
       candidate.action === 'playwriterRrwebStatus' ||
       candidate.action === 'playwriterRrwebCancel'
     )
@@ -144,6 +150,7 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
       // That can attach iframe DOM to stale parent ids and leave the replay visually blank.
       checkoutEveryNms: params.checkoutEveryNms ?? 0,
       maskAllInputs: params.maskAllInputs ?? false,
+      maskInputOptions: { password: true },
       recordCanvas: params.recordCanvas ?? false,
       inlineImages: params.inlineImages ?? false,
       collectFonts: params.collectFonts ?? false,
@@ -209,6 +216,20 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
     }
   }
 
+  async function flushRecording(): Promise<RrwebRecorderResponse> {
+    if (!activeRecorder) {
+      return { success: false, error: 'No active rrweb recording', isRecording: false }
+    }
+    await flushEvents({ final: false })
+    return {
+      success: true,
+      isRecording: true,
+      startedAt: activeRecorder.startedAt,
+      url: location.href,
+      eventCount: activeRecorder.eventCount,
+    }
+  }
+
   async function cancelRecording(): Promise<RrwebRecorderResponse> {
     const recorder = activeRecorder
     activeRecorder = null
@@ -263,6 +284,9 @@ if (!globalThis.__playwriterRrwebRecorderInstalled) {
           }
           if (message.action === 'playwriterRrwebStop') {
             return await stopRecording()
+          }
+          if (message.action === 'playwriterRrwebFlush') {
+            return await flushRecording()
           }
           if (message.action === 'playwriterRrwebCancel') {
             return await cancelRecording()
