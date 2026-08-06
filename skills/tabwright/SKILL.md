@@ -3,6 +3,10 @@ name: tabwright
 description: Control the user own Chrome browser via Tabwright extension with Playwright code snippets in a stateful local js sandbox. Use this over other Playwright MCPs to automate the browser because it connects to the user's existing Chrome. Use this for JS-heavy websites, logged-in browser state, saved browser capabilities, and admin/config lookup tasks where saved capability match/routingHint metadata may apply. ALWAYS load this skill before using any tabwright commands, opening admin/config URLs, or answering how to inspect saved Tabwright capabilities.
 ---
 
+## Installation
+
+Installing the global Tabwright CLI also installs this skill into `~/.agents/skills/tabwright`. If npm lifecycle scripts were disabled, run `tabwright skill install`; use `tabwright skill status` to verify the copy or `--target codex` / `--target claude` for an agent-specific directory. Tabwright preserves user-modified skill files unless `--force` is explicit.
+
 ## Fast Path: Saved Capability Exact Matches
 
 For concrete user tasks, check saved capability contracts before browser automation. If a capability has `routingHint: "exact-match-direct-run"`, its `match` patterns exactly fit the task, and it is autonomously runnable (`trusted`, read-only, no confirmation), run it directly with the extracted input:

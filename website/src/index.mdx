@@ -56,13 +56,13 @@ flows that let the website create a protected request and then read its network 
 
 ### Install CLI + skill
 
-Install the CLI, then add the skill so your agent knows the good Tabwright workflows.
+Install the CLI. Its `postinstall` step adds the matching skill to the shared Agent Skills directory so new Agent tasks know the safe Tabwright workflows.
 
 ```bash
 npm i -g tabwright
 ```
 
-Then import the **Tabwright skill** with your agent's official Agent Skills-compatible manager. It teaches your agent which selectors to use, how to avoid timeouts, how to read snapshots, and all available utilities. Tabwright intentionally does not write into an agent's private skill directory.
+The **Tabwright skill** is installed at `~/.agents/skills/tabwright`. If lifecycle scripts are disabled, run `tabwright skill install`; use `--target codex` or `--target claude` for an agent-specific directory.
 
 ### First commands
 

@@ -22,6 +22,8 @@ Only tabs where you click the extension icon are controllable. Other tabs stay p
 npm i -g tabwright
 ```
 
+The CLI's `postinstall` step also installs the matching Tabwright skill into the shared `~/.agents/skills/tabwright` directory. Open a new Agent task after installation so it can discover the skill.
+
 Or use without installing:
 
 ```bash
@@ -30,13 +32,23 @@ npx tabwright@latest session new
 
 **Requirements:** Node.js 18+.
 
-## Install the skill
+## Verify the skill
 
-The **skill** teaches your AI agent how to use Tabwright: which selectors to use, how to read snapshots, how to avoid common mistakes, and all available utilities. Import the `skills/tabwright` directory with your agent's official Agent Skills-compatible manager.
+The **skill** teaches your AI agent how to use Tabwright: which selectors to use, how to read snapshots, how to avoid common mistakes, and all available utilities. Check the installed copy with:
 
-Skill installation, discovery, and updates belong to that manager. Tabwright does not write into agent-specific skill directories; the CLI remains the browser and capability runtime.
+```bash
+tabwright skill status
+```
 
-The extension's read-only **Tabwright Skills** page can still show compatible skills installed by Codex, Claude, and other Agent Skills managers alongside their safe local runtime status. Managers keep full ownership of install and update operations; Tabwright never displays saved Cookie, Token, or secret values.
+If npm lifecycle scripts were disabled with `--ignore-scripts`, install it explicitly:
+
+```bash
+tabwright skill install
+```
+
+The default shared directory follows the cross-agent `~/.agents/skills` convention. Use `tabwright skill install --target codex` or `tabwright skill install --target claude` when your agent only scans its private directory. CLI upgrades safely update Tabwright-managed copies and preserve user-modified files; replacing a modified copy requires explicit `--force`.
+
+The extension's read-only **Tabwright Skills** page can still show compatible capability-specific skills installed by Codex, Claude, and other Agent Skills managers alongside their safe local runtime status. Tabwright never displays saved Cookie, Token, or secret values.
 
 ## Quick start
 

@@ -19,7 +19,7 @@ npm install -g tabwright@latest
 tabwright doctor
 ```
 
-Install the Tabwright skill with your agent's official Agent Skills-compatible manager. The agent manager owns skill discovery and updates; the CLI owns runtime execution.
+The CLI automatically installs its matching Tabwright skill into `~/.agents/skills/tabwright`. If npm lifecycle scripts were disabled, run `tabwright skill install`; agent-specific directories are available through `--target codex` and `--target claude`. Tabwright updates only its managed copy and preserves user-modified skill files.
 
 ## First workflow
 

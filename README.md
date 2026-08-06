@@ -27,7 +27,7 @@ Each Skill records how it actually runs: direct request, request inside the brow
    tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
    ```
 
-Install the Tabwright skill with your agent's official Agent Skills-compatible manager. Skill discovery, updates, and distribution belong to that manager; the CLI provides only browser and capability runtime behavior.
+The CLI installs its matching Tabwright skill into the shared `~/.agents/skills/tabwright` directory during `postinstall`, so a new Agent task can discover the browser protocol immediately. If lifecycle scripts were disabled, run `tabwright skill install`; use `--target codex` or `--target claude` for an agent-specific directory. Automatic upgrades replace only the copy previously installed by Tabwright and preserve user-modified files.
 
 ## Quick Start
 

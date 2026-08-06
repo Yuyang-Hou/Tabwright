@@ -1,0 +1,18 @@
+schema: spec-driven
+
+context: |
+  Project: Tabwright, a TypeScript CLI, relay, and Chrome extension that turns signed-in browser work into portable Agent Skills.
+  Runtime: Node.js 18+, pnpm workspace, ESM TypeScript.
+  Compatibility: CLI and relay changes must remain cross-platform; WebSocket protocol changes must remain backward compatible.
+  Distribution: public package changes use Changesets; generated website/public skill resources come from versioned source files.
+
+rules:
+  proposal:
+    - Describe the user-visible outcome and explicit non-goals.
+    - List every new or modified capability.
+  design:
+    - Cover cross-platform paths, upgrade behavior, user-file safety, and package lifecycle failure handling.
+  specs:
+    - Every Requirement must include at least one observable Scenario.
+  tasks:
+    - Include focused tests, package typecheck, website typecheck, and final diff review.

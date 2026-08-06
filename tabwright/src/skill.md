@@ -1,6 +1,6 @@
 ## CLI Usage
 
-This file is the extended reference. The installed Tabwright skill contains the required compact browser protocol; agents should not load this entire reference before every task. Query only the relevant topic when needed, for example `tabwright skill | rg -n -C 20 'working with pages|snapshot|iframe'` on macOS/Linux or `tabwright skill | Select-String -Pattern 'working with pages|snapshot|iframe' -Context 20,20` in Windows PowerShell.
+This file is the extended reference. The Tabwright CLI installs the required compact browser protocol into the shared Agent Skills directory during `postinstall`; agents should not load this entire reference before every task. Query only the relevant topic when needed, for example `tabwright skill | rg -n -C 20 'working with pages|snapshot|iframe'` on macOS/Linux or `tabwright skill | Select-String -Pattern 'working with pages|snapshot|iframe' -Context 20,20` in Windows PowerShell.
 
 If `tabwright` command is not found, install globally or use npx/bunx:
 
@@ -13,7 +13,7 @@ bunx tabwright@latest session new
 
 If using npx or bunx always use @latest for the first session command. so we are sure of using the latest version of the package
 
-Install and update this skill with the agent's official Agent Skills-compatible manager. Tabwright does not manage the agent's skill directory; the CLI owns only runtime execution, browser access, authentication, safety gates, and run history.
+Global CLI installation creates or safely updates `~/.agents/skills/tabwright`. Run `tabwright skill install` when npm lifecycle scripts were disabled, `tabwright skill status` to inspect the installed copy, or pass `--target codex` / `--target claude` when an agent only scans its private directory. Tabwright never replaces a user-modified skill unless `--force` is explicit.
 
 ### Capability routing shortcuts
 
@@ -305,7 +305,7 @@ tabwright capability skill export query-user --output ./skills/query-user
 
 The exported directory contains the standard root `SKILL.md`, optional `agents/openai.yaml`, and a bundled runtime under `runtime/`. A fresh agent resolves the runtime relative to `SKILL.md` and passes that directory directly to `capability run`. Agent-managed runtimes are ready immediately; Tabwright validates them and refreshes declared browser authentication automatically. It never copies the runtime and stores only device-local state under `~/.tabwright/capability-state/<id>/`.
 
-The extension Options page has a read-only **Tabwright Skills** view. It discovers installed skills containing both `SKILL.md` and `runtime/capability.json` under the current project's and user's `.codex/skills`, `.agents/skills`, and `.claude/skills` directories. Additional manager roots can be supplied with the platform-delimited `TABWRIGHT_SKILL_DIRS` environment variable. Tabwright never installs, updates, or removes these skills; it only joins their runtime contract with safe local status from `~/.tabwright/capability-state/<id>/` and never exposes Cookie, Token, or secret values.
+The extension Options page has a read-only **Tabwright Skills** view. It discovers capability skills containing both `SKILL.md` and `runtime/capability.json` under the current project's and user's `.codex/skills`, `.agents/skills`, and `.claude/skills` directories. Additional manager roots can be supplied with the platform-delimited `TABWRIGHT_SKILL_DIRS` environment variable. Tabwright never installs, updates, or removes capability-specific skills; it only joins their runtime contract with safe local status from `~/.tabwright/capability-state/<id>/` and never exposes Cookie, Token, or secret values.
 
 When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
 

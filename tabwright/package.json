@@ -8,6 +8,7 @@
   "repository": "https://github.com/Yuyang-Hou/tabwright",
   "scripts": {
     "build": "rm -rf dist *.tsbuildinfo && mkdir dist && bun scripts/build-client-bundles.ts && tsc -p tsconfig-build.json && bun scripts/build-extension-bundle.ts && bun scripts/build-resources.ts",
+    "postinstall": "node postinstall.js",
     "prepublishOnly": "pnpm build",
     "watch": "tsc -w",
     "cli": "vite-node src/cli.ts",
@@ -24,6 +25,7 @@
     "dist",
     "src/skill.md",
     "bin.js",
+    "postinstall.js",
     "readme.md"
   ],
   "engines": {
