@@ -27,6 +27,17 @@ In Codex sandboxed environments, `tabwright capability run ...` writes device-lo
 
 Do not treat every URL as a direct-run signal. This shortcut only applies to exact capability matches, and it also applies to non-URL tasks when a capability's `match` patterns are specific enough. Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Tabwright skill. If there is no exact match, use `capability search` and `capability describe` before running or creating new automation.
 
+### Source-grounded authenticated reads
+
+When no saved capability exactly matches a one-off authenticated read, do not create or guess an endpoint-specific Skill. If source and deployment evidence are available:
+
+1. Identify the target environment and exact revision serving its ready instances. A latest branch, successful build, or newest deployment record is insufficient.
+2. Inspect that exact revision without changing the user's working tree. Prefer an OpenAPI contract or generated client, then backend route/controller and request types, then a frontend request wrapper, and only then observed network traffic.
+3. Build a transient request plan containing the origin, `GET` or `HEAD` method, path, query, serving revision, and source evidence. If the revision, route, authentication boundary, or instance consistency is uncertain, stop instead of guessing.
+4. Navigate a task-owned page to the target origin and issue the request in page context with `credentials: "include"`. Keep cookies and tokens opaque, return only the requested data, and verify the HTTP status and application-level result.
+
+This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use a saved capability with machine-enforced confirmation or a reviewed product workflow instead. Persist a new capability only when the workflow repeats or needs durable safety and schemas.
+
 ### Sandboxed agent environments
 
 Tabwright controls the real user browser through a local relay on `127.0.0.1:19988`. If you are running inside an agent sandbox that restricts localhost access, use that environment's elevated/unsandboxed command mode for Tabwright commands that create sessions, list browsers, run `-s ... -e ...`, run browser-backed capabilities, or read relay logs. Do this immediately for Tabwright browser/relay commands instead of first trying a sandboxed command and diagnosing the relay as broken.
