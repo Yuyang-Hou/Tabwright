@@ -1,6 +1,6 @@
 ## CLI Usage
 
-This file is the extended reference. The installed Tabwright skill contains the required compact browser protocol; agents should not load this entire reference before every task. Query only the relevant topic when needed, for example `tabwright skill | rg -n -C 20 'working with pages|snapshot|iframe'` on macOS/Linux or `tabwright skill | Select-String -Pattern 'working with pages|snapshot|iframe' -Context 20,20` in Windows PowerShell.
+This file is the extended reference. The Tabwright CLI installs the required compact browser protocol into the shared Agent Skills directory during `postinstall`; agents should not load this entire reference before every task. Query only the relevant topic when needed, for example `tabwright skill | rg -n -C 20 'working with pages|snapshot|iframe'` on macOS/Linux or `tabwright skill | Select-String -Pattern 'working with pages|snapshot|iframe' -Context 20,20` in Windows PowerShell.
 
 If `tabwright` command is not found, install globally or use npx/bunx:
 
@@ -13,7 +13,7 @@ bunx tabwright@latest session new
 
 If using npx or bunx always use @latest for the first session command. so we are sure of using the latest version of the package
 
-Install and update this skill with the agent's official Agent Skills-compatible manager. Tabwright does not manage the agent's skill directory; the CLI owns only runtime execution, browser access, authentication, safety gates, and run history.
+Global CLI installation creates or safely updates `~/.agents/skills/tabwright`. Run `tabwright skill install` when npm lifecycle scripts were disabled, `tabwright skill status` to inspect the installed copy, or pass `--target codex` / `--target claude` when an agent only scans its private directory. Tabwright never replaces a user-modified skill unless `--force` is explicit.
 
 ### Capability routing shortcuts
 
@@ -26,6 +26,17 @@ When using route output, run the returned `shellCommand` exactly. Do not infer a
 In Codex sandboxed environments, `tabwright capability run ...` writes device-local state under `~/.tabwright/capability-state/...` for Skill runtimes and may write artifacts. Run trusted capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `tabwright capability route ... --json` is metadata-only and can run sandboxed.
 
 Do not treat every URL as a direct-run signal. This shortcut only applies to exact capability matches, and it also applies to non-URL tasks when a capability's `match` patterns are specific enough. Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Tabwright skill. If there is no exact match, use `capability search` and `capability describe` before running or creating new automation.
+
+### Source-grounded authenticated reads
+
+When no saved capability exactly matches a one-off authenticated read, do not create or guess an endpoint-specific Skill. If source and deployment evidence are available:
+
+1. Identify the target environment and exact revision serving its ready instances. A latest branch, successful build, or newest deployment record is insufficient.
+2. Inspect that exact revision without changing the user's working tree. Prefer an OpenAPI contract or generated client, then backend route/controller and request types, then a frontend request wrapper, and only then observed network traffic.
+3. Build a transient request plan containing the origin, `GET` or `HEAD` method, path, query, serving revision, and source evidence. If the revision, route, authentication boundary, or instance consistency is uncertain, stop instead of guessing.
+4. Navigate a task-owned page to the target origin and issue the request in page context with `credentials: "include"`. Keep cookies and tokens opaque, return only the requested data, and verify the HTTP status and application-level result.
+
+This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use a saved capability with machine-enforced confirmation or a reviewed product workflow instead. Persist a new capability only when the workflow repeats or needs durable safety and schemas.
 
 ### Sandboxed agent environments
 
@@ -305,7 +316,7 @@ tabwright capability skill export query-user --output ./skills/query-user
 
 The exported directory contains the standard root `SKILL.md`, optional `agents/openai.yaml`, and a bundled runtime under `runtime/`. A fresh agent resolves the runtime relative to `SKILL.md` and passes that directory directly to `capability run`. Agent-managed runtimes are ready immediately; Tabwright validates them and refreshes declared browser authentication automatically. It never copies the runtime and stores only device-local state under `~/.tabwright/capability-state/<id>/`.
 
-The extension Options page has a read-only **Tabwright Skills** view. It discovers installed skills containing both `SKILL.md` and `runtime/capability.json` under the current project's and user's `.codex/skills`, `.agents/skills`, and `.claude/skills` directories. Additional manager roots can be supplied with the platform-delimited `TABWRIGHT_SKILL_DIRS` environment variable. Tabwright never installs, updates, or removes these skills; it only joins their runtime contract with safe local status from `~/.tabwright/capability-state/<id>/` and never exposes Cookie, Token, or secret values.
+The extension Options page has a read-only **Tabwright Skills** view. It discovers capability skills containing both `SKILL.md` and `runtime/capability.json` under the current project's and user's `.codex/skills`, `.agents/skills`, and `.claude/skills` directories. Additional manager roots can be supplied with the platform-delimited `TABWRIGHT_SKILL_DIRS` environment variable. Tabwright never installs, updates, or removes capability-specific skills; it only joins their runtime contract with safe local status from `~/.tabwright/capability-state/<id>/` and never exposes Cookie, Token, or secret values.
 
 When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
 

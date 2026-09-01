@@ -50,6 +50,11 @@ import {
 } from './capability-registry.js'
 import { exportCapabilityAgentSkill } from './capability-agent-skill.js'
 import {
+  getTabwrightAgentSkillStatus,
+  installTabwrightAgentSkill,
+  type TabwrightAgentSkillTarget,
+} from './tabwright-agent-skill.js'
+import {
   refreshCapabilityAuthWithExecutor,
   type CapabilityAuthRefreshResult,
 } from './capability-auth.js'
@@ -3187,11 +3192,75 @@ cli.command('logfile', 'Print the path to the relay server log file').action(() 
   console.log(`cdp: ${LOG_CDP_FILE_PATH}`)
 })
 
+cli
+  .command('skill install', 'Install the Tabwright Agent Skill bundled with this CLI')
+  .option('--target <target>', 'Agent Skill target: agents, codex, or claude (default: agents)')
+  .option('--skill-root <dir>', 'Override the target Agent Skills root directory')
+  .option('--force', 'Overwrite a user-modified installed Tabwright Skill')
+  .option('--json', 'Print JSON')
+  .action(
+    (options: { target?: string; skillRoot?: string; force?: boolean; json?: boolean }) => {
+      try {
+        const result = installTabwrightAgentSkill({
+          target: parseTabwrightAgentSkillTarget(options.target),
+          skillRoot: options.skillRoot,
+          overwrite: options.force,
+        })
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2))
+          return
+        }
+        console.log(`Tabwright Agent Skill ${result.fileStatus}: ${result.installedPath}`)
+        result.next.map((step) => {
+          console.log(`Next: ${step}`)
+          return step
+        })
+      } catch (error) {
+        exitWithError(error)
+      }
+    },
+  )
+
+cli
+  .command('skill status', 'Check whether the installed Tabwright Agent Skill matches this CLI')
+  .option('--target <target>', 'Agent Skill target: agents, codex, or claude (default: agents)')
+  .option('--skill-root <dir>', 'Override the target Agent Skills root directory')
+  .option('--json', 'Print JSON')
+  .action((options: { target?: string; skillRoot?: string; json?: boolean }) => {
+    try {
+      const status = getTabwrightAgentSkillStatus({
+        target: parseTabwrightAgentSkillTarget(options.target),
+        skillRoot: options.skillRoot,
+      })
+      if (options.json) {
+        console.log(JSON.stringify(status, null, 2))
+        return
+      }
+      console.log(`Tabwright Agent Skill: ${status.state}`)
+      console.log(`Installed: ${status.installedPath}`)
+      if (status.state !== 'current') {
+        console.log(`Next: ${status.installCommand}`)
+      }
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
 cli.command('skill', 'Print the full tabwright usage instructions').action(() => {
   const skillPath = path.join(__dirname, '..', 'src', 'skill.md')
   const content = fs.readFileSync(skillPath, 'utf-8')
   console.log(content)
 })
+
+function parseTabwrightAgentSkillTarget(value: string | undefined): TabwrightAgentSkillTarget {
+  if (!value || value === 'agents') {
+    return 'agents'
+  }
+  if (value === 'codex' || value === 'claude') {
+    return value
+  }
+  throw new Error(`Unknown Agent Skill target: ${value}. Expected agents, codex, or claude.`)
+}
 
 cli.help()
 cli.completions()

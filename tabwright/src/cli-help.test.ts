@@ -105,13 +105,20 @@ describe('tabwright cli help', () => {
     expect(stderr).toBe('')
   }, 30000)
 
-  test('leaves skill installation to the agent skill manager', async () => {
-    const { stdout, stderr } = await runCli(['skill'])
+  test('exposes automatic skill installation recovery and status commands', async () => {
+    const instructions = await runCli(['skill'])
+    const installHelp = await runCli(['skill', 'install', '--help'])
+    const statusHelp = await runCli(['skill', 'status', '--help'])
 
-    expect(stdout).toContain('official Agent Skills-compatible manager')
-    expect(stdout).not.toContain('tabwright skill install')
-    expect(stdout).not.toContain('tabwright skill status')
-    expect(stderr).toBe('')
+    expect(instructions.stdout).toContain('Global CLI installation creates or safely updates')
+    expect(instructions.stdout).toContain('tabwright skill install')
+    expect(installHelp.stdout).toContain('bundled with this CLI')
+    expect(installHelp.stdout).toContain('agents, codex, or claude')
+    expect(installHelp.stdout).toContain('--force')
+    expect(statusHelp.stdout).toContain('matches this CLI')
+    expect(instructions.stderr).toBe('')
+    expect(installHelp.stderr).toBe('')
+    expect(statusHelp.stderr).toBe('')
   }, 30000)
 
   test('unknown command exits with code 1', async () => {
