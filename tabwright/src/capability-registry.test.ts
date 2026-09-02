@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from 'vitest'
 import {
   createCapability,
   appendCapabilityRun,
+  getCapabilityContractFingerprint,
   getCapabilityRoots,
   getCapabilityStateDir,
   getProjectCapabilitiesDir,
@@ -189,12 +190,7 @@ describe('capability registry', () => {
         routingHint: string
       }
       expect(exported.dir).toBe(exportDir)
-      expect(exported.files).toEqual([
-        'SKILL.md',
-        'agents/openai.yaml',
-        'runtime/capability.json',
-        'runtime/script.js',
-      ])
+      expect(exported.files).toEqual(['SKILL.md', 'agents/openai.yaml', 'runtime/capability.json', 'runtime/script.js'])
       expect(exportedContract.status).toBe('draft')
       expect(exportedContract).toMatchObject({
         description: '',
@@ -209,9 +205,7 @@ describe('capability registry', () => {
       expect(exportedSkill).toContain('Use for admin user lookup requests that include an email address.')
       expect(exportedSkill).toContain('runtime/capability.json')
       expect(exportedSkill.indexOf('## Scope Limits')).toBeGreaterThan(-1)
-      expect(exportedSkill.indexOf('## Tabwright Runtime')).toBeGreaterThan(
-        exportedSkill.indexOf('## Workflow'),
-      )
+      expect(exportedSkill.indexOf('## Tabwright Runtime')).toBeGreaterThan(exportedSkill.indexOf('## Workflow'))
       expect(exportedSkill).toContain('runtime/script.js')
       expect(exportedSkill).toContain('npm exec --yes --package=tabwright@latest -- tabwright')
       expect(exportedSkill).toContain('"<absolute-skill-directory>/runtime"')
@@ -246,7 +240,7 @@ describe('capability registry', () => {
       expect(fs.existsSync(path.join(directRuntime.stateDir, 'runtime-state.json'))).toBe(true)
       await expect(
         runNodeCapability({ id: runtimeDir, cwd, input: { email: 'a@example.com' }, force: true }),
-      ).rejects.toThrow(/quarantined/)
+      ).resolves.toMatchObject({ output: { email: 'a@example.com' } })
       const bundledManifest = JSON.parse(fs.readFileSync(path.join(runtimeDir, 'capability.json'), 'utf-8')) as {
         status: string
       }
@@ -318,6 +312,83 @@ describe('capability registry', () => {
       expect(openAiMetadata).toContain('default_prompt: "使用 $query-cn-user')
       expect(openAiMetadata).not.toContain('complete the matching task')
     } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('migrates legacy global Skill quarantine to operation evidence', async () => {
+    const cwd = createTempDir('capability-legacy-skill-quarantine-')
+    const previousHome = process.env.HOME
+    process.env.HOME = path.join(cwd, 'home')
+    try {
+      createCapability({ id: 'legacy-skill-tool', location: 'project', cwd, runtime: 'node' })
+      updateCapabilityScript({ id: 'legacy-skill-tool', cwd, source: 'return { ok: true }' })
+      updateCapabilityManifest({
+        id: 'legacy-skill-tool',
+        cwd,
+        patch: { status: 'trusted' },
+      })
+      const skillDir = path.join(cwd, 'legacy-skill-tool')
+      exportCapabilityAgentSkill({ id: 'legacy-skill-tool', cwd, output: skillDir })
+      const runtimeDir = path.join(skillDir, 'runtime')
+      const capability = requireCapability({ id: runtimeDir, cwd })
+      const fingerprint = getCapabilityContractFingerprint(capability)
+      appendCapabilityRun({
+        capability,
+        record: {
+          id: capability.manifest.id,
+          status: 'error',
+          durationMs: 1,
+          inputHash: 'legacy',
+          error: 'legacy contract failure',
+          contract: {
+            schemaVersion: 1,
+            fingerprint,
+            status: 'failed',
+            failures: [{ kind: 'undeclared-host', message: 'legacy undeclared host' }],
+            output: { status: 'unknown', errors: [] },
+            network: {
+              status: 'failed',
+              observedHosts: ['https://undeclared.example'],
+              undeclaredHosts: ['https://undeclared.example'],
+            },
+            trust: { before: 'trusted', after: 'draft', downgraded: true },
+          },
+          createdAt: new Date().toISOString(),
+        },
+      })
+      fs.writeFileSync(
+        path.join(capability.stateDir, 'runtime-state.json'),
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            status: 'draft',
+            fingerprint,
+            runtimeDir: capability.dir,
+          },
+          null,
+          2,
+        )}\n`,
+      )
+
+      expect(requireCapability({ id: runtimeDir, cwd }).manifest.status).toBe('trusted')
+      expect(toCapabilityContract(requireCapability({ id: runtimeDir, cwd }))).toMatchObject({
+        lifecycle: {
+          stage: 'drifted',
+          nextAction: 'repair',
+        },
+      })
+      await expect(runNodeCapability({ id: runtimeDir, cwd, input: {}, force: true })).resolves.toMatchObject({
+        output: { ok: true },
+      })
+      expect(requireCapability({ id: runtimeDir, cwd }).manifest.status).toBe('trusted')
+      const manuallyDrafted = updateCapabilityStatus({
+        capability: requireCapability({ id: runtimeDir, cwd }),
+        status: 'draft',
+      })
+      expect(manuallyDrafted.manifest.status).toBe('draft')
+    } finally {
+      process.env.HOME = previousHome
       fs.rmSync(cwd, { recursive: true, force: true })
     }
   })
@@ -737,6 +808,116 @@ describe('capability runner', () => {
     }
   })
 
+  test('quarantines and recovers only the failing Skill operation', async () => {
+    const cwd = createTempDir('capability-operation-quarantine-')
+    const previousHome = process.env.HOME
+    process.env.HOME = path.join(cwd, 'home')
+    try {
+      createCapability({ id: 'mixed-skill-tool', location: 'project', cwd, runtime: 'node' })
+      updateCapabilityScript({
+        id: 'mixed-skill-tool',
+        cwd,
+        source: [
+          'if (input.action === "read") return { value: input.value };',
+          'return { updated: input.value === "bad" ? "invalid" : true };',
+        ].join('\n'),
+      })
+      updateCapabilityManifest({
+        id: 'mixed-skill-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          operations: {
+            read: {
+              title: 'Read',
+              description: 'Read a value',
+              match: [],
+              routingHint: 'search-first',
+              inputSchema: {
+                type: 'object',
+                properties: { action: { type: 'string' }, value: { type: 'string' } },
+                required: ['action', 'value'],
+              },
+              outputSchema: {
+                type: 'object',
+                properties: { value: { type: 'string' } },
+                required: ['value'],
+              },
+              sideEffect: 'read',
+              requiresConfirmation: false,
+            },
+            write: {
+              title: 'Write',
+              description: 'Write a value',
+              match: [],
+              routingHint: 'search-first',
+              inputSchema: {
+                type: 'object',
+                properties: { action: { type: 'string' }, value: { type: 'string' } },
+                required: ['action', 'value'],
+              },
+              outputSchema: {
+                type: 'object',
+                properties: { updated: { type: 'boolean' } },
+                required: ['updated'],
+              },
+              sideEffect: 'write',
+              requiresConfirmation: true,
+            },
+          },
+        },
+      })
+      const skillDir = path.join(cwd, 'mixed-skill-tool')
+      exportCapabilityAgentSkill({ id: 'mixed-skill-tool', cwd, output: skillDir })
+      const runtimeDir = path.join(skillDir, 'runtime')
+
+      await expect(
+        runNodeCapability({ id: runtimeDir, cwd, input: { action: 'read', value: 'available' } }),
+      ).resolves.toMatchObject({ output: { value: 'available' } })
+      await expect(
+        runNodeCapability({
+          id: runtimeDir,
+          cwd,
+          input: { action: 'write', value: 'bad' },
+          confirmation: 'mixed-skill-tool:write',
+        }),
+      ).rejects.toThrow('Operation write is quarantined')
+
+      expect(requireCapability({ id: runtimeDir, cwd }).manifest.status).toBe('trusted')
+      await expect(
+        runNodeCapability({ id: runtimeDir, cwd, input: { action: 'read', value: 'still-available' } }),
+      ).resolves.toMatchObject({ output: { value: 'still-available' } })
+      await expect(
+        runNodeCapability({
+          id: runtimeDir,
+          cwd,
+          input: { action: 'write', value: 'repaired' },
+          confirmation: 'mixed-skill-tool:write',
+        }),
+      ).rejects.toThrow('operation write is quarantined')
+      await expect(
+        runNodeCapability({
+          id: runtimeDir,
+          cwd,
+          input: { action: 'write', value: 'repaired' },
+          force: true,
+          confirmation: 'mixed-skill-tool:write',
+        }),
+      ).resolves.toMatchObject({ output: { updated: true } })
+      await expect(
+        runNodeCapability({
+          id: runtimeDir,
+          cwd,
+          input: { action: 'write', value: 'repaired' },
+          confirmation: 'mixed-skill-tool:write',
+        }),
+      ).resolves.toMatchObject({ output: { updated: true } })
+    } finally {
+      process.env.HOME = previousHome
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   test('does not execute node or browser scripts before confirmation', async () => {
     const cwd = createTempDir('capability-confirmation-execution-')
     try {
@@ -852,7 +1033,7 @@ describe('capability runner', () => {
     }
   })
 
-  test('records output drift once and downgrades trusted capabilities', async () => {
+  test('records output drift once and quarantines trusted capabilities', async () => {
     const cwd = createTempDir('capability-output-drift-')
     try {
       createCapability({ id: 'drifted-node-tool', location: 'project', cwd, runtime: 'node' })
@@ -885,13 +1066,13 @@ describe('capability runner', () => {
         contract: {
           status: 'failed',
           failures: [{ kind: 'output-schema', message: 'output.userId must be string' }],
-          trust: { before: 'trusted', after: 'draft', downgraded: true },
+          trust: { before: 'trusted', after: 'trusted', downgraded: false },
         },
       })
       const current = listCapabilities({ cwd }).find((item) => {
         return item.manifest.id === 'drifted-node-tool'
       })
-      expect(current?.manifest.status).toBe('draft')
+      expect(current?.manifest.status).toBe('trusted')
       expect(current ? toCapabilityContract(current) : {}).toMatchObject({
         autonomousInvocation: {
           allowed: false,
@@ -1052,7 +1233,7 @@ describe('capability runner', () => {
       const current = listCapabilities({ cwd }).find((item) => {
         return item.manifest.id === 'observed-browser-tool'
       })
-      expect(current?.manifest.status).toBe('draft')
+      expect(current?.manifest.status).toBe('trusted')
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true })
     }
@@ -1100,6 +1281,56 @@ describe('capability runner', () => {
           undeclaredHosts: [new URL(requestUrl).origin],
         },
       })
+    } finally {
+      vi.unstubAllGlobals()
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('allows declared browser authentication origins during failed execution', async () => {
+    const cwd = createTempDir('capability-auth-network-')
+    const requestUrl = 'https://sec-sso.example.com/login'
+    vi.stubGlobal('fetch', async () => {
+      return new Response('login required', { status: 401 })
+    })
+    try {
+      const capability = createCapability({
+        id: 'auth-network-tool',
+        location: 'project',
+        cwd,
+        runtime: 'node',
+      })
+      updateCapabilityScript({
+        id: 'auth-network-tool',
+        cwd,
+        source: `await fetch(${JSON.stringify(requestUrl)}); throw new Error('login expired');`,
+      })
+      updateCapabilityManifest({
+        id: 'auth-network-tool',
+        cwd,
+        patch: {
+          status: 'trusted',
+          permissions: ['network:https://api.example.com/*'],
+          auth: {
+            type: 'cookie',
+            refresh: 'from-browser',
+            browserUrls: ['https://sec-sso.example.com/'],
+            requiredCookieNames: [],
+            failureSignals: ['login expired'],
+          },
+        },
+      })
+
+      await expect(runNodeCapability({ id: 'auth-network-tool', cwd, input: {} })).rejects.toThrow('login expired')
+      expect(readCapabilityRuns({ capability })[0]?.contract).toMatchObject({
+        status: 'unknown',
+        network: {
+          status: 'unknown',
+          observedHosts: [new URL(requestUrl).origin],
+          undeclaredHosts: [],
+        },
+      })
+      expect(requireCapability({ id: 'auth-network-tool', cwd }).manifest.status).toBe('trusted')
     } finally {
       vi.unstubAllGlobals()
       fs.rmSync(cwd, { recursive: true, force: true })

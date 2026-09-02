@@ -1,6 +1,6 @@
 ---
 name: conan-commerce
-description: 使用 Tabwright 只读查询 Deal 电商后台的用户、群组、优惠券模板与已发放优惠券、商品中心旧商品、新商品管理商品、订单、旧版与新版价格策略，并验证用户是否属于群组。用户提到“用户查询”“查询群组”“群组详情”“群组数据验证”“优惠券管理”“优惠券模板”“优惠券查询”“商品管理”“新商品管理”“订单管理”“订单查询”或“价格策略”时使用。不要用于新增、编辑、删除、上下线、发券、回收、发布等写操作，也不要用于获取用户完整明文手机号。
+description: 使用 Tabwright 只读查询 Deal 电商后台正式或测试环境的用户、群组、优惠券模板与已发放优惠券、商品中心旧商品、新商品管理商品、订单、旧版与新版价格策略，并验证用户是否属于群组。用户提到“用户查询”“查询群组”“群组详情”“群组数据验证”“优惠券管理”“优惠券模板”“优惠券查询”“商品管理”“新商品管理”“订单管理”“订单查询”“价格策略”或明确要求查询测试环境时使用。不要用于新增、编辑、删除、上下线、发券、回收、发布等写操作，也不要用于获取用户完整明文手机号。
 ---
 
 # 电商后台统一查询
@@ -31,10 +31,18 @@ tabwright capability run "<runtime-dir>" --browser user --input-json '<json>' --
 
 列表查询默认 `limit: 20`。只传页面支持的筛选字段；能力会再按 `action` 白名单过滤。详情查询只取一个 ID；群组查询和验证支持多个群组 ID。
 
+## 选择环境
+
+- 默认使用正式环境 `cn-prod`，不需要传 `environment`。
+- 用户明确说“测试环境”“测试后台”或 `ytkconan` 时传 `"environment":"cn-test"`。
+- 不要因为商品、优惠券筛选条件中的 `test` 字段自动切换环境；它只是当前环境内的数据属性。
+- 在结果中说明实际查询环境，避免正式与测试数据混淆。
+
 ## 常用调用
 
 ```bash
 tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"user.query","query":"123456"}' --json
+tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"user.query","environment":"cn-test","query":"123456"}' --json
 tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"group.detail","groupIds":[6412]}' --json
 tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"group.validate","groupIds":[6412],"userIds":[10001,10002]}' --json
 tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"coupon-template.query","filters":{"ids":[123],"page":0,"pageSize":20}}' --json

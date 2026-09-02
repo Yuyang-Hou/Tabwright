@@ -1,5 +1,21 @@
-const dealOrigin = "https://deal.zhenguanyu.com"
-const apiOrigin = "https://conan.zhenguanyu.com"
+const environments = {
+  "cn-prod": {
+    pageOrigin: "https://deal.zhenguanyu.com",
+    pagePath: "/#/account/search",
+    apiOrigin: "https://conan.zhenguanyu.com",
+  },
+  "cn-test": {
+    pageOrigin: "https://ytkconan.zhenguanyu.com",
+    pagePath: "/",
+    apiOrigin: "https://ytkconan.zhenguanyu.com",
+  },
+}
+const environment = input.environment || "cn-prod"
+const environmentConfig = environments[environment]
+if (!environmentConfig) {
+  throw new Error(`Unsupported environment: ${environment}`)
+}
+const { pageOrigin, pagePath, apiOrigin } = environmentConfig
 const action = input.action
 const filters = input.filters || {}
 const includeRaw = input.includeRaw === true
@@ -28,8 +44,8 @@ if (!supportedActions.includes(action)) {
   throw new Error(`Unsupported action: ${action || "missing"}`)
 }
 
-if (!page.url().startsWith(`${dealOrigin}/`)) {
-  await page.goto(`${dealOrigin}/#/account/search`)
+if (!page.url().startsWith(`${pageOrigin}/`)) {
+  await page.goto(new URL(pagePath, pageOrigin).toString())
 }
 
 const normalizeIds = (values) => {
@@ -688,4 +704,5 @@ const handlers = {
   "price-strategy.detail": getPriceStrategyDetail,
 }
 
-return handlers[action]()
+const result = await handlers[action]()
+return { environment, ...result }

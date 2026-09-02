@@ -32,6 +32,14 @@
           "price-strategy.detail"
         ]
       },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "cn-prod",
+          "cn-test"
+        ],
+        "description": "查询环境，默认 cn-prod；cn-test 使用 ytkconan。"
+      },
       "query": {
         "type": [
           "string",
@@ -102,6 +110,13 @@
       "action": {
         "type": "string"
       },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "cn-prod",
+          "cn-test"
+        ]
+      },
       "total": {
         "type": "integer"
       },
@@ -128,7 +143,8 @@
       }
     },
     "required": [
-      "action"
+      "action",
+      "environment"
     ]
   },
   "permissions": [
@@ -143,7 +159,8 @@
     "secretKey": "cookieHeader",
     "browserUrls": [
       "https://deal.zhenguanyu.com/",
-      "https://conan.zhenguanyu.com/"
+      "https://conan.zhenguanyu.com/",
+      "https://ytkconan.zhenguanyu.com/"
     ],
     "requiredCookieNames": [
       "SESS_V2"
@@ -160,7 +177,7 @@
     "requiresUserBrowser": true,
     "humanAssistance": "none",
     "requirements": [
-      "需要已登录 Deal/Conan 后台的用户浏览器。"
+      "需要已登录正式或测试 Deal/Conan 后台的用户浏览器。"
     ],
     "observedRequestPatterns": [
       "**/conan-commerce-admin/api/**"
@@ -197,6 +214,14 @@
       }
     },
     {
+      "description": "查询测试环境用户及主子账号信息",
+      "input": {
+        "action": "user.query",
+        "environment": "cn-test",
+        "query": "13800138000"
+      }
+    },
+    {
       "description": "查询新版商品详情",
       "input": {
         "action": "product.detail",
@@ -221,5 +246,5 @@
   "status": "draft",
   "createdBy": "ai",
   "createdAt": "2026-07-15T11:58:11.980Z",
-  "updatedAt": "2026-07-20T03:48:12.000Z"
+  "updatedAt": "2026-07-29T00:00:00.000Z"
 }

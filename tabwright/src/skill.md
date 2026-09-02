@@ -371,6 +371,8 @@ When turning recent activity or an explicit user demonstration into a repeatable
 
 Cookie auth declared with `refresh: "from-browser"` is refreshed automatically before a run when it is missing, expired, unknown, or stale and expiring. A read-only operation that reports a declared auth failure is refreshed and retried once. Write and dangerous operations are refreshed but never retried automatically after a request may have started. Cookie values stay in local `secrets.json` and are never printed or shown in the extension Options page.
 
+Origins listed in `auth.browserUrls` are part of the declared authentication flow and do not count as undeclared network access. Other contract failures quarantine only the failing operation for the current runtime fingerprint; unrelated operations remain available. After repairing authentication or the contract, rerun that exact operation with `--force` to validate the repair. A passing validation clears its operation quarantine. Never automatically retry a write or dangerous operation, and always obtain its required fresh confirmation before a repair validation run.
+
 Browser capability scripts run in the normal Tabwright sandbox and receive `input` and `capability` globals in addition to `page`, `context`, `state`, `snapshot`, and other helpers:
 
 ```js

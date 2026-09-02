@@ -369,7 +369,9 @@ export function validateCapabilityId(id: string): void {
 export function getCapabilityDir(options: { id: string; location: CapabilityLocation; cwd?: string }): string {
   validateCapabilityId(options.id)
   if (options.location === 'skill') {
-    throw new Error('Skill runtimes are addressed by their directory and are not installed into the capability registry.')
+    throw new Error(
+      'Skill runtimes are addressed by their directory and are not installed into the capability registry.',
+    )
   }
   const root =
     options.location === 'project' ? getProjectCapabilitiesDir({ cwd: options.cwd }) : getUserCapabilitiesDir()
@@ -429,11 +431,21 @@ export function readCapability(options: {
     return { ...record, manifest: { ...baseManifest, status: 'trusted' } }
   }
   const fingerprint = getCapabilityContractFingerprint(record)
+  const hasLegacyContractQuarantine = readCapabilityRuns({ capability: record, limit: 100 }).some((run) => {
+    return run.contract?.fingerprint === fingerprint && run.contract.trust.downgraded === true
+  })
+  // Older CLIs persisted contract quarantine as a global draft state. Contract failures are now
+  // enforced per operation from run evidence, so preserve only draft states explicitly set by users.
+  const isLegacyContractQuarantine =
+    storedState.status === 'draft' &&
+    storedState.fingerprint === fingerprint &&
+    storedState.source !== 'manual' &&
+    hasLegacyContractQuarantine
   const status: CapabilityStatus = (() => {
     if (storedState.status === 'disabled') {
       return 'disabled'
     }
-    if (storedState.status === 'draft' && storedState.fingerprint === fingerprint) {
+    if (storedState.status === 'draft' && storedState.fingerprint === fingerprint && !isLegacyContractQuarantine) {
       return 'draft'
     }
     return 'trusted'
@@ -504,9 +516,13 @@ function resolveCapabilityRuntimeDir(options: { target: string; cwd?: string }):
   )
 }
 
-function readCapabilityRuntimeState(options: {
-  stateDir: string
-}): { schemaVersion: 1; status: CapabilityStatus; fingerprint: string; runtimeDir: string } | null {
+function readCapabilityRuntimeState(options: { stateDir: string }): {
+  schemaVersion: 1
+  status: CapabilityStatus
+  fingerprint: string
+  runtimeDir: string
+  source?: 'manual'
+} | null {
   const statePath = path.join(options.stateDir, CAPABILITY_RUNTIME_STATE_FILENAME)
   if (!fs.existsSync(statePath)) {
     return null
@@ -522,10 +538,21 @@ function readCapabilityRuntimeState(options: {
     return null
   }
   const status = CapabilityStatusSchema.safeParse(value.status)
-  if (value.schemaVersion !== 1 || !status.success || typeof value.fingerprint !== 'string' || typeof value.runtimeDir !== 'string') {
+  if (
+    value.schemaVersion !== 1 ||
+    !status.success ||
+    typeof value.fingerprint !== 'string' ||
+    typeof value.runtimeDir !== 'string'
+  ) {
     return null
   }
-  return { schemaVersion: 1, status: status.data, fingerprint: value.fingerprint, runtimeDir: value.runtimeDir }
+  return {
+    schemaVersion: 1,
+    status: status.data,
+    fingerprint: value.fingerprint,
+    runtimeDir: value.runtimeDir,
+    source: value.source === 'manual' ? 'manual' : undefined,
+  }
 }
 
 export function updateCapabilityStatus(options: {
@@ -560,6 +587,7 @@ export function updateCapabilityStatus(options: {
       status: options.status,
       fingerprint: getCapabilityContractFingerprint(options.capability),
       runtimeDir: options.capability.dir,
+      source: 'manual',
     },
   })
   return readCapability({
@@ -995,19 +1023,80 @@ export function getCapabilityContractHealth(capability: CapabilityRecord): Capab
     }
   }
   const fingerprint = fingerprintResult.fingerprint
-  const latestContractRun = readCapabilityRuns({ capability, limit: 100 })
+  const latestContractRuns: CapabilityRunRecord[] = readCapabilityRuns({ capability, limit: 100 })
     .reverse()
-    .find((run) => {
+    .filter((run) => {
       return run.contract?.fingerprint === fingerprint && run.contract.status !== 'unknown'
     })
+    .reduce<CapabilityRunRecord[]>((latestRuns, run) => {
+      const alreadyIncluded = latestRuns.some((latestRun) => {
+        return latestRun.operation === run.operation
+      })
+      return alreadyIncluded ? latestRuns : [...latestRuns, run]
+    }, [])
 
-  if (!latestContractRun?.contract) {
+  if (latestContractRuns.length === 0) {
     return {
       state: 'unknown',
       reasons: ['No conformance evidence exists for the current script and contract.'],
     }
   }
 
+  const failedRuns = latestContractRuns.filter((run) => {
+    return run.contract?.status === 'failed'
+  })
+  if (failedRuns.length > 0) {
+    return {
+      state: 'drifted',
+      checkedAt: failedRuns[0]?.createdAt,
+      reasons: failedRuns.flatMap((run) => {
+        return (run.contract?.failures || []).map((failure) => {
+          return run.operation ? `${run.operation}: ${failure.message}` : failure.message
+        })
+      }),
+    }
+  }
+
+  return {
+    state: 'healthy',
+    checkedAt: latestContractRuns[0]?.createdAt,
+    reasons: [],
+  }
+}
+
+export function getCapabilityOperationContractHealth(options: {
+  capability: CapabilityRecord
+  operation: string | undefined
+}): CapabilityContractHealth {
+  const fingerprintResult: { success: true; fingerprint: string } | { success: false; reason: string } = (() => {
+    try {
+      return { success: true, fingerprint: getCapabilityContractFingerprint(options.capability) }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { success: false, reason: `Cannot validate the capability entry script: ${message}` }
+    }
+  })()
+  if (!fingerprintResult.success) {
+    return {
+      state: 'drifted',
+      reasons: [fingerprintResult.reason],
+    }
+  }
+  const latestContractRun = readCapabilityRuns({ capability: options.capability, limit: 100 })
+    .reverse()
+    .find((run) => {
+      return (
+        run.operation === options.operation &&
+        run.contract?.fingerprint === fingerprintResult.fingerprint &&
+        run.contract.status !== 'unknown'
+      )
+    })
+  if (!latestContractRun?.contract) {
+    return {
+      state: 'unknown',
+      reasons: ['No conformance evidence exists for this operation and the current contract.'],
+    }
+  }
   if (latestContractRun.contract.status === 'failed') {
     return {
       state: 'drifted',
@@ -1017,7 +1106,6 @@ export function getCapabilityContractHealth(capability: CapabilityRecord): Capab
       }),
     }
   }
-
   return {
     state: 'healthy',
     checkedAt: latestContractRun.createdAt,
@@ -1102,7 +1190,9 @@ export function getCapabilityAutonomy(
   capability: CapabilityRecord,
   operation?: ResolvedCapabilityOperation,
 ): { allowed: boolean; reasons: string[] } {
-  const contractHealth = getCapabilityContractHealth(capability)
+  const contractHealth = operation
+    ? getCapabilityOperationContractHealth({ capability, operation: operation.id })
+    : getCapabilityContractHealth(capability)
   const execution = getCapabilityExecutionConfig(capability)
   const operations = operation ? [operation] : getCapabilityOperations(capability)
   const blockers = [
