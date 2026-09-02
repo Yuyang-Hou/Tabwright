@@ -95,6 +95,8 @@ The exported directory contains a standard `SKILL.md`, optional `agents/openai.y
 
 Cookie-authenticated capabilities refresh their declared browser authentication automatically when a run needs it. Cookie values stay in the capability's local `secrets.json` and are never shown in the extension Options page. The read-only **Tabwright Skills** view discovers compatible skills installed by Codex, Claude, and other Agent Skills managers, uses each installed `SKILL.md` for its user-facing purpose, deduplicates the same capability across managers, and shows only safe local runtime summaries such as readiness, recent runs, and artifact counts. Set `TABWRIGHT_SKILL_DIRS` with platform-delimited extra skill roots when a manager uses a custom directory.
 
+Authentication origins declared through `auth.browserUrls` are allowed as part of cookie refresh and login redirects. A contract failure quarantines only the failing operation for the current runtime fingerprint. Other operations remain available, and a repaired operation can be validated with an explicit `--force` run instead of reinstalling the Skill. Write and dangerous operations are never retried automatically.
+
 ## CLI Usage
 
 Each session has **isolated state**. Browser tabs are **shared** across sessions.

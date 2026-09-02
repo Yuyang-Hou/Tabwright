@@ -8,11 +8,10 @@ import {
   capabilityMatchesUrl,
   ensureCapabilityStateDir,
   getCapabilityContractFingerprint,
-  getCapabilityContractHealth,
+  getCapabilityOperationContractHealth,
   readCapabilitySecrets,
   requireCapability,
   resolveCapabilityOperation,
-  updateCapabilityStatus,
   validateJsonAgainstSchema,
   type CapabilityContractCheckStatus,
   type CapabilityRecord,
@@ -301,12 +300,7 @@ export function finalizeCapabilityRun(options: {
     return 'passed'
   })()
   const trustBefore = options.capability.manifest.status
-  const nextCapability = (() => {
-    if (contractStatus !== 'failed' || trustBefore !== 'trusted') {
-      return options.capability
-    }
-    return updateCapabilityStatus({ capability: options.capability, cwd: options.cwd, status: 'draft' })
-  })()
+  const nextCapability = options.capability
   const contract: CapabilityRunContract = {
     schemaVersion: 1,
     fingerprint,
@@ -337,9 +331,11 @@ export function finalizeCapabilityRun(options: {
         ...failures.map((failure) => {
           return failure.message
         }),
-        trustBefore === 'trusted'
-          ? 'The capability was moved to draft. Do not automatically retry a write operation.'
-          : 'The capability remains draft. Do not automatically retry a write operation.',
+        options.operation.id
+          ? `Operation ${options.operation.id} is quarantined for the current contract; other operations remain available.`
+          : 'This capability is quarantined for the current contract.',
+        'Repair its authentication or contract, then rerun this operation with --force to validate the repair.',
+        'Do not automatically retry a write operation.',
       ].join('\n'),
     )
   })()
@@ -472,6 +468,18 @@ function validateObservedNetworkUrls(options: {
   const scopedPermissions = networkPermissions.flatMap((permission) => {
     return permission.startsWith('network:') ? [permission.slice('network:'.length)] : []
   })
+  const authNetworkPatterns = options.capability.manifest.auth.browserUrls.flatMap((browserUrl) => {
+    try {
+      const url = new URL(browserUrl)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return []
+      }
+      return [`${url.origin}/*`]
+    } catch {
+      return []
+    }
+  })
+  const allowedNetworkPatterns = [...new Set([...scopedPermissions, ...authNetworkPatterns])]
   if (options.capability.manifest.runtime === 'browser' && scopedPermissions.length === 0) {
     return {
       status: options.executionStatus === 'error' ? 'unknown' : 'not-applicable',
@@ -483,7 +491,7 @@ function validateObservedNetworkUrls(options: {
   const undeclaredHosts = [
     ...new Set(
       observations.flatMap((observation) => {
-        const declared = scopedPermissions.some((pattern) => {
+        const declared = allowedNetworkPatterns.some((pattern) => {
           return matchesGlob({ value: observation.url, pattern })
         })
         return declared ? [] : [observation.host]
@@ -549,20 +557,19 @@ function validateCapabilityRunnable(options: {
   if (options.capability.manifest.status === 'disabled') {
     throw new Error(`Capability is disabled: ${options.capability.manifest.id}`)
   }
-  if (options.capability.location === 'skill' && options.capability.manifest.status === 'draft') {
+  const operation = resolveCapabilityOperation({ capability: options.capability, input: options.input })
+  const contractHealth = getCapabilityOperationContractHealth({
+    capability: options.capability,
+    operation: operation.id,
+  })
+  if (contractHealth.state === 'drifted' && !options.force) {
     throw new Error(
-      `Skill runtime ${options.capability.manifest.id} is quarantined after a contract failure. Update or reinstall the Skill before running it again.`,
-    )
-  }
-  if (getCapabilityContractHealth(options.capability).state === 'drifted' && !options.force) {
-    throw new Error(
-      `Capability ${options.capability.manifest.id} failed conformance for its current contract. Repair it and run with --force before trusting it again.`,
+      `Capability ${options.capability.manifest.id}${operation.id ? ` operation ${operation.id}` : ''} is quarantined after contract conformance failed. Repair its authentication or contract, then rerun this operation with --force to validate the repair.${operation.id ? ' Other operations remain available.' : ''}`,
     )
   }
   if (options.capability.manifest.status !== 'trusted' && !options.force) {
     throw new Error(`Capability is ${options.capability.manifest.status}. Run with --force or trust it first.`)
   }
-  const operation = resolveCapabilityOperation({ capability: options.capability, input: options.input })
   const validation = validateJsonAgainstSchema({
     schema: operation.inputSchema,
     value: options.input,
