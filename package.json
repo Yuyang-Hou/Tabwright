@@ -1,6 +1,7 @@
 {
   "name": "root",
   "private": true,
+  "packageManager": "pnpm@10.18.1",
   "scripts": {
     "test": "pnpm --filter tabwright test",
     "watch": "pnpm -r watch",

@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  spiceflow: 1.26.0-rsc.5
+
 importers:
 
   .:
