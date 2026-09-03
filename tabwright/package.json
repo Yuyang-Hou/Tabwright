@@ -1,7 +1,7 @@
 {
   "name": "tabwright",
   "description": "Turn signed-in browser workflows into portable, verified Agent Skills.",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
