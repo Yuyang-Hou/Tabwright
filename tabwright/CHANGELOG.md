@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.4.0
+
+### Minor Changes
+
+- 7a2e34f: Let agents combine browser evidence and a pinned local Wakaru tool using their own judgment, and run durable automation directly from independent Agent Skills. Remove the obsolete Capability registry, Studio, MCP routing tool, replay compiler, and draft-writing helpers, while directing legacy commands to update their outdated Skill.
+
+### Patch Changes
+
+- f8e621a: Treat declared browser authentication origins as valid runtime network access, quarantine contract failures per operation, and let repaired operations clear quarantine through an explicit `--force` validation run without reinstalling the Skill.
+
 ## 3.3.0
 
 ### Minor Changes

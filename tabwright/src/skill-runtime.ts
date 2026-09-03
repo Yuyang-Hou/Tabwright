@@ -2,10 +2,10 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
-import { getTabwrightProjectDataDir, getTabwrightUserDataDir } from './product-paths.js'
+import { getTabwrightUserDataDir } from './product-paths.js'
 
 export type CapabilityStatus = 'draft' | 'trusted' | 'disabled'
-export type CapabilityLocation = 'project' | 'user' | 'skill'
+export type CapabilityLocation = 'skill'
 export type CapabilityRuntime = 'browser' | 'node'
 export type CapabilitySideEffect = 'read' | 'write' | 'dangerous'
 export type CapabilityAuthType = 'none' | 'cookie' | 'token' | 'custom'
@@ -139,8 +139,8 @@ export interface CapabilityContractHealth {
 }
 
 export interface CapabilityLifecycle {
-  stage: 'drafted' | 'validated' | 'trusted' | 'drifted' | 'disabled'
-  nextAction: 'validate' | 'trust' | 'run' | 'repair' | 'enable'
+  stage: 'trusted' | 'drifted'
+  nextAction: 'run' | 'repair'
   nextCommand: string
   contractHealth: CapabilityContractHealth
 }
@@ -150,37 +150,7 @@ export interface ValidationResult {
   errors: string[]
 }
 
-export interface CapabilitySearchResult {
-  capability: CapabilityRecord
-  score: number
-  reasons: string[]
-}
-
-interface ScoredCapabilitySearchResult extends CapabilitySearchResult {
-  matchedTokenCount: number
-}
-
-export interface CapabilityRouteResult {
-  capability: CapabilityRecord
-  operation?: string
-  input: Record<string, unknown>
-  command: string
-  shellCommand: string
-  commandWarning: string
-  executionHint: {
-    routeCanRunSandboxed: boolean
-    runRequiresEscalatedSandbox: boolean
-    commandMustStartWith: string
-    reason: string
-  }
-  reasons: string[]
-  matchedText: string
-}
-
-export type CapabilityManifestPatch = Partial<Omit<CapabilityManifest, 'schemaVersion' | 'id' | 'createdAt'>>
-
 const CapabilityStatusSchema = z.enum(['draft', 'trusted', 'disabled'])
-const CAPABILITY_RUNTIME_STATE_FILENAME = 'runtime-state.json'
 const CapabilityRuntimeSchema = z.enum(['browser', 'node'])
 const CapabilitySideEffectSchema = z.enum(['read', 'write', 'dangerous'])
 const CapabilityRoutingHintSchema = z.enum(['search-first', 'exact-match-direct-run'])
@@ -298,7 +268,7 @@ const CapabilityManifestSchema = z
   })
   .passthrough()
 
-export function parseCapabilityManifest(value: unknown): CapabilityManifest {
+export function parseSkillRuntimeManifest(value: unknown): CapabilityManifest {
   return CapabilityManifestSchema.parse(value)
 }
 
@@ -324,17 +294,9 @@ export function getCapabilityExecutionConfig(capability: CapabilityRecord): Capa
   }
 }
 
-export function getUserCapabilitiesDir(): string {
-  return path.join(getTabwrightUserDataDir(), 'capabilities')
-}
-
-export function getProjectCapabilitiesDir(options: { cwd?: string } = {}): string {
-  return path.join(getTabwrightProjectDataDir({ cwd: options.cwd }), 'capabilities')
-}
-
 export function getCapabilityStateDir(options: { id: string }): string {
   validateCapabilityId(options.id)
-  return path.join(getTabwrightUserDataDir(), 'capability-state', options.id)
+  return path.join(getTabwrightUserDataDir(), 'skill-runtime-state', options.id)
 }
 
 export function ensureCapabilityStateDir(capability: CapabilityRecord): void {
@@ -344,50 +306,15 @@ export function ensureCapabilityStateDir(capability: CapabilityRecord): void {
   }
 }
 
-export function getCapabilityRoots(
-  options: { cwd?: string } = {},
-): Array<{ dir: string; location: CapabilityLocation }> {
-  const roots: Array<{ dir: string; location: CapabilityLocation }> = [
-    { dir: getProjectCapabilitiesDir({ cwd: options.cwd }), location: 'project' },
-    { dir: getUserCapabilitiesDir(), location: 'user' },
-  ]
-  return roots.filter((root, index) => {
-    return (
-      roots.findIndex((candidate) => {
-        return path.resolve(candidate.dir) === path.resolve(root.dir)
-      }) === index
-    )
-  })
-}
-
 export function validateCapabilityId(id: string): void {
   if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(id)) {
     throw new Error(`Invalid capability id "${id}". Use kebab-case letters and numbers only.`)
   }
 }
 
-export function getCapabilityDir(options: { id: string; location: CapabilityLocation; cwd?: string }): string {
-  validateCapabilityId(options.id)
-  if (options.location === 'skill') {
-    throw new Error(
-      'Skill runtimes are addressed by their directory and are not installed into the capability registry.',
-    )
-  }
-  const root =
-    options.location === 'project' ? getProjectCapabilitiesDir({ cwd: options.cwd }) : getUserCapabilitiesDir()
-  return path.join(root, options.id)
-}
-
 function readJsonFile(filePath: string): unknown {
   const content = fs.readFileSync(filePath, 'utf-8')
   return JSON.parse(content)
-}
-
-function writeJsonFile(options: { filePath: string; value: unknown; mode?: number }): void {
-  fs.writeFileSync(options.filePath, `${JSON.stringify(options.value, null, 2)}\n`, { mode: options.mode })
-  if (options.mode !== undefined && process.platform !== 'win32') {
-    fs.chmodSync(options.filePath, options.mode)
-  }
 }
 
 function resolveCapabilityEntry(options: { dir: string; entry: string }): string {
@@ -401,7 +328,7 @@ function resolveCapabilityEntry(options: { dir: string; entry: string }): string
 
 function parseManifest(options: { manifestPath: string }): CapabilityManifest {
   const raw = readJsonFile(options.manifestPath)
-  return parseCapabilityManifest(raw)
+  return parseSkillRuntimeManifest(raw)
 }
 
 export function readCapability(options: {
@@ -415,7 +342,7 @@ export function readCapability(options: {
   const scriptPath = resolveCapabilityEntry({ dir: options.dir, entry: baseManifest.entry })
   const stateDir = options.stateDir || options.dir
   const record: CapabilityRecord = {
-    manifest: baseManifest,
+    manifest: { ...baseManifest, status: 'trusted' },
     dir: options.dir,
     stateDir,
     target: options.target || baseManifest.id,
@@ -423,86 +350,7 @@ export function readCapability(options: {
     scriptPath,
     location: options.location,
   }
-  if (options.location !== 'skill') {
-    return record
-  }
-  const storedState = readCapabilityRuntimeState({ stateDir })
-  if (!storedState) {
-    return { ...record, manifest: { ...baseManifest, status: 'trusted' } }
-  }
-  const fingerprint = getCapabilityContractFingerprint(record)
-  const hasLegacyContractQuarantine = readCapabilityRuns({ capability: record, limit: 100 }).some((run) => {
-    return run.contract?.fingerprint === fingerprint && run.contract.trust.downgraded === true
-  })
-  // Older CLIs persisted contract quarantine as a global draft state. Contract failures are now
-  // enforced per operation from run evidence, so preserve only draft states explicitly set by users.
-  const isLegacyContractQuarantine =
-    storedState.status === 'draft' &&
-    storedState.fingerprint === fingerprint &&
-    storedState.source !== 'manual' &&
-    hasLegacyContractQuarantine
-  const status: CapabilityStatus = (() => {
-    if (storedState.status === 'disabled') {
-      return 'disabled'
-    }
-    if (storedState.status === 'draft' && storedState.fingerprint === fingerprint && !isLegacyContractQuarantine) {
-      return 'draft'
-    }
-    return 'trusted'
-  })()
-  return { ...record, manifest: { ...baseManifest, status } }
-}
-
-export function listCapabilities(options: { cwd?: string } = {}): CapabilityRecord[] {
-  return getCapabilityRoots({ cwd: options.cwd }).flatMap((root) => {
-    if (!fs.existsSync(root.dir)) {
-      return []
-    }
-    return fs
-      .readdirSync(root.dir, { withFileTypes: true })
-      .filter((entry) => {
-        return entry.isDirectory()
-      })
-      .flatMap((entry) => {
-        const dir = path.join(root.dir, entry.name)
-        const manifestPath = path.join(dir, 'capability.json')
-        if (!fs.existsSync(manifestPath)) {
-          return []
-        }
-        try {
-          return [readCapability({ dir, location: root.location })]
-        } catch {
-          return []
-        }
-      })
-  })
-}
-
-export function findCapability(options: { id: string; cwd?: string }): CapabilityRecord | null {
-  const runtimeDir = resolveCapabilityRuntimeDir({ target: options.id, cwd: options.cwd })
-  if (runtimeDir) {
-    const manifest = parseManifest({ manifestPath: path.join(runtimeDir, 'capability.json') })
-    return readCapability({
-      dir: runtimeDir,
-      stateDir: getCapabilityStateDir({ id: manifest.id }),
-      target: runtimeDir,
-      location: 'skill',
-    })
-  }
-  validateCapabilityId(options.id)
-  return (
-    getCapabilityRoots({ cwd: options.cwd })
-      .map((root) => {
-        const dir = path.join(root.dir, options.id)
-        if (!fs.existsSync(path.join(dir, 'capability.json'))) {
-          return null
-        }
-        return readCapability({ dir, location: root.location })
-      })
-      .find((record) => {
-        return record !== null
-      }) || null
-  )
+  return record
 }
 
 function resolveCapabilityRuntimeDir(options: { target: string; cwd?: string }): string | null {
@@ -516,105 +364,22 @@ function resolveCapabilityRuntimeDir(options: { target: string; cwd?: string }):
   )
 }
 
-function readCapabilityRuntimeState(options: { stateDir: string }): {
-  schemaVersion: 1
-  status: CapabilityStatus
-  fingerprint: string
-  runtimeDir: string
-  source?: 'manual'
-} | null {
-  const statePath = path.join(options.stateDir, CAPABILITY_RUNTIME_STATE_FILENAME)
-  if (!fs.existsSync(statePath)) {
-    return null
+export function requireCapability(options: { id: string; cwd?: string }): CapabilityRecord {
+  const runtimeDir = resolveCapabilityRuntimeDir({ target: options.id, cwd: options.cwd })
+  if (!runtimeDir) {
+    throw new Error(`Skill runtime not found: ${options.id}`)
   }
-  const value: unknown = (() => {
-    try {
-      return readJsonFile(statePath)
-    } catch {
-      return null
-    }
-  })()
-  if (!isPlainObject(value)) {
-    return null
-  }
-  const status = CapabilityStatusSchema.safeParse(value.status)
-  if (
-    value.schemaVersion !== 1 ||
-    !status.success ||
-    typeof value.fingerprint !== 'string' ||
-    typeof value.runtimeDir !== 'string'
-  ) {
-    return null
-  }
-  return {
-    schemaVersion: 1,
-    status: status.data,
-    fingerprint: value.fingerprint,
-    runtimeDir: value.runtimeDir,
-    source: value.source === 'manual' ? 'manual' : undefined,
-  }
-}
-
-export function updateCapabilityStatus(options: {
-  capability: CapabilityRecord
-  status: CapabilityStatus
-  cwd?: string
-  allowUnvalidatedTrust?: boolean
-}): CapabilityRecord {
-  if (options.capability.location !== 'skill') {
-    return updateCapabilityManifest({
-      id: options.capability.manifest.id,
-      cwd: options.cwd,
-      patch: { status: options.status },
-      allowUnvalidatedTrust: options.allowUnvalidatedTrust,
-    })
-  }
-  if (
-    options.status === 'trusted' &&
-    !options.allowUnvalidatedTrust &&
-    getCapabilityContractHealth(options.capability).state !== 'healthy'
-  ) {
-    throw new Error(
-      `Capability ${options.capability.manifest.id} has no passing conformance evidence for its current contract. Run it with --force before trusting it.`,
-    )
-  }
-  ensureCapabilityStateDir(options.capability)
-  writeJsonFile({
-    filePath: path.join(options.capability.stateDir, CAPABILITY_RUNTIME_STATE_FILENAME),
-    mode: 0o600,
-    value: {
-      schemaVersion: 1,
-      status: options.status,
-      fingerprint: getCapabilityContractFingerprint(options.capability),
-      runtimeDir: options.capability.dir,
-      source: 'manual',
-    },
-  })
+  const manifest = parseManifest({ manifestPath: path.join(runtimeDir, 'capability.json') })
   return readCapability({
-    dir: options.capability.dir,
-    stateDir: options.capability.stateDir,
-    target: options.capability.target,
+    dir: runtimeDir,
+    stateDir: getCapabilityStateDir({ id: manifest.id }),
+    target: runtimeDir,
     location: 'skill',
   })
 }
 
-export function requireCapability(options: { id: string; cwd?: string }): CapabilityRecord {
-  const capability = findCapability(options)
-  if (!capability) {
-    throw new Error(`Capability not found: ${options.id}`)
-  }
-  return capability
-}
-
-export function capabilityMatchesText(options: { capability: CapabilityManifest; text: string }): boolean {
+function capabilityMatchesText(options: { capability: CapabilityManifest; text: string }): boolean {
   return matchesCapabilityPatterns({ patterns: options.capability.match, text: options.text })
-}
-
-export function capabilityOperationMatchesText(options: {
-  operation: ResolvedCapabilityOperation
-  text: string
-}): boolean {
-  return matchesCapabilityPatterns({ patterns: options.operation.match, text: options.text })
 }
 
 function matchesCapabilityPatterns(options: { patterns: string[]; text: string }): boolean {
@@ -713,139 +478,6 @@ export function resolveCapabilityOperation(options: {
     )
   }
   return operation
-}
-
-export function createCapability(options: {
-  id: string
-  title?: string
-  description?: string
-  location?: CapabilityLocation
-  cwd?: string
-  overwrite?: boolean
-  createdBy?: 'user' | 'ai'
-  runtime?: CapabilityRuntime
-}): CapabilityRecord {
-  validateCapabilityId(options.id)
-  const location = options.location || 'user'
-  const dir = getCapabilityDir({ id: options.id, location, cwd: options.cwd })
-  if (fs.existsSync(dir) && !options.overwrite) {
-    throw new Error(`Capability already exists: ${options.id}`)
-  }
-
-  fs.mkdirSync(dir, { recursive: true })
-  const now = new Date().toISOString()
-  const manifest: CapabilityManifest = {
-    schemaVersion: 1,
-    id: options.id,
-    title: options.title || options.id,
-    description: options.description || '',
-    whenToUse: options.description ? [options.description] : [],
-    whenNotToUse: [],
-    tags: [],
-    match: [],
-    routingHint: 'search-first',
-    inputSchema: { type: 'object', properties: {}, required: [] },
-    outputSchema: { type: 'object', properties: {} },
-    permissions: options.runtime === 'node' ? ['network'] : ['browser.read'],
-    sideEffect: 'read',
-    requiresConfirmation: false,
-    operations: {},
-    auth: {
-      type: 'none',
-      refresh: 'none',
-      browserUrls: [],
-      requiredCookieNames: [],
-      failureSignals: [],
-    },
-    execution:
-      options.runtime === 'node'
-        ? {
-            strategy: 'direct-request',
-            requiresUserBrowser: false,
-            humanAssistance: 'none',
-            requirements: [],
-            observedRequestPatterns: [],
-          }
-        : {
-            strategy: 'browser-ui',
-            requiresUserBrowser: false,
-            humanAssistance: 'on-challenge',
-            requirements: [],
-            observedRequestPatterns: [],
-          },
-    examples: [],
-    entry: 'script.js',
-    runtime: options.runtime || 'browser',
-    status: 'draft',
-    createdBy: options.createdBy || 'user',
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  writeJsonFile({ filePath: path.join(dir, 'capability.json'), value: manifest })
-  fs.writeFileSync(path.join(dir, 'script.js'), getDefaultCapabilityScript({ runtime: manifest.runtime }))
-  fs.writeFileSync(path.join(dir, 'README.md'), `# ${manifest.title}\n\n${manifest.description}\n`)
-  return readCapability({ dir, location })
-}
-
-export function updateCapabilityManifest(options: {
-  id: string
-  cwd?: string
-  patch: Partial<Omit<CapabilityManifest, 'schemaVersion' | 'id' | 'createdAt'>>
-  allowUnvalidatedTrust?: boolean
-}): CapabilityRecord {
-  const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  const changesContract = Object.keys(options.patch).some((key) => {
-    return key !== 'status' && key !== 'updatedAt'
-  })
-  if (options.patch.status === 'trusted' && !options.allowUnvalidatedTrust) {
-    if (changesContract) {
-      throw new Error(
-        `Capability ${capability.manifest.id} cannot change its contract and become trusted in the same update. Save it as draft, validate the current contract, then trust it.`,
-      )
-    }
-    if (getCapabilityContractHealth(capability).state !== 'healthy') {
-      throw new Error(
-        `Capability ${capability.manifest.id} has no passing conformance evidence for its current contract. Run it with --force after repairing it before trusting it.`,
-      )
-    }
-  }
-  const nextStatus: CapabilityStatus = (() => {
-    if (options.patch.status) {
-      return options.patch.status
-    }
-    if (changesContract && capability.manifest.status === 'trusted') {
-      return 'draft'
-    }
-    return capability.manifest.status
-  })()
-  const nextManifest: CapabilityManifest = {
-    ...capability.manifest,
-    ...options.patch,
-    id: capability.manifest.id,
-    schemaVersion: 1,
-    status: nextStatus,
-    createdAt: capability.manifest.createdAt,
-    updatedAt: new Date().toISOString(),
-  }
-  writeJsonFile({ filePath: capability.manifestPath, value: CapabilityManifestSchema.parse(nextManifest) })
-  return readCapability({ dir: capability.dir, location: capability.location })
-}
-
-export function updateCapabilityScript(options: { id: string; cwd?: string; source: string }): CapabilityRecord {
-  const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  fs.writeFileSync(capability.scriptPath, options.source)
-  const nextStatus: CapabilityStatus = capability.manifest.status === 'trusted' ? 'draft' : capability.manifest.status
-  return updateCapabilityManifest({
-    id: options.id,
-    cwd: options.cwd,
-    patch: { status: nextStatus },
-  })
-}
-
-export function readCapabilityScript(options: { id: string; cwd?: string }): string {
-  const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  return fs.readFileSync(capability.scriptPath, 'utf-8')
 }
 
 export function readCapabilitySecrets(options: { capability: CapabilityRecord }): Record<string, unknown> {
@@ -1115,46 +747,13 @@ export function getCapabilityOperationContractHealth(options: {
 
 export function getCapabilityLifecycle(capability: CapabilityRecord): CapabilityLifecycle {
   const contractHealth = getCapabilityContractHealth(capability)
-  const commandTarget = capability.location === 'skill' ? quoteShell(capability.target) : capability.target
-  const stage: CapabilityLifecycle['stage'] = (() => {
-    if (capability.manifest.status === 'disabled') {
-      return 'disabled'
-    }
-    if (contractHealth.state === 'drifted') {
-      return 'drifted'
-    }
-    if (capability.manifest.status === 'trusted') {
-      return 'trusted'
-    }
-    if (contractHealth.state === 'healthy') {
-      return 'validated'
-    }
-    return 'drafted'
-  })()
-  const nextAction: CapabilityLifecycle['nextAction'] = (() => {
-    if (stage === 'disabled') {
-      return 'enable'
-    }
-    if (stage === 'drifted') {
-      return 'repair'
-    }
-    if (stage === 'validated') {
-      return 'trust'
-    }
-    if (stage === 'trusted') {
-      return 'run'
-    }
-    return 'validate'
-  })()
+  const skillDir = path.dirname(capability.dir)
+  const commandTarget = quoteShell(skillDir)
+  const stage: CapabilityLifecycle['stage'] = contractHealth.state === 'drifted' ? 'drifted' : 'trusted'
+  const nextAction: CapabilityLifecycle['nextAction'] = stage === 'drifted' ? 'repair' : 'run'
   const nextCommand: string = (() => {
-    if (nextAction === 'enable') {
-      return `tabwright capability draft ${commandTarget}`
-    }
     if (nextAction === 'repair') {
-      return `tabwright capability show ${commandTarget}`
-    }
-    if (nextAction === 'trust') {
-      return `tabwright capability trust ${commandTarget}`
+      return `tabwright skill runtime validate ${commandTarget} --json`
     }
 
     const exampleInput = capability.manifest.examples.find((example) => {
@@ -1170,13 +769,13 @@ export function getCapabilityLifecycle(capability: CapabilityRecord): Capability
     })()
     const args = [
       'tabwright',
-      'capability',
+      'skill',
+      'runtime',
       'run',
       commandTarget,
       ...(capability.manifest.runtime === 'browser' ? ['--browser', 'user'] : []),
       '--input-json',
       quoteShell(JSON.stringify(input)),
-      ...(nextAction === 'validate' ? ['--force'] : []),
       ...(operation?.requiresConfirmation ? ['--confirm', operation.confirmationToken] : []),
       '--json',
     ]
@@ -1196,7 +795,6 @@ export function getCapabilityAutonomy(
   const execution = getCapabilityExecutionConfig(capability)
   const operations = operation ? [operation] : getCapabilityOperations(capability)
   const blockers = [
-    capability.manifest.status === 'trusted' ? '' : `status is ${capability.manifest.status}`,
     contractHealth.state === 'drifted' ? 'current contract failed conformance' : '',
     execution.humanAssistance === 'required' ? 'execution requires human assistance' : '',
     ...operations.flatMap((candidate) => {
@@ -1214,7 +812,7 @@ export function getCapabilityAutonomy(
   })
   return {
     allowed: blockers.length === 0,
-    reasons: blockers.length === 0 ? ['trusted read-only capability'] : blockers,
+    reasons: blockers.length === 0 ? ['ready read-only Skill runtime'] : blockers,
   }
 }
 
@@ -1261,145 +859,6 @@ export function toCapabilityContract(capability: CapabilityRecord): Record<strin
   }
 }
 
-export function searchCapabilities(options: { query: string; cwd?: string; limit?: number }): CapabilitySearchResult[] {
-  const tokens = tokenizeSearchQuery(options.query)
-  if (options.query.trim() && tokens.length === 0) {
-    return []
-  }
-  const results = dedupeCapabilitiesById(listCapabilities({ cwd: options.cwd }))
-    .map((capability) => {
-      return scoreCapabilitySearch({ capability, tokens })
-    })
-    .filter((result) => {
-      if (tokens.length === 0) {
-        return true
-      }
-      if (tokens.length === 1) {
-        return result.score > 0
-      }
-      return result.matchedTokenCount >= 2
-    })
-    .sort((left, right) => {
-      return right.score - left.score || left.capability.manifest.id.localeCompare(right.capability.manifest.id)
-    })
-  const limitedResults = typeof options.limit === 'number' ? results.slice(0, options.limit) : results
-  return limitedResults.map((result) => {
-    return {
-      capability: result.capability,
-      score: result.score,
-      reasons: result.reasons,
-    }
-  })
-}
-
-export function routeCapabilities(options: { task: string; cwd?: string; limit?: number }): CapabilityRouteResult[] {
-  const task = options.task.trim()
-  if (!task) {
-    return []
-  }
-  const candidates = getRouteCandidateTexts(task)
-  const routes = dedupeCapabilitiesById(listCapabilities({ cwd: options.cwd })).flatMap((capability) => {
-    return getCapabilityOperations(capability)
-      .filter((operation) => {
-        return operation.routingHint === 'exact-match-direct-run'
-      })
-      .filter((operation) => {
-        return getCapabilityAutonomy(capability, operation).allowed
-      })
-      .flatMap((operation) => {
-        const matchedText = candidates.find((candidate) => {
-          return operation.match.length > 0 && capabilityOperationMatchesText({ operation, text: candidate })
-        })
-        if (!matchedText) {
-          return []
-        }
-        const input = buildRouteInput({ capability, operation, task, matchedText })
-        const shellCommand = buildCapabilityRunCommand({ id: capability.manifest.id, input })
-        return [
-          {
-            capability,
-            operation: operation.id,
-            input,
-            command: shellCommand,
-            shellCommand,
-            commandWarning: buildCapabilityCommandWarning({ id: capability.manifest.id }),
-            executionHint: {
-              routeCanRunSandboxed: true,
-              runRequiresEscalatedSandbox: true,
-              commandMustStartWith: 'tabwright capability run ',
-              reason:
-                'capability run writes device-local state and may write artifacts under ~/.tabwright; use escalated/unsandboxed execution in Codex sandbox',
-            },
-            reasons: [
-              `${operation.id ? `operation: ${operation.id}, ` : ''}routingHint: exact-match-direct-run`,
-              'autonomousInvocation: trusted read-only capability',
-              `matched: ${matchedText}`,
-            ],
-            matchedText,
-          },
-        ]
-      })
-  })
-  return typeof options.limit === 'number' ? routes.slice(0, options.limit) : routes
-}
-
-function dedupeCapabilitiesById(capabilities: CapabilityRecord[]): CapabilityRecord[] {
-  return capabilities.filter((capability, index) => {
-    return (
-      capabilities.findIndex((candidate) => {
-        return candidate.manifest.id === capability.manifest.id
-      }) === index
-    )
-  })
-}
-
-function getRouteCandidateTexts(task: string): string[] {
-  const urls = task.match(/https?:\/\/[^\s<>"']+/g) || []
-  return Array.from(
-    new Set(
-      [task, ...urls].map((value) => {
-        return value.replace(/[),，。；;]+$/g, '')
-      }),
-    ),
-  )
-}
-
-function buildRouteInput(options: {
-  capability: CapabilityRecord
-  operation: ResolvedCapabilityOperation
-  task: string
-  matchedText: string
-}): Record<string, unknown> {
-  const actionInput = options.operation.id ? { action: options.operation.id } : {}
-  if (
-    options.matchedText.startsWith('http') &&
-    hasInputProperty({ schema: options.operation.inputSchema, name: 'url' })
-  ) {
-    return { ...actionInput, url: options.matchedText }
-  }
-  if (hasInputProperty({ schema: options.operation.inputSchema, name: 'query' })) {
-    return { ...actionInput, query: options.task }
-  }
-  return actionInput
-}
-
-function hasInputProperty(options: { schema: Record<string, unknown>; name: string }): boolean {
-  const properties = isPlainObject(options.schema.properties) ? options.schema.properties : {}
-  return properties[options.name] !== undefined
-}
-
-export function buildCapabilityRunCommand(options: { id: string; input: Record<string, unknown> }): string {
-  return `tabwright capability run ${options.id} --input-json ${quoteShell(JSON.stringify(options.input))} --json`
-}
-
-function buildCapabilityCommandWarning(options: { id: string }): string {
-  return `${options.id} is a Tabwright capability id, not a shell command. Do not run "${options.id} ..."; run shellCommand exactly.`
-}
-
-function quoteShell(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`
-}
-
 export function toCapabilitySummary(capability: CapabilityRecord): Record<string, unknown> {
   const safety = getCapabilitySafetySummary(capability)
   return {
@@ -1428,109 +887,6 @@ export function toCapabilitySummary(capability: CapabilityRecord): Record<string
   }
 }
 
-const CAPABILITY_SEARCH_STOP_WORDS = new Set([
-  'a',
-  'an',
-  'and',
-  'for',
-  'in',
-  'of',
-  'on',
-  'only',
-  'or',
-  'please',
-  'read',
-  'the',
-  'to',
-  'use',
-  'with',
-])
-
-function tokenizeSearchQuery(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/[^a-z0-9\u4e00-\u9fff]+/)
-    .map((token) => {
-      return token.trim()
-    })
-    .filter((token) => {
-      return token.length > 0 && !CAPABILITY_SEARCH_STOP_WORDS.has(token)
-    })
-}
-
-function scoreCapabilitySearch(options: {
-  capability: CapabilityRecord
-  tokens: string[]
-}): ScoredCapabilitySearchResult {
-  const operations = Object.entries(options.capability.manifest.operations)
-  const weightedFields: Array<{ label: string; weight: number; values: string[] }> = [
-    { label: 'id', weight: 5, values: [options.capability.manifest.id] },
-    { label: 'title', weight: 6, values: [options.capability.manifest.title] },
-    { label: 'description', weight: 4, values: [options.capability.manifest.description] },
-    { label: 'whenToUse', weight: 8, values: options.capability.manifest.whenToUse },
-    { label: 'tags', weight: 6, values: options.capability.manifest.tags },
-    { label: 'match', weight: 3, values: options.capability.manifest.match },
-    {
-      label: 'operations',
-      weight: 6,
-      values: operations.flatMap(([id, operation]) => {
-        return [id, operation.title, operation.description, ...operation.match]
-      }),
-    },
-  ]
-
-  const matches = weightedFields.flatMap((field) => {
-    const text = field.values.join(' ').toLowerCase()
-    const matchedTokens = options.tokens.filter((token) => {
-      return text.includes(token)
-    })
-    if (matchedTokens.length === 0) {
-      return []
-    }
-    return [
-      {
-        score: matchedTokens.length * field.weight,
-        reason: `${field.label}: ${matchedTokens.join(', ')}`,
-        matchedTokens,
-      },
-    ]
-  })
-
-  const negativeMatches = options.capability.manifest.whenNotToUse.flatMap((text) => {
-    const lowerText = text.toLowerCase()
-    const matchedTokens = options.tokens.filter((token) => {
-      return lowerText.includes(token)
-    })
-    if (matchedTokens.length === 0) {
-      return []
-    }
-    return [matchedTokens.length * 3]
-  })
-
-  return {
-    capability: options.capability,
-    score:
-      matches.reduce((total, match) => {
-        return total + match.score
-      }, 0) -
-      negativeMatches.reduce((total, score) => {
-        return total + score
-      }, 0),
-    reasons: matches.map((match) => {
-      return match.reason
-    }),
-    matchedTokenCount: new Set(
-      matches.flatMap((match) => {
-        return match.matchedTokens
-      }),
-    ).size,
-  }
-}
-
-function getDefaultCapabilityScript(options: { runtime: CapabilityRuntime }): string {
-  if (options.runtime === 'node') {
-    return ['return {', '  input,', '  hasSecrets: Object.keys(secrets).length > 0,', '}', ''].join('\n')
-  }
-
-  return ['const currentUrl = page.url()', '', 'return {', '  currentUrl,', '  input,', '}', ''].join('\n')
+function quoteShell(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
 }

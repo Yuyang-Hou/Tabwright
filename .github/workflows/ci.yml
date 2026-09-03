@@ -8,13 +8,13 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          submodules: true
-      - uses: actions/setup-node@v4
+      - run: git submodule update --init playwright
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org/
       - uses: pnpm/action-setup@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: ${{ runner.os }}-pnpm-store-
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
       # scripts
       # - run: pnpm build
       # - run: pnpm test

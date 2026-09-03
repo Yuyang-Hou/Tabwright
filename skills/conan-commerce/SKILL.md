@@ -5,10 +5,10 @@ description: 使用 Tabwright 只读查询 Deal 电商后台正式或测试环�
 
 # 电商后台统一查询
 
-直接运行本技能的 `runtime/` 目录，不要先执行 `capability search/route`。固定使用用户浏览器：
+直接运行本技能，固定使用用户浏览器：
 
 ```bash
-tabwright capability run "<runtime-dir>" --browser user --input-json '<json>' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '<json>' --json
 ```
 
 ## 选择操作
@@ -41,12 +41,12 @@ tabwright capability run "<runtime-dir>" --browser user --input-json '<json>' --
 ## 常用调用
 
 ```bash
-tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"user.query","query":"123456"}' --json
-tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"user.query","environment":"cn-test","query":"123456"}' --json
-tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"group.detail","groupIds":[6412]}' --json
-tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"group.validate","groupIds":[6412],"userIds":[10001,10002]}' --json
-tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"coupon-template.query","filters":{"ids":[123],"page":0,"pageSize":20}}' --json
-tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":"order.query","filters":{"orderIds":[123456]},"limit":20}' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '{"action":"user.query","query":"123456"}' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '{"action":"user.query","environment":"cn-test","query":"123456"}' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '{"action":"group.detail","groupIds":[6412]}' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '{"action":"group.validate","groupIds":[6412],"userIds":[10001,10002]}' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '{"action":"coupon-template.query","filters":{"ids":[123],"page":0,"pageSize":20}}' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '{"action":"order.query","filters":{"orderIds":[123456]},"limit":20}' --json
 ```
 
 ## 约束与展示
@@ -60,7 +60,7 @@ tabwright capability run "<runtime-dir>" --browser user --input-json '{"action":
 
 ## Tabwright 运行环境
 
-将本 `SKILL.md` 同级的 `runtime/` 目录解析为绝对路径，并通过 `tabwright capability run "<技能绝对路径>/runtime" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
+将包含本 `SKILL.md` 的 Skill 目录解析为绝对路径，并通过 `tabwright skill runtime run "<技能绝对路径>" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
 
 优先使用 `tabwright`。如命令不存在或不支持技能运行目录，改用 `npm exec --yes --package=tabwright@latest -- tabwright`。仅当 Node.js 或 npm 不可用时才询问用户。
 

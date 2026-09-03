@@ -1,4 +1,4 @@
-import { page, getCDPSession, createEditor, console } from './debugger-examples-types.js'
+import { page, getCDPSession, createEditor, decompileJavaScript, console } from './debugger-examples-types.js'
 
 // Example: List available scripts
 async function listScripts() {
@@ -28,6 +28,19 @@ async function readScript() {
     limit: 50,
   })
   console.log(partial)
+}
+
+// Example: Decompile only when packed code blocks understanding
+async function decompilePackedScript() {
+  const cdp = await getCDPSession({ page })
+  const editor = createEditor({ cdp })
+  const script = await editor.readRaw({ url: 'https://example.com/assets/app.min.js' })
+  const result = await decompileJavaScript({
+    source: script.content,
+    sourceUrl: script.url,
+    level: 'minimal',
+  })
+  console.log({ sha256: result.sha256, outputPath: result.outputPath, files: result.files })
 }
 
 // Example: Edit a script (exact string replacement)
@@ -148,6 +161,7 @@ async function searchStyles() {
 export {
   listScripts,
   readScript,
+  decompilePackedScript,
   editScript,
   searchScripts,
   writeScript,

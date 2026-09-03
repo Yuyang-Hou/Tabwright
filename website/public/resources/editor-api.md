@@ -21,6 +21,12 @@ export interface EditResult {
     success: boolean;
     stackChanged?: boolean;
 }
+export interface RawScriptResult {
+    url: string;
+    content: string;
+    sha256: string;
+    sourceMapURL?: string;
+}
 /**
  * A class for viewing and editing web page scripts via Chrome DevTools Protocol.
  * Provides a Claude Code-like interface: list, read, edit, grep.
@@ -125,6 +131,13 @@ export declare class Editor {
         offset?: number;
         limit?: number;
     }): Promise<ReadResult>;
+    /**
+     * Returns an exact runtime script without line prefixes or truncation.
+     * Keep the result in code or pass it to decompileJavaScript; do not print large bundles.
+     */
+    readRaw({ url }: {
+        url: string;
+    }): Promise<RawScriptResult>;
     private getSource;
     /**
      * Edits a script or stylesheet by replacing oldString with newString.
@@ -212,7 +225,7 @@ export declare class Editor {
 ## Examples
 
 ```ts
-import { page, getCDPSession, createEditor, console } from './debugger-examples-types.js'
+import { page, getCDPSession, createEditor, decompileJavaScript, console } from './debugger-examples-types.js'
 
 // Example: List available scripts
 async function listScripts() {
@@ -242,6 +255,19 @@ async function readScript() {
     limit: 50,
   })
   console.log(partial)
+}
+
+// Example: Decompile only when packed code blocks understanding
+async function decompilePackedScript() {
+  const cdp = await getCDPSession({ page })
+  const editor = createEditor({ cdp })
+  const script = await editor.readRaw({ url: 'https://example.com/assets/app.min.js' })
+  const result = await decompileJavaScript({
+    source: script.content,
+    sourceUrl: script.url,
+    level: 'minimal',
+  })
+  console.log({ sha256: result.sha256, outputPath: result.outputPath, files: result.files })
 }
 
 // Example: Edit a script (exact string replacement)
@@ -362,6 +388,7 @@ async function searchStyles() {
 export {
   listScripts,
   readScript,
+  decompilePackedScript,
   editScript,
   searchScripts,
   writeScript,

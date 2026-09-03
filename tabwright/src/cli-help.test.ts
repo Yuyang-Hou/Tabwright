@@ -16,11 +16,18 @@ const viteNodeBinary = path.join(
   process.platform === 'win32' ? 'vite-node.cmd' : 'vite-node',
 )
 
-async function runCli(args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(viteNodeBinary, ['src/cli.ts', ...args], {
+async function runCliWithEnv(options: {
+  args: string[]
+  env?: NodeJS.ProcessEnv
+}): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(viteNodeBinary, ['src/cli.ts', ...options.args], {
     cwd: tabwrightDir,
-    env: process.env,
+    env: options.env || process.env,
   })
+}
+
+async function runCli(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return runCliWithEnv({ args })
 }
 
 describe('tabwright cli help', () => {
@@ -38,8 +45,16 @@ describe('tabwright cli help', () => {
     expect(stdout).toContain('tabwright')
     expect(stdout).toContain('doctor')
     expect(stdout).toContain('serve')
+    expect(stdout).toContain('skill runtime validate')
+    expect(stdout).toContain('skill runtime run')
     expect(stdout).toContain('-e, --eval <code>')
     expect(stdout).not.toContain('tabwright  Start the MCP server')
+    expect(stdout).not.toContain('capability create')
+    expect(stdout).not.toContain('capability studio')
+    expect(stdout).not.toContain('capability run')
+    expect(stdout).not.toContain('replay compile')
+    expect(stdout).not.toContain('replay make')
+    expect(stdout).not.toContain('replay-to-capability')
     expect(stderr).toBe('')
   }, 30000)
 
@@ -75,34 +90,94 @@ describe('tabwright cli help', () => {
     const listHelp = await runCli(['replay', 'list', '--help'])
     const indexHelp = await runCli(['replay', 'index', '--help'])
 
-    expect(listHelp.stdout).toContain('next commands')
+    expect(listHelp.stdout).toContain('inspect command')
     expect(listHelp.stdout).toContain('--limit')
     expect(indexHelp.stdout).toContain('--full')
     expect(listHelp.stderr).toBe('')
     expect(indexHelp.stderr).toBe('')
   }, 30000)
 
-  test('teaches a fresh agent how to export Agent Skills with in-place runtimes', async () => {
+  test('teaches a fresh agent to author and run independent Agent Skills directly', async () => {
     const { stdout, stderr } = await runCli(['skill'])
     const discoverySkill = fs.readFileSync(path.resolve(tabwrightDir, '..', 'skills', 'tabwright', 'SKILL.md'), 'utf-8')
 
-    expect(stdout).toContain('tabwright capability skill export query-user --output ./skills/query-user')
-    expect(stdout).toContain('tabwright capability run "/absolute/path/to/skill/runtime"')
-    expect(discoverySkill).toContain(
-      'tabwright capability skill export <capability-id> --output ./skills/<capability-id>',
-    )
-    expect(discoverySkill).toContain('execute the bundled runtime directly')
+    expect(stdout).toContain('tabwright skill runtime validate "/absolute/path/to/query-user"')
+    expect(stdout).toContain('tabwright skill runtime run "/absolute/path/to/query-user"')
+    expect(stdout).not.toContain('Legacy `tabwright capability')
+    expect(discoverySkill).toContain('tabwright skill runtime validate "<absolute-skill-directory>"')
+    expect(discoverySkill).toContain('do not copy its runtime into Tabwright storage')
     expect(stderr).toBe('')
   }, 30000)
 
-  test('exports portable Agent Skills with explicit runtime guidance', async () => {
-    const { stdout, stderr } = await runCli(['capability', 'skill', 'export', '--help'])
+  test('validates and runs a Skill-owned runtime without a capability registry entry', async () => {
+    const testRoot = path.join(tabwrightDir, 'tmp', `skill-runtime-cli-${process.pid}-${Date.now()}`)
+    const skillDir = path.join(testRoot, 'cli-runtime-test')
+    const runtimeDir = path.join(skillDir, 'runtime')
+    const isolatedHome = path.join(testRoot, 'home')
+    fs.mkdirSync(runtimeDir, { recursive: true })
+    fs.mkdirSync(isolatedHome, { recursive: true })
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: cli-runtime-test\ndescription: Test Skill runtime.\n---\n',
+    )
+    fs.writeFileSync(
+      path.join(runtimeDir, 'capability.json'),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          id: 'cli-runtime-test',
+          title: 'CLI runtime test',
+          inputSchema: {
+            type: 'object',
+            properties: { value: { type: 'string' } },
+            required: ['value'],
+          },
+          outputSchema: {
+            type: 'object',
+            properties: { value: { type: 'string' } },
+            required: ['value'],
+          },
+          sideEffect: 'read',
+          requiresConfirmation: false,
+          entry: 'script.js',
+          runtime: 'node',
+          status: 'draft',
+          createdBy: 'ai',
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    fs.writeFileSync(path.join(runtimeDir, 'script.js'), 'throw new Error("validation must not execute this")\n')
 
-    expect(stdout).toContain('portable Agent Skill')
-    expect(stdout).toContain('Tabwright runtime contract')
-    expect(stdout).toContain('--output')
-    expect(stdout).not.toContain('--force')
-    expect(stderr).toBe('')
+    try {
+      const env = { ...process.env, HOME: isolatedHome, USERPROFILE: isolatedHome }
+      const validated = await runCliWithEnv({
+        args: ['skill', 'runtime', 'validate', skillDir, '--json'],
+        env,
+      })
+      expect(JSON.parse(validated.stdout)).toMatchObject({
+        valid: true,
+        skill: { id: 'cli-runtime-test', dir: skillDir },
+        runtime: { dir: runtimeDir, type: 'node', sideEffect: 'read', requiresConfirmation: false },
+      })
+      expect(validated.stderr).toBe('')
+
+      fs.writeFileSync(path.join(runtimeDir, 'script.js'), 'return { value: input.value }\n')
+      const executed = await runCliWithEnv({
+        args: ['skill', 'runtime', 'run', skillDir, '--input-json', '{"value":"ok"}', '--json'],
+        env,
+      })
+      expect(JSON.parse(executed.stdout)).toMatchObject({
+        runtime: 'cli-runtime-test',
+        output: { value: 'ok' },
+        isError: false,
+      })
+      expect(executed.stderr).toBe('')
+      expect(fs.existsSync(path.join(isolatedHome, '.tabwright', 'capabilities'))).toBe(false)
+    } finally {
+      fs.rmSync(testRoot, { recursive: true, force: true })
+    }
   }, 30000)
 
   test('exposes automatic skill installation recovery and status commands', async () => {
@@ -130,6 +205,18 @@ describe('tabwright cli help', () => {
       expect(error.stderr).toContain('Unknown command: run')
       expect(error.stderr).toContain('tabwright --help')
     }
+  }, 30000)
+
+  test('explains that legacy capability commands require a Skill update', async () => {
+    await expect(runCli(['capability', 'run', '/example/runtime', '--json'])).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('outdated Agent Skill'),
+    })
+
+    await expect(runCli(['capability', 'refresh-auth', '/example/runtime', '--json'])).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('Update or reinstall that Skill'),
+    })
   }, 30000)
 
   test('unknown subcommand exits with code 1', async () => {

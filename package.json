@@ -1,6 +1,7 @@
 {
   "name": "root",
   "private": true,
+  "packageManager": "pnpm@10.18.1",
   "scripts": {
     "test": "pnpm --filter tabwright test",
     "watch": "pnpm -r watch",
@@ -22,7 +23,10 @@
     "vite": "^8.0.13",
     "vitest": "^4.0.8"
   },
-  "repository": "https://github.com/Yuyang-Hou/tabwright",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yuyang-Hou/Tabwright.git"
+  },
   "author": "Yuyang Hou",
   "license": "Apache-2.0",
   "dependencies": {

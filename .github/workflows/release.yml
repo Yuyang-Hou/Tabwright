@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Release target
+        required: true
+        type: choice
+        options:
+          - cli
+          - extension
+
+concurrency:
+  group: tabwright-release
+  cancel-in-progress: false
+
+jobs:
+  cli:
+    if: inputs.target == 'cli'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: exit 1
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - run: git submodule update --init playwright
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: node playwright/utils/generate_injected.js
+      - run: pnpm playwright:build
+      - run: pnpm --dir tabwright typecheck
+      - run: pnpm --dir tabwright exec vitest run src/cli-help.test.ts src/skill-stub.test.ts
+      - name: Read release metadata
+        id: package
+        shell: bash
+        run: |
+          version="$(node -p "require('./tabwright/package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=tabwright@$version" >> "$GITHUB_OUTPUT"
+          awk -v heading="## $version" '
+            $0 == heading { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' tabwright/CHANGELOG.md > "$RUNNER_TEMP/cli-release-notes.md"
+          test -s "$RUNNER_TEMP/cli-release-notes.md"
+      - name: Publish npm package
+        working-directory: tabwright
+        shell: bash
+        run: |
+          published="$(npm view "tabwright@${{ steps.package.outputs.version }}" version 2>/dev/null || true)"
+          if [ "$published" != "${{ steps.package.outputs.version }}" ]; then
+            npm publish --access public
+          fi
+      - name: Create CLI GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "${{ steps.package.outputs.tag }}" >/dev/null 2>&1; then
+            gh release create "${{ steps.package.outputs.tag }}" \
+              --target "$GITHUB_SHA" \
+              --title "${{ steps.package.outputs.tag }}" \
+              --latest \
+              --notes-file "$RUNNER_TEMP/cli-release-notes.md"
+          fi
+
+  extension:
+    if: inputs.target == 'extension'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: exit 1
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - run: git submodule update --init playwright
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: node playwright/utils/generate_injected.js
+      - run: pnpm playwright:build
+      - name: Verify matching CLI is public
+        run: pnpm release:check-cli-version
+      - name: Read release metadata
+        id: extension
+        shell: bash
+        run: |
+          version="$(node -p "require('./extension/manifest.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=extension@$version" >> "$GITHUB_OUTPUT"
+          echo "artifact=tabwright-$version.zip" >> "$GITHUB_OUTPUT"
+      - name: Build extension
+        working-directory: extension
+        env:
+          PRODUCTION: 'true'
+          TABWRIGHT_EXTENSION_DIST: dist-release
+        run: |
+          rm -rf dist-release
+          pnpm build
+      - name: Package extension
+        working-directory: extension/dist-release
+        run: zip -r "$GITHUB_WORKSPACE/${{ steps.extension.outputs.artifact }}" .
+      - name: Create extension GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.extension.outputs.tag }}" >/dev/null 2>&1; then
+            gh release upload "${{ steps.extension.outputs.tag }}" \
+              "${{ steps.extension.outputs.artifact }}" \
+              --clobber
+          else
+            gh release create "${{ steps.extension.outputs.tag }}" \
+              "${{ steps.extension.outputs.artifact }}" \
+              --target "$GITHUB_SHA" \
+              --title "Extension ${{ steps.extension.outputs.version }}" \
+              --latest=false \
+              --generate-notes
+          fi

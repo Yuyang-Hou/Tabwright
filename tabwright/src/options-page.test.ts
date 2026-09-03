@@ -327,7 +327,7 @@ describe('extension options page', () => {
     }
   }, 30000)
 
-  test('shows capabilities with clear status labels and focused actions', async () => {
+  test('shows installed Skills with clear status labels and focused actions', async () => {
     if (!testCtx) {
       throw new Error('Test context is not initialized')
     }
@@ -384,8 +384,8 @@ describe('extension options page', () => {
           id: { type: 'string' },
         },
       },
-      location: 'project',
-      dir: '/Users/test/project/.tabwright/capabilities/query-user',
+      location: 'skill',
+      dir: '/Users/test/.codex/skills/query-user/runtime',
       autonomousInvocation: {
         allowed: false,
         reasons: ['sideEffect is write', 'requires confirmation'],
@@ -402,7 +402,7 @@ describe('extension options page', () => {
       ],
     }
     const trustedNextCommand =
-      'tabwright capability run query-user --browser user --input-json \'{"email":"from-contract@example.com"}\' --confirm query-user --json'
+      'tabwright skill runtime run \'/Users/test/.codex/skills/query-user\' --browser user --input-json \'{"email":"from-contract@example.com"}\' --confirm query-user --json'
     const capability = {
       ...capabilityBase,
       location: 'skill',
@@ -425,7 +425,7 @@ describe('extension options page', () => {
         ],
         hasRuntimeConflict: false,
         localState: {
-          stateDir: '/Users/test/.tabwright/capability-state/query-user',
+          stateDir: '/Users/test/.tabwright/skill-runtime-state/query-user',
           auth: {
             type: 'cookie',
             status: 'authenticated',
@@ -446,12 +446,22 @@ describe('extension options page', () => {
         },
       },
     }
-    const driftedNextCommand = 'tabwright capability show drifted-user --json'
     const driftedCapability = {
-      ...capabilityBase,
+      ...capability,
       id: 'drifted-user',
       title: 'Drifted User Query',
-      status: 'draft',
+      dir: '/Users/test/.codex/skills/drifted-user/runtime',
+      agentSkill: {
+        ...capability.agentSkill,
+        installations: [
+          {
+            manager: 'codex',
+            scope: 'user',
+            skillDir: '/Users/test/.codex/skills/drifted-user',
+            runtimeDir: '/Users/test/.codex/skills/drifted-user/runtime',
+          },
+        ],
+      },
       autonomousInvocation: {
         allowed: false,
         reasons: ['current contract failed conformance'],
@@ -459,7 +469,7 @@ describe('extension options page', () => {
       lifecycle: {
         stage: 'drifted',
         nextAction: 'repair',
-        nextCommand: driftedNextCommand,
+        nextCommand: "tabwright skill runtime validate '/Users/test/.codex/skills/drifted-user' --json",
         contractHealth: {
           state: 'drifted',
           checkedAt: '2026-07-08T00:00:00.000Z',
@@ -467,58 +477,6 @@ describe('extension options page', () => {
         },
       },
     }
-    const disabledCapability = {
-      ...capabilityBase,
-      id: 'legacy-disabled',
-      title: 'Legacy Disabled',
-      status: 'disabled',
-      autonomousInvocation: {
-        allowed: false,
-        reasons: ['status is disabled'],
-      },
-    }
-    const legacyTrustedCapability = {
-      ...capabilityBase,
-      id: 'legacy-trusted',
-      title: 'Legacy Trusted',
-      sideEffect: 'read',
-      requiresConfirmation: false,
-      autonomousInvocation: {
-        allowed: true,
-        reasons: [],
-      },
-    }
-    const historicalTrustedNextCommand = "tabwright capability run historical-trusted --input-json '{}' --json"
-    const historicalTrustedCapability = {
-      ...legacyTrustedCapability,
-      id: 'historical-trusted',
-      title: 'Historical Trusted',
-      lifecycle: {
-        stage: 'trusted',
-        nextAction: 'run',
-        nextCommand: historicalTrustedNextCommand,
-        contractHealth: {
-          state: 'unknown',
-          reasons: [],
-        },
-      },
-    }
-    const futureLifecycleCapability = {
-      ...legacyTrustedCapability,
-      id: 'future-lifecycle',
-      title: 'Future Lifecycle',
-      recentRuns: [{ status: 'future-run-format' }],
-      lifecycle: {
-        stage: 'reviewed',
-        nextAction: 'approve',
-        nextCommand: 'tabwright capability trust future-lifecycle',
-        contractHealth: {
-          state: 'future-health',
-          reasons: [],
-        },
-      },
-    }
-
     const page = await testCtx.browserContext.newPage()
     await page.setViewportSize({ width: 1280, height: 720 })
     page.setDefaultTimeout(10000)
@@ -529,15 +487,6 @@ describe('extension options page', () => {
         }
         return await clipboardNavigator.clipboard.readText()
       })
-    }
-    async function copyTechnicalCommand(): Promise<string> {
-      const details = page.locator('.advanced-details')
-      const copy = details.getByRole('button', { name: /Copy command|复制命令/ })
-      if (!(await copy.isVisible())) {
-        await details.locator('summary').click()
-      }
-      await copy.click()
-      return await readClipboard()
     }
     try {
       await testCtx.browserContext.grantPermissions(['clipboard-read', 'clipboard-write'], {
@@ -572,14 +521,7 @@ describe('extension options page', () => {
             headers: { ...corsHeaders, 'content-type': 'application/json' },
             body: JSON.stringify({
               cwd: '/Users/test/project',
-              capabilities: [
-                capability,
-                driftedCapability,
-                disabledCapability,
-                legacyTrustedCapability,
-                historicalTrustedCapability,
-                futureLifecycleCapability,
-              ],
+              capabilities: [capability, driftedCapability],
             }),
           })
           return
@@ -608,7 +550,7 @@ describe('extension options page', () => {
           return await page.locator('#skill-detail').textContent()
         })
         .toContain('query-user')
-      expect(await page.locator('#skills-summary').textContent()).toContain('6 Skills')
+      expect(await page.locator('#skills-summary').textContent()).toContain('2 Skills')
       expect(await page.locator('.overview-item').count()).toBe(5)
       expect(await page.locator('.capability-overview').textContent()).toContain('Installed from')
       expect(await page.locator('.capability-overview').textContent()).toContain('Saved results')
@@ -623,7 +565,7 @@ describe('extension options page', () => {
       await technicalDetails.locator('summary').click()
       expect(await technicalDetails.textContent()).toContain('Ready')
       expect(await page.locator('#skill-detail').textContent()).toContain('2 files')
-      expect(await technicalDetails.textContent()).toContain('/Users/test/.tabwright/capability-state/query-user')
+      expect(await technicalDetails.textContent()).toContain('/Users/test/.tabwright/skill-runtime-state/query-user')
       expect(await technicalDetails.textContent()).not.toContain('CLI command')
       expect(await technicalDetails.textContent()).not.toContain('Routing')
       expect(await page.locator('.lifecycle-card').count()).toBe(0)
@@ -634,11 +576,11 @@ describe('extension options page', () => {
       expect(await page.locator('.advanced-details').textContent()).toContain('**/api/users/**')
       await page.getByRole('button', { name: 'Copy diagnostic details' }).click()
       const aiContext = await readClipboard()
-      expect(aiContext).toContain('Capability ID: query-user')
+      expect(aiContext).toContain('Skill runtime ID: query-user')
       expect(aiContext).toContain('Look up a user by email.')
       expect(aiContext).toContain('Execution: Browser interaction + network result')
       expect(aiContext).toContain('/Users/test/.codex/skills/query-user')
-      expect(aiContext).toContain('/Users/test/.tabwright/capability-state/query-user')
+      expect(aiContext).toContain('/Users/test/.tabwright/skill-runtime-state/query-user')
 
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await expect
@@ -651,36 +593,6 @@ describe('extension options page', () => {
           return await page.locator('.advanced-details').textContent()
         })
         .toContain('output.userId must be string')
-      expect(await copyTechnicalCommand()).toBe(driftedNextCommand)
-
-      await page.locator('.skill-item').filter({ hasText: 'Legacy Disabled' }).click()
-      await expect
-        .poll(async () => {
-          return await page.locator('#skill-detail').textContent()
-        })
-        .toContain('Disabled')
-      expect(await copyTechnicalCommand()).toBe("tabwright capability draft 'legacy-disabled'")
-
-      await page.locator('.skill-item').filter({ hasText: 'Legacy Trusted' }).click()
-      expect(await copyTechnicalCommand()).toContain("tabwright capability run 'legacy-trusted'")
-      expect(await page.locator('.advanced-details').textContent()).toContain('Not yet checked for usability')
-
-      await page.locator('.skill-item').filter({ hasText: 'Historical Trusted' }).click()
-      expect(await copyTechnicalCommand()).toBe(historicalTrustedNextCommand)
-      expect(await page.locator('.advanced-details').textContent()).toContain('Not yet checked for usability')
-
-      await page.locator('.skill-item').filter({ hasText: 'Future Lifecycle' }).click()
-      await expect
-        .poll(async () => {
-          return await page.locator('.advanced-details').textContent()
-        })
-        .toContain('This extension cannot interpret the capability lifecycle')
-      await expect
-        .poll(async () => {
-          return await page.locator('#skill-detail').textContent()
-        })
-        .not.toContain('future-run-format')
-      expect(await copyTechnicalCommand()).toBe("tabwright capability describe 'future-lifecycle' --json")
 
       await page.locator('.skill-item').filter({ hasText: 'Drifted User Query' }).click()
       await page.locator('.language-button[data-language="zh_CN"]').click()
@@ -689,11 +601,9 @@ describe('extension options page', () => {
           return await page.locator('#skill-detail').textContent()
         })
         .toContain('需处理')
-      expect(await copyTechnicalCommand()).toBe(driftedNextCommand)
       expect(await page.locator('.advanced-details').textContent()).toContain('配置发生变化 · 检查于')
-      expect(await page.locator('.advanced-details').textContent()).toContain('CLI 命令')
       await page.locator('#status-filter').selectOption('attention')
-      expect(await page.locator('.skill-item').count()).toBe(2)
+      expect(await page.locator('.skill-item').count()).toBe(1)
       expect(await page.locator('#status-filter').inputValue()).toBe('attention')
     } finally {
       await testCtx.browserContext.clearPermissions()

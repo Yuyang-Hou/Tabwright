@@ -149,20 +149,20 @@ tabwright serve --token MY_SECRET --replace  # kill existing server first
 
 The relay starts automatically when you use the CLI locally. Use `serve` explicitly when you need it running persistently for remote clients.
 
-## Capability execution safety
+## Skill runtime safety
 
-Inspect a capability contract before running it. If `requiresConfirmation` is true, stop and obtain explicit user approval for the concrete input and side effect. Only then repeat the exact capability id with `--confirm`:
+Validate the Skill runtime before running it. If `requiresConfirmation` is true, stop and obtain explicit user approval for the concrete input and side effect. Only then pass the exact runtime confirmation token:
 
 ```bash
-tabwright capability describe update-user --json
-tabwright capability run update-user --browser user --input-json '{"email":"a@example.com"}' --confirm update-user --json
+tabwright skill runtime validate "/absolute/path/to/update-user" --json
+tabwright skill runtime run "/absolute/path/to/update-user" --browser user --input-json '{"email":"a@example.com"}' --confirm update-user --json
 ```
 
-`--force` only allows draft execution or bypasses a browser URL match. It never bypasses confirmation. Browser capabilities that declare `execution.requiresUserBrowser` automatically use the signed-in browser; other browser capabilities default to headless.
+`--force` only bypasses a browser URL match or revalidates a repaired quarantine. It never bypasses confirmation. Browser runtimes that declare `execution.requiresUserBrowser` automatically use the signed-in browser; other browser runtimes default to headless.
 
 ### Execution strategy
 
-Capabilities describe *how* they complete a task separately from where they run:
+Skill runtimes describe *how* they complete a task separately from where they run:
 
 - `direct-request`: a normal API call without a browser.
 - `browser-request`: a request made inside the browser's authenticated page context.
@@ -174,24 +174,21 @@ rejects `--browser headless`. If a workflow returns `status: "needs_human"`, com
 or other verification in the open browser, then rerun the same approved input. The user does not need to
 identify or reproduce the website's verification algorithm.
 
-## Replay to capability
+## Replay evidence for Skill authoring
 
-List saved demonstrations and inspect one before compiling it:
+List saved demonstrations and inspect one before creating or updating an independent Skill:
 
 ```bash
 tabwright replay list --limit 10 --json
 tabwright replay index <replay-id> --json
-tabwright replay make <replay-id> <capability-id> --force --goal 'repeat this workflow' --json
 ```
 
 `replay index --json` returns compact evidence: actions, fields, annotations, warnings, and selector hints remain, while bulky page text and interactive-element arrays become counts. Add `--full` when the complete evidence is required.
 
-`replay make` returns `status: "compiled"` when it writes a draft capability. Unknown workflows return `status: "needs_ai"`, write no placeholder capability, and include exact `next.inspectCommand` and `next.createCommand` values for an AI authoring handoff.
-
-Generated workflows are draft browser writes. Inspect the result, obtain explicit approval, then use the returned run command:
+The AI uses this evidence to author the Skill directly. For a write runtime, inspect the contract and obtain explicit approval before execution:
 
 ```bash
-tabwright capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '<json-input>' --json
+tabwright skill runtime run "/absolute/path/to/skill" --browser user --confirm <runtime-id> --input-json '<json-input>' --json
 ```
 
 ## Other commands

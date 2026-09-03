@@ -10,6 +10,7 @@ coverage
 *.zip
 *.log
 tmp
+.tabwright/artifacts/
 .tabwright/capabilities/*/artifacts/
 .tabwright/capabilities/*/runs.jsonl
 .tabwright/capabilities/*/secrets.json

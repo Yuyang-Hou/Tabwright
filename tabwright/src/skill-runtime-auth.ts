@@ -4,8 +4,8 @@ import {
   requireCapability,
   writeCapabilitySecrets,
   type CapabilityRecord,
-} from './capability-registry.js'
-import { writeStoredCapabilityAuthState } from './capability-auth-state.js'
+} from './skill-runtime.js'
+import { writeStoredSkillRuntimeAuthState } from './skill-runtime-auth-state.js'
 import type { ExecuteResult } from './executor.js'
 
 export interface CapabilityAuthExecutor {
@@ -33,7 +33,7 @@ export interface CapabilityAuthCookie {
   expires?: number
 }
 
-export async function refreshCapabilityAuthWithExecutor(options: {
+export async function refreshSkillRuntimeAuthWithExecutor(options: {
   executor: CapabilityAuthExecutor
   id: string
   cwd?: string
@@ -55,7 +55,7 @@ export async function refreshCapabilityAuthWithExecutor(options: {
     throw new Error(`Failed to refresh capability auth: ${executeResult.text}`)
   }
   const parsed = parseRefreshResult(executeResult.structuredResult)
-  writeStoredCapabilityAuthState({
+  writeStoredSkillRuntimeAuthState({
     capability,
     state: {
       schemaVersion: 1,
@@ -123,12 +123,12 @@ function buildCookieRefreshCode(options: { capability: CapabilityRecord }): stri
     '  expiresAt,',
     '  path: secretsPath,',
     '};',
-    `//# sourceURL=tabwright-capability-auth://${options.capability.manifest.id}`,
+    `//# sourceURL=tabwright-skill-runtime-auth://${options.capability.manifest.id}`,
     '',
   ].join('\n')
 }
 
-export function refreshCapabilityAuthFromCookies(options: {
+export function refreshSkillRuntimeAuthFromCookies(options: {
   id: string
   cookies: CapabilityAuthCookie[]
   cwd?: string
@@ -181,7 +181,7 @@ export function refreshCapabilityAuthFromCookies(options: {
     requiredCookies.length > 0 && expiryValues.length === requiredCookies.length
       ? new Date(Math.min(...expiryValues) * 1000).toISOString()
       : undefined
-  writeStoredCapabilityAuthState({
+  writeStoredSkillRuntimeAuthState({
     capability,
     state: {
       schemaVersion: 1,

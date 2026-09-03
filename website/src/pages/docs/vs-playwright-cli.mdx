@@ -23,16 +23,16 @@ can discover, authorize, and run safely.
 
 ## Same API, different product boundary
 
-Tabwright uses the same Playwright API you already know, but successful browser work can be promoted into
-a durable capability contract and distributed to an Agent Skill manager.
+Tabwright uses the same Playwright API you already know, but successful browser work can become an
+independently managed Agent Skill with a machine-enforced runtime contract.
 
 ```bash
 # Playwright CLI: run a browser command
 npx playwright screenshot https://example.com shot.png
 
-# Tabwright: compile and run a reusable workflow
-tabwright replay make <replay-id> capture-report --goal "capture the report" --force --json
-tabwright capability run capture-report --input-json '{}' --json
+# Tabwright: inspect evidence and run the resulting Skill
+tabwright replay index <replay-id> --full --json
+tabwright skill runtime run "/absolute/path/to/capture-report" --input-json '{}' --json
 ```
 
 ## Raw CDP access

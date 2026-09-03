@@ -90,18 +90,18 @@ npm i -g tabwright
 
 The **Tabwright skill** is installed at `~/.agents/skills/tabwright`. If lifecycle scripts are disabled, run `tabwright skill install`; use `--target codex` or `--target claude` for an agent-specific directory.
 
-### Select recent activity and compile
+### Select recent activity and create a Skill
 
 Work normally in the attached tab. The Agent can inspect the rolling local activity stream, save only the
-relevant event range, and compile it into a draft workflow. Saving a range never interrupts observation.
+relevant event range, then use that evidence to create an independent Agent Skill. Saving a range never interrupts observation.
 
 ```bash
 tabwright activity inspect --last 5m --json
 tabwright activity save --from <timestamp> --to <timestamp> --json
 tabwright replay list --limit 10 --json
 tabwright replay index <replay-id> --json
-tabwright replay make <replay-id> <capability-id> --goal "repeat this workflow" --force --json
-tabwright capability run <capability-id> --browser user --force --confirm <capability-id> --json
+tabwright skill runtime validate "/absolute/path/to/skill" --json
+tabwright skill runtime run "/absolute/path/to/skill" --input-json '<json>' --json
 ```
 
 ## The runtime behind each Skill

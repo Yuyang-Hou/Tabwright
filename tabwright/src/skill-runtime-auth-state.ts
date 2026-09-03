@@ -6,7 +6,7 @@ import {
   readCapabilitySecrets,
   type CapabilityAuthType,
   type CapabilityRecord,
-} from './capability-registry.js'
+} from './skill-runtime.js'
 
 const AUTH_STATE_FILENAME = 'auth-state.json'
 const EXPIRING_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -32,10 +32,9 @@ export interface CapabilityAuthState {
   expiresAt?: string
   browserKey?: string
   reason?: string
-  refreshCommand?: string
 }
 
-export function shouldAutoRefreshCapabilityAuth(options: {
+export function shouldAutoRefreshSkillRuntimeAuth(options: {
   state: CapabilityAuthState
   force?: boolean
   now?: Date
@@ -61,7 +60,7 @@ export function shouldAutoRefreshCapabilityAuth(options: {
   return Number.isNaN(refreshedAt) || now.getTime() - refreshedAt >= 60 * 60 * 1000
 }
 
-export function writeStoredCapabilityAuthState(options: {
+export function writeStoredSkillRuntimeAuthState(options: {
   capability: CapabilityRecord
   state: StoredCapabilityAuthState
 }): string {
@@ -74,26 +73,14 @@ export function writeStoredCapabilityAuthState(options: {
   return statePath
 }
 
-export function removeCapabilityAuthFiles(options: { capabilityDir: string }): void {
-  const filenames: string[] = ['secrets.json', AUTH_STATE_FILENAME]
-  filenames.map((filename) => {
-    fs.rmSync(path.join(options.capabilityDir, filename), { force: true })
-    return filename
-  })
-}
-
-export function getCapabilityAuthState(options: { capability: CapabilityRecord; now?: Date }): CapabilityAuthState {
+export function getSkillRuntimeAuthState(options: { capability: CapabilityRecord; now?: Date }): CapabilityAuthState {
   const auth = options.capability.manifest.auth
   const canRefresh = auth.type === 'cookie' && auth.refresh === 'from-browser' && auth.browserUrls.length > 0
-  const refreshCommand = canRefresh
-    ? `tabwright capability refresh-auth ${options.capability.manifest.id} --browser user --json`
-    : undefined
   const base = {
     type: auth.type,
     canRefresh,
     browserUrls: auth.browserUrls,
     requiredCookieNames: auth.requiredCookieNames,
-    refreshCommand,
   }
   if (auth.type === 'none') {
     return { ...base, status: 'not-required', cookieNames: [] }

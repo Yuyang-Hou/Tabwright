@@ -35,4 +35,9 @@ export function getBundledExtensionPath(): string {
   )
 }
 
+export function getInstalledWakaruCliPath(): string {
+  const packageJsonPath = require.resolve('@wakaru/cli/package.json')
+  return path.join(path.dirname(packageJsonPath), 'bin', 'wakaru')
+}
+
 export const getInstalledPlaywriterPackageDir = getInstalledTabwrightPackageDir

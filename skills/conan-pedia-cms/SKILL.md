@@ -5,7 +5,7 @@ description: 通过 Tabwright conan-pedia-cms 能力查询、检查、校验并�
 
 # 百科 CMS 后台
 
-只通过 `tabwright capability run "<runtime-dir>"` 执行本技能的 `runtime/` 目录；不要把 `action` 当作 Shell 命令，不要自行拼接后台接口。
+只通过 `tabwright skill runtime run "<skill-dir>"` 执行本技能的 `runtime/` 目录；不要把 `action` 当作 Shell 命令，不要自行拼接后台接口。
 
 ## 选择环境
 
@@ -32,7 +32,7 @@ description: 通过 Tabwright conan-pedia-cms 能力查询、检查、校验并�
 直接运行匹配的只读操作。
 
 ```bash
-tabwright capability run "<runtime-dir>" --input-json '{"action":"<action>","environment":"cn-prod","params":{}}' --json
+tabwright skill runtime run "<skill-dir>" --input-json '{"action":"<action>","environment":"cn-prod","params":{}}' --json
 ```
 
 保持结果紧凑：说明环境、筛选条件、总数和关键字段，不展开凭据、邀请码、手机号或大段原始响应。
@@ -46,7 +46,7 @@ tabwright capability run "<runtime-dir>" --input-json '{"action":"<action>","env
 5. 回读目标并验证结果。
 
 ```bash
-tabwright capability run "<runtime-dir>" --confirm 'conan-pedia-cms:<action>' --input-json '<confirmed-input-json>' --json
+tabwright skill runtime run "<skill-dir>" --confirm 'conan-pedia-cms:<action>' --input-json '<confirmed-input-json>' --json
 ```
 
 不要复用旧确认处理已变化的输入。
@@ -57,7 +57,7 @@ tabwright capability run "<runtime-dir>" --confirm 'conan-pedia-cms:<action>' --
 
 ## Tabwright 运行环境
 
-将本 `SKILL.md` 同级的 `runtime/` 目录解析为绝对路径，并通过 `tabwright capability run "<技能绝对路径>/runtime" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
+将包含本 `SKILL.md` 的 Skill 目录解析为绝对路径，并通过 `tabwright skill runtime run "<技能绝对路径>" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
 
 优先使用 `tabwright`。如命令不存在或不支持技能运行目录，改用 `npm exec --yes --package=tabwright@latest -- tabwright`。仅当 Node.js 或 npm 不可用时才询问用户。
 

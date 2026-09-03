@@ -3,11 +3,15 @@ import type { ICDPSession } from './cdp-session.js'
 import type { Debugger } from './debugger.js'
 import type { Editor } from './editor.js'
 import type { StylesResult } from './styles.js'
+import type { DecompileJavaScriptOptions, DecompileJavaScriptResult } from './wakaru.js'
 
 export declare const page: Page
 export declare const getCDPSession: (options: { page: Page }) => Promise<ICDPSession>
 export declare const createDebugger: (options: { cdp: ICDPSession }) => Debugger
 export declare const createEditor: (options: { cdp: ICDPSession }) => Editor
+export declare const decompileJavaScript: (
+  options: Omit<DecompileJavaScriptOptions, 'cwd'>,
+) => Promise<DecompileJavaScriptResult>
 export declare const getStylesForLocator: (options: {
   locator: Locator
   includeUserAgentStyles?: boolean

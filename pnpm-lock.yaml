@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  spiceflow: 1.26.0-rsc.5
+
 importers:
 
   .:
@@ -332,6 +335,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      '@wakaru/cli':
+        specifier: 1.10.0
+        version: 1.10.0
       '@xmorse/playwright-core':
         specifier: workspace:^
         version: link:../playwright/packages/playwright-core
@@ -3489,6 +3495,35 @@ packages:
 
   '@vitest/utils@4.0.8':
     resolution: {integrity: sha512-pdk2phO5NDvEFfUTxcTP8RFYjVj/kfLSPIN5ebP2Mu9kcIMeAQTbknqcFEyBcC4z2pJlJI9aS5UQjcYfhmKAow==}
+
+  '@wakaru/cli-darwin-arm64@1.10.0':
+    resolution: {integrity: sha512-fokwWgOO9IckEVtbp16aBZJ2X8v7mkkO33mIMfIoDjaUmjTw74sBs3t+HlIeJCNMnegYl4Db7BYQ5BDKW0sBXg==}
+    cpu: [arm64]
+    os: [darwin]
+    hasBin: true
+
+  '@wakaru/cli-linux-arm64@1.10.0':
+    resolution: {integrity: sha512-uHsOnbLqdT4iSQQiwEHzAGoFO6LEPxecvEL0FHrijazHLIB+BBMJbTeUfPDRBsOim3QY03pDVoQ1kY0xxsdBgg==}
+    cpu: [arm64]
+    os: [linux]
+    hasBin: true
+
+  '@wakaru/cli-linux-x64@1.10.0':
+    resolution: {integrity: sha512-R46Yk+L/l1fAFc1rhJqIPtcEABUiHw66OO6ohK2hWgTm63SyXf4YHCe4YWYS2++w/m0oLfzZQb/SdKkwQNa6hQ==}
+    cpu: [x64]
+    os: [linux]
+    hasBin: true
+
+  '@wakaru/cli-win32-x64@1.10.0':
+    resolution: {integrity: sha512-rTBk8nSn1mduqqfS4CgFp3J3Tw0PBqvLKDVsb7X2OxNbiFDwUzFTEhop/awbWgitvu76u5qgywykc5vUzRqThg==}
+    cpu: [x64]
+    os: [win32]
+    hasBin: true
+
+  '@wakaru/cli@1.10.0':
+    resolution: {integrity: sha512-XPFLnQ9Gtc3d+0275Pi45nZWNiEmV0jhbxF8mnh7/hxGiipTjAvtNuxAIkVwR5RsIprsFOoVCCULQSWRdjslIQ==}
+    engines: {node: '>=16.0.0'}
+    hasBin: true
 
   '@xstate/fsm@1.6.5':
     resolution: {integrity: sha512-b5o1I6aLNeYlU/3CPlj/Z91ybk1gUsKT+5NAJI+2W4UjvS5KLG28K9v5UvNoFVjHV8PajVZ00RH3vnjyQO7ZAw==}
@@ -11125,6 +11160,25 @@ snapshots:
     dependencies:
       '@vitest/pretty-format': 4.0.8
       tinyrainbow: 3.0.3
+
+  '@wakaru/cli-darwin-arm64@1.10.0':
+    optional: true
+
+  '@wakaru/cli-linux-arm64@1.10.0':
+    optional: true
+
+  '@wakaru/cli-linux-x64@1.10.0':
+    optional: true
+
+  '@wakaru/cli-win32-x64@1.10.0':
+    optional: true
+
+  '@wakaru/cli@1.10.0':
+    optionalDependencies:
+      '@wakaru/cli-darwin-arm64': 1.10.0
+      '@wakaru/cli-linux-arm64': 1.10.0
+      '@wakaru/cli-linux-x64': 1.10.0
+      '@wakaru/cli-win32-x64': 1.10.0
 
   '@xstate/fsm@1.6.5': {}
 

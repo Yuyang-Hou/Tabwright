@@ -5,7 +5,7 @@ description: 通过 Tabwright conan-config 能力搜索、读取、检查、校�
 
 # Conan 配置管理
 
-使用 `tabwright capability run "<runtime-dir>"` 执行；不要将能力 ID 当作 Shell 命令。
+使用 `tabwright skill runtime run "<skill-dir>"` 执行；不要将能力 ID 当作 Shell 命令。
 
 ## 快速只读路径
 
@@ -17,9 +17,9 @@ description: 通过 Tabwright conan-config 能力搜索、读取、检查、校�
 - 搜索结果有歧义时，不要自动读取每个候选项；展示匹配项并让用户选择。
 
 ```bash
-tabwright capability run "<runtime-dir>" --input-json '{"action":"search","environment":"cn-prod","query":"<keyword>"}' --json
-tabwright capability run "<runtime-dir>" --input-json '{"action":"get","url":"<config-url>"}' --json
-tabwright capability run "<runtime-dir>" --input-json '{"action":"search-schemas","environment":"cn-prod","name":"<schema-name>","bizKey":"config"}' --json
+tabwright skill runtime run "<skill-dir>" --input-json '{"action":"search","environment":"cn-prod","query":"<keyword>"}' --json
+tabwright skill runtime run "<skill-dir>" --input-json '{"action":"get","url":"<config-url>"}' --json
+tabwright skill runtime run "<skill-dir>" --input-json '{"action":"search-schemas","environment":"cn-prod","name":"<schema-name>","bizKey":"config"}' --json
 ```
 
 仅当用户需要每个搜索维度的完整记录时，使用 `"detailLevel":"full"`。用户给出精确的 `namespace` 和 `key` 时，直接调用 `get`。
@@ -34,7 +34,7 @@ tabwright capability run "<runtime-dir>" --input-json '{"action":"search-schemas
 
 ## Tabwright 运行环境
 
-将本 `SKILL.md` 同级的 `runtime/` 目录解析为绝对路径，并通过 `tabwright capability run "<技能绝对路径>/runtime" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
+将包含本 `SKILL.md` 的 Skill 目录解析为绝对路径，并通过 `tabwright skill runtime run "<技能绝对路径>" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
 
 优先使用 `tabwright`。如命令不存在或不支持技能运行目录，改用 `npm exec --yes --package=tabwright@latest -- tabwright`。仅当 Node.js 或 npm 不可用时才询问用户。
 

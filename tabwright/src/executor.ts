@@ -36,15 +36,9 @@ export type { SnapshotFormat }
 import { getCleanHTML, type GetCleanHTMLOptions } from './clean-html.js'
 import { getPageMarkdown, type GetPageMarkdownOptions } from './page-markdown.js'
 import { createReplayApi } from './rrweb-recording.js'
-import {
-  saveWorkflowCapability,
-  saveWorkflowFromRecording,
-  type SaveWorkflowCapabilityOptions,
-  type SaveWorkflowFromRecordingOptions,
-} from './workflow-capability.js'
 import { type GhostCursorClientOptions } from './ghost-cursor.js'
 import { GhostCursorController } from './ghost-cursor-controller.js'
-
+import { decompileJavaScript as runWakaru, type DecompileJavaScriptOptions } from './wakaru.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1367,6 +1361,12 @@ export class PlaywrightExecutor {
 
       const createDebugger = (options: { cdp: ICDPSession }) => new Debugger(options)
       const createEditor = (options: { cdp: ICDPSession }) => new Editor(options)
+      const decompileJavaScript = (options: Omit<DecompileJavaScriptOptions, 'cwd'>) => {
+        return runWakaru({
+          ...options,
+          cwd: this.sessionCwd || process.cwd(),
+        })
+      }
 
       const getStylesForLocatorFn = async (options: { locator: any }) => {
         const cdp = await getCDPSession({ page: options.locator.page() })
@@ -1473,21 +1473,6 @@ export class PlaywrightExecutor {
         defaultPage: page,
         relayPort,
       })
-      const workflow = {
-        saveCapability: (input: Omit<SaveWorkflowCapabilityOptions, 'cwd'>) => {
-          return saveWorkflowCapability({
-            ...input,
-            cwd: self.sessionCwd || process.cwd(),
-          })
-        },
-        saveFromRecording: (input: Omit<SaveWorkflowFromRecordingOptions, 'cwd'>) => {
-          return saveWorkflowFromRecording({
-            ...input,
-            cwd: self.sessionCwd || process.cwd(),
-          })
-        },
-      }
-
       // Ghost Browser API - creates chrome object that mirrors Ghost Browser's APIs
       // See extension/src/ghost-browser-api.d.ts for full API documentation
       const chromeGhostBrowser = createGhostBrowserChrome(async (namespace, method, args) => {
@@ -1519,6 +1504,7 @@ export class PlaywrightExecutor {
         getCDPSession,
         createDebugger,
         createEditor,
+        decompileJavaScript,
         getStylesForLocator: getStylesForLocatorFn,
         formatStylesAsText,
         getReactSource: getReactSourceFn,
@@ -1540,15 +1526,12 @@ export class PlaywrightExecutor {
           list: replayApi.list,
           events: replayApi.events,
         },
-        workflow,
         // Backward-compatible aliases
         startReplay: replayApi.start,
         stopReplay: replayApi.stop,
         isReplayRecording: replayApi.isRecording,
         cancelReplay: replayApi.cancel,
         listReplays: replayApi.list,
-        saveWorkflowCapability: workflow.saveCapability,
-        saveWorkflowFromRecording: workflow.saveFromRecording,
         resetPlaywright: async () => {
           const { page: newPage, context: newContext } = await self.reset()
           vmContextObj.page = newPage

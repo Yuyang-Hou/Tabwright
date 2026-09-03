@@ -13,7 +13,7 @@ description: 使用 Tabwright 只读查询 Zhenguanyu Console 中 Conan WebApp �
 例如：
 
 ```bash
-tabwright capability run "<runtime-dir>" --browser user --input-json '{"projectName":"conan-pedia-web","key":"conan-pedia-web-member-manage","pageSize":10}' --json
+tabwright skill runtime run "<skill-dir>" --browser user --input-json '{"projectName":"conan-pedia-web","key":"conan-pedia-web-member-manage","pageSize":10}' --json
 ```
 
 ## 输出与边界
@@ -25,7 +25,7 @@ tabwright capability run "<runtime-dir>" --browser user --input-json '{"projectN
 
 ## Tabwright Runtime
 
-Resolve the absolute `runtime/` directory next to this `SKILL.md` and execute it directly with `tabwright capability run "<absolute-skill-directory>/runtime" ...`. Never copy or install the runtime into a Tabwright data directory.
+Resolve the absolute Skill directory containing this `SKILL.md` and execute it directly with `tabwright skill runtime run "<absolute-skill-directory>" ...`. Never copy or install the runtime into a Tabwright data directory.
 
 Use `tabwright` when available. If the command is missing or rejects a Skill runtime directory, use `npm exec --yes --package=tabwright@latest -- tabwright` in its place. Ask the user only when Node.js or npm is unavailable.
 
