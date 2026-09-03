@@ -22,7 +22,10 @@
     "vite": "^8.0.13",
     "vitest": "^4.0.8"
   },
-  "repository": "https://github.com/Yuyang-Hou/tabwright",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yuyang-Hou/Tabwright.git"
+  },
   "author": "Yuyang Hou",
   "license": "Apache-2.0",
   "dependencies": {

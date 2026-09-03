@@ -5,7 +5,10 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "repository": "https://github.com/Yuyang-Hou/tabwright",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yuyang-Hou/Tabwright.git"
+  },
   "scripts": {
     "build": "rm -rf dist *.tsbuildinfo && mkdir dist && bun scripts/build-client-bundles.ts && tsc -p tsconfig-build.json && bun scripts/build-extension-bundle.ts && bun scripts/build-resources.ts",
     "postinstall": "node postinstall.js",
@@ -18,8 +21,8 @@
     "test:watch": "vitest"
   },
   "bin": {
-    "tabwright": "./bin.js",
-    "playwriter": "./bin.js"
+    "tabwright": "bin.js",
+    "playwriter": "bin.js"
   },
   "files": [
     "dist",
