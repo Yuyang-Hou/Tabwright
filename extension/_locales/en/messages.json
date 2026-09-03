@@ -16,7 +16,7 @@
   "language_zh_cn": { "message": "Chinese" },
   "recordings_eyebrow": { "message": "Replay library" },
   "recordings_heading": { "message": "DOM replays" },
-  "recordings_description": { "message": "Review saved page recordings and turn repeatable flows into capabilities." },
+  "recordings_description": { "message": "Review saved page recordings and use them as evidence for Agent Skills." },
   "capabilities_eyebrow": { "message": "Agent Skills" },
   "capabilities_heading": { "message": "Tabwright Skills" },
   "capabilities_description": {
@@ -75,7 +75,7 @@
     "placeholders": { "count": { "content": "$1" } }
   },
   "status_capability_count_other": {
-    "message": "$count$ Tabwright Skills and local capabilities",
+    "message": "$count$ Tabwright Skills",
     "placeholders": { "count": { "content": "$1" } }
   },
   "error_load_replay": {
@@ -89,10 +89,10 @@
   },
   "error_invalid_recordings": { "message": "Invalid recordings response" },
   "error_load_capabilities": {
-    "message": "Failed to load capabilities: $status$",
+    "message": "Failed to load Tabwright Skills: $status$",
     "placeholders": { "status": { "content": "$1" } }
   },
-  "error_invalid_capabilities": { "message": "Invalid capabilities response" },
+  "error_invalid_capabilities": { "message": "Invalid Tabwright Skills response" },
   "relay_review_warning_title": { "message": "Saved data is temporarily unavailable" },
   "relay_version_outdated": {
     "message": "Local service update required. Current version $1, required version $2."
@@ -101,16 +101,16 @@
     "message": "Run these commands in a terminal, then refresh this page."
   },
   "relay_review_outdated": {
-    "message": "Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Tabwright, then refresh."
+    "message": "Browser control is connected, but this local service cannot list saved recordings or installed Skills. Your files were not deleted. Restart or update Tabwright, then refresh."
   },
   "relay_review_unavailable": {
-    "message": "Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Tabwright, then refresh."
+    "message": "Browser control is connected, but saved recordings and installed Skills are temporarily unavailable. Your files were not deleted. Restart Tabwright, then refresh."
   },
   "lifecycle_unsupported": {
-    "message": "This extension cannot interpret the capability lifecycle. Update Tabwright before running it."
+    "message": "This extension cannot interpret the Skill runtime state. Update Tabwright before running it."
   },
   "empty_no_replays": { "message": "No DOM replays yet." },
-  "empty_no_capabilities": { "message": "No installed Tabwright Skills or local capabilities found." },
+  "empty_no_capabilities": { "message": "No installed Tabwright Skills found." },
   "empty_no_matches": { "message": "No matches for this search." },
   "copy_for_ai": { "message": "Copy for AI" },
   "copy_skill_context": { "message": "Copy details" },
@@ -242,15 +242,15 @@
     "message": "Normal execution and AI autonomy stay blocked until the contract passes validation again."
   },
   "lifecycle_disabled_warning": {
-    "message": "This capability is disabled. Enable it as a draft before validation or execution."
+    "message": "This Skill runtime is unavailable."
   },
-  "autonomy_trusted_readonly": { "message": "trusted read-only capability" },
+  "autonomy_trusted_readonly": { "message": "ready read-only Skill runtime" },
   "open_replay_aria": {
     "message": "Open replay $id$",
     "placeholders": { "id": { "content": "$1" } }
   },
   "open_capability_aria": {
-    "message": "Open capability $id$",
+    "message": "Open Skill runtime $id$",
     "placeholders": { "id": { "content": "$1" } }
   },
   "auth_title": { "message": "Browser authentication" },
@@ -260,10 +260,10 @@
   "auth_status_expired": { "message": "Expired" },
   "auth_status_unknown": { "message": "Unknown" },
   "auth_description_missing": {
-    "message": "Connect your current Chrome login before validating or running this capability."
+    "message": "Connect your current Chrome login before running this Skill runtime."
   },
   "auth_description_authenticated": {
-    "message": "Authentication is saved locally and ready for this capability."
+    "message": "Authentication is saved locally and ready for this Skill runtime."
   },
   "auth_description_expiring": {
     "message": "Authentication expires within 24 hours. Refresh it to avoid failed runs."
@@ -280,19 +280,19 @@
   "auth_action_refresh": { "message": "Refresh authentication" },
   "auth_confirm_title": { "message": "Allow browser authentication?" },
   "auth_confirm_description": {
-    "message": "Tabwright will read cookies only for the domains below and save them locally for this capability."
+    "message": "Tabwright will read cookies only for the domains below and save them locally for this Skill runtime."
   },
   "auth_privacy": {
-    "message": "Cookie values stay on this device and are never included when the capability is shared."
+    "message": "Cookie values stay on this device and are never included when the Skill is shared."
   },
   "auth_confirm_action": { "message": "Allow and authenticate" },
   "auth_cancel_action": { "message": "Cancel" },
   "auth_progress": {
-    "message": "Authenticating $capability$...",
+    "message": "Authenticating $capability$ Skill runtime...",
     "placeholders": { "capability": { "content": "$1" } }
   },
   "auth_success": {
-    "message": "$capability$ authentication updated",
+    "message": "$capability$ Skill runtime authentication updated",
     "placeholders": { "capability": { "content": "$1" } }
   },
   "auth_error_generic": {

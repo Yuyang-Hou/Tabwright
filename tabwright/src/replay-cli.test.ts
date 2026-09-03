@@ -188,12 +188,12 @@ describe('replay CLI handoff', () => {
 
       const { stdout, stderr } = await runCli({ cwd, home, args: ['replay', 'list', '--limit', '2', '--json'] })
       const result = JSON.parse(stdout) as {
-        recordings: Array<{ id: string; commands: { inspect: string; make: string } }>
+        recordings: Array<{ id: string; commands: { inspect: string } }>
       }
 
       expect(result.recordings.map((recording) => recording.id)).toEqual(['newer-replay', 'older-replay'])
       expect(result.recordings[0]?.commands.inspect).toContain('replay index')
-      expect(result.recordings[0]?.commands.make).toContain('replay make')
+      expect(stdout).not.toContain('replay make')
       expect(stdout).not.toContain(home)
       expect(stdout).not.toContain('sessionId')
       expect(stdout).not.toContain('tabId')
@@ -242,84 +242,5 @@ describe('replay CLI handoff', () => {
     }
   }, 30000)
 
-  test('returns a needs_ai handoff without writing a fake capability', async () => {
-    const home = createTempDir('replay-cli-unsupported-home-')
-    const cwd = createTempDir('replay-cli-unsupported-cwd-')
-    try {
-      writeRecordings({
-        home,
-        recordings: [
-          {
-            id: 'unsupported-replay',
-            savedAt: 2000,
-            url: 'https://example.com/unsupported',
-            events: createUnsupportedReplayEvents(),
-          },
-        ],
-      })
 
-      const { stdout, stderr } = await runCli({
-        cwd,
-        home,
-        args: ['replay', 'make', 'unsupported-replay', 'unsupported-capability', '--force', '--json'],
-      })
-      const result = JSON.parse(stdout) as {
-        status: string
-        capabilityWritten: boolean
-        next: { action: string; inspectCommand: string; createCommand: string }
-      }
-
-      expect(result).toMatchObject({ status: 'needs_ai', capabilityWritten: false })
-      expect(result.next.action).toBe('author_capability')
-      expect(result.next.inspectCommand).toContain('replay index')
-      expect(result.next.createCommand).toContain('capability create')
-      expect(fs.existsSync(path.join(cwd, '.tabwright', 'capabilities', 'unsupported-capability'))).toBe(false)
-      expect(stderr).toBe('')
-    } finally {
-      fs.rmSync(home, { recursive: true, force: true })
-      fs.rmSync(cwd, { recursive: true, force: true })
-    }
-  }, 30000)
-
-  test('returns a compact compiled handoff with an approval-gated run command', async () => {
-    const home = createTempDir('replay-cli-compiled-home-')
-    const cwd = createTempDir('replay-cli-compiled-cwd-')
-    try {
-      writeRecordings({
-        home,
-        recordings: [
-          {
-            id: 'supported-replay',
-            savedAt: 2000,
-            url: 'https://admin.example.com/#/config?key=config_demo_simple_COPY123',
-            events: createListAppendReplayEvents(),
-          },
-        ],
-      })
-
-      const { stdout, stderr } = await runCli({
-        cwd,
-        home,
-        args: ['replay', 'make', 'supported-replay', 'compiled-capability', '--force', '--json'],
-      })
-      const result = JSON.parse(stdout) as {
-        status: string
-        evidence: { pageText?: string[]; interactiveElements?: unknown[] }
-        next: { requiresUserConfirmation: boolean; runCommand: string }
-      }
-
-      expect(result.status).toBe('compiled')
-      expect(result.evidence).not.toHaveProperty('pageText')
-      expect(result.evidence).not.toHaveProperty('interactiveElements')
-      expect(result.next.requiresUserConfirmation).toBe(true)
-      expect(result.next.runCommand).toContain('--browser user')
-      expect(result.next.runCommand).toContain('--confirm \'compiled-capability\'')
-      expect(result.next.runCommand).toContain('--json')
-      expect(fs.existsSync(path.join(cwd, '.tabwright', 'capabilities', 'compiled-capability'))).toBe(true)
-      expect(stderr).toBe('')
-    } finally {
-      fs.rmSync(home, { recursive: true, force: true })
-      fs.rmSync(cwd, { recursive: true, force: true })
-    }
-  }, 30000)
 })

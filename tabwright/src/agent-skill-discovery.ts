@@ -1,14 +1,14 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { getCapabilityAuthState, type CapabilityAuthStatus } from './capability-auth-state.js'
+import { getSkillRuntimeAuthState, type CapabilityAuthStatus } from './skill-runtime-auth-state.js'
 import {
   getCapabilityContractFingerprint,
   getCapabilityStateDir,
   readCapability,
   type CapabilityAuthType,
   type CapabilityRecord,
-} from './capability-registry.js'
+} from './skill-runtime.js'
 
 export type AgentSkillManager = 'codex' | 'agents' | 'claude' | 'custom'
 export type AgentSkillScope = 'project' | 'user' | 'custom'
@@ -255,7 +255,7 @@ function isSkillDirectory(options: { rootDir: string; entry: fs.Dirent }): boole
 }
 
 function getAgentSkillLocalState(capability: CapabilityRecord): AgentSkillLocalState {
-  const auth = getCapabilityAuthState({ capability })
+  const auth = getSkillRuntimeAuthState({ capability })
   return {
     stateDir: capability.stateDir,
     auth: {

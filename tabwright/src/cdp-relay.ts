@@ -44,7 +44,7 @@ import {
   getSavedRrwebRecordingWithEvents,
   listSavedRrwebRecordings,
 } from './rrweb-recording-relay.js'
-import { getCapabilityOptionsDetail, listCapabilityOptions } from './capability-options.js'
+import { getSkillRuntimeOptionsDetail, listSkillRuntimeOptions } from './skill-runtime-options.js'
 import { appendSessionToWsUrl } from './chrome-discovery.js'
 import * as relayState from './relay-state.js'
 import { getTabwrightUserDataDir } from './product-paths.js'
@@ -2373,11 +2373,11 @@ export async function startTabwrightCDPRelayServer({
   })
 
   app.get('/capabilities', (c) => {
-    return c.json(listCapabilityOptions({ cwd: process.cwd() }))
+    return c.json(listSkillRuntimeOptions({ cwd: process.cwd() }))
   })
 
   app.get('/capabilities/:id', (c) => {
-    const result = getCapabilityOptionsDetail({ cwd: process.cwd(), id: c.req.param('id') })
+    const result = getSkillRuntimeOptionsDetail({ cwd: process.cwd(), id: c.req.param('id') })
     if (!result) {
       return c.json({ error: 'capability not found' }, 404)
     }

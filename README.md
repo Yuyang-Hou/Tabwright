@@ -33,7 +33,7 @@ The CLI installs its matching Tabwright skill into the shared `~/.agents/skills/
 
 ```bash
 tabwright browser start  # starts Chrome for Testing/Chromium with bundled Tabwright extension
-tabwright doctor  # checks relay, extension, enabled tabs, sessions, and capabilities
+tabwright doctor  # checks relay, extension, enabled tabs, sessions, and installed Skills
 tabwright session new  # creates stateful sandbox, outputs session id (e.g. 1)
 SESSION_ID=2  # replace 2 with the ID printed above; never reuse another task's session
 tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
@@ -58,44 +58,40 @@ tabwright activity save --from <timestamp> --to <timestamp> --json
 
 Saving creates a replay copy; observation continues without interruption. With multiple attached tabs, pass the `sessionId` returned by `activity list` using `--session`.
 
-Then inspect the saved evidence and turn it into a runnable draft capability:
+Then inspect the saved evidence. If the user wants a reusable workflow, let the agent create an independent Skill directly:
 
 ```bash
 tabwright replay list --limit 10 --json
 tabwright replay index <replay-id> --json
-tabwright replay make <replay-id> <capability-id> --force --goal "add the requested list item" --json
-# Generated workflows are browser writes. Stop for explicit user approval first.
-tabwright capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '{"value":"test3"}' --json
 ```
 
-`replay index --json` omits bulky page text and interactive-element arrays while preserving actions, fields, annotations, warnings, and selector hints. Add `--full` when an AI needs the complete evidence. `replay make` returns `status: "compiled"` when it writes a draft. If the deterministic compiler does not recognize the workflow, it returns `status: "needs_ai"`, writes no placeholder capability, and provides exact `next.inspectCommand` and `next.createCommand` handoff commands.
+`replay index --json` omits bulky page text and interactive-element arrays while preserving actions, fields, annotations, warnings, and selector hints. Add `--full` only when an AI needs the complete evidence. Replay evidence is not durable automation by itself.
 
-### Replay Workflow Self-Test
+## Build Reusable Skills
 
-Tabwright can evaluate the recording-to-capability product loop locally:
+Create and maintain reusable automation as a standard Agent Skill with the agent's official Skill tooling:
+
+```text
+my-skill/
+├── SKILL.md
+└── runtime/
+    ├── capability.json
+    └── script.js
+```
+
+`SKILL.md` owns discovery, workflow, and result-display semantics. `runtime/capability.json` owns schemas, permissions, side effects, authentication, and confirmation; `runtime/script.js` owns executable behavior. Validate and run the Skill in place:
 
 ```bash
-tabwright replay eval
-tabwright replay eval --json
-tabwright replay eval --report tmp/replay-eval-report.html --keep-artifacts
+tabwright skill runtime validate "/absolute/path/to/my-skill" --json
+tabwright skill runtime run "/absolute/path/to/my-skill" --input-json '{"value":"test3"}' --json
 ```
 
-The suite creates local example pages, writes rrweb recordings, builds AI indexes, compiles draft capabilities, runs the generated scripts in a real browser, and verifies the final page/request result. Use it before changing replay recording, replay indexing, workflow compilation, or generated capability scripts.
+The runtime is never copied into Tabwright storage. Tabwright stores only device-local authentication, quarantine state, run history, and artifacts under `~/.tabwright/skill-runtime-state/<id>/`.
 
-## Share Capabilities
-
-For mainstream agents, export a portable Agent Skill and distribute it with the agent's official skill or plugin manager:
-
-```bash
-tabwright capability skill export my-capability --output ./skills/my-capability
-# edit or refine the exported SKILL.md with the agent's official skill tooling
-```
-
-The exported directory contains a standard `SKILL.md`, optional `agents/openai.yaml`, and the machine-enforced Tabwright contract and entry script under `runtime/`. A fresh agent resolves that runtime relative to `SKILL.md` and executes it directly; it is never copied into a CLI capability directory. Agent-managed runtimes are ready on first run. Tabwright stores only device-local authentication, disable/quarantine state, run history, and artifacts under `~/.tabwright/capability-state/<id>/`.
-
-Cookie-authenticated capabilities refresh their declared browser authentication automatically when a run needs it. Cookie values stay in the capability's local `secrets.json` and are never shown in the extension Options page. The read-only **Tabwright Skills** view discovers compatible skills installed by Codex, Claude, and other Agent Skills managers, uses each installed `SKILL.md` for its user-facing purpose, deduplicates the same capability across managers, and shows only safe local runtime summaries such as readiness, recent runs, and artifact counts. Set `TABWRIGHT_SKILL_DIRS` with platform-delimited extra skill roots when a manager uses a custom directory.
+Cookie-authenticated Skill runtimes refresh their declared browser authentication automatically when a run needs it. Cookie values stay in device-local state and are never shown in the extension Options page. The read-only **Tabwright Skills** view discovers compatible skills installed by Codex, Claude, and other Agent Skills managers, uses each installed `SKILL.md` for its user-facing purpose, deduplicates the same runtime across managers, and shows only safe local summaries such as readiness, recent runs, and artifact counts. Set `TABWRIGHT_SKILL_DIRS` with platform-delimited extra skill roots when a manager uses a custom directory.
 
 Authentication origins declared through `auth.browserUrls` are allowed as part of cookie refresh and login redirects. A contract failure quarantines only the failing operation for the current runtime fingerprint. Other operations remain available, and a repaired operation can be validated with an explicit `--force` run instead of reinstalling the Skill. Write and dangerous operations are never retried automatically.
+
 
 ## CLI Usage
 
@@ -329,7 +325,7 @@ const browser = await chromium.connectOverCDP('http://127.0.0.1:19988')
 
 ## Troubleshooting
 
-Start with the readiness check. It reports relay, extension, enabled-tab, session, and capability status, then prints the single best next step:
+Start with the readiness check. It reports relay, extension, enabled-tab, session, and installed-Skill status, then prints the single best next step:
 
 ```bash
 tabwright doctor

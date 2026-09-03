@@ -38,7 +38,7 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [extension()],
       sessions: [session()],
-      capabilityCount: 2,
+      skillCount: 2,
     })
 
     expect(report.ready).toBe(true)
@@ -61,7 +61,7 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [extension()],
       sessions: [],
-      capabilityCount: 0,
+      skillCount: 0,
     })
 
     expect(report.ready).toBe(false)
@@ -76,7 +76,7 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [extension({ activeTargets: 0 })],
       sessions: [session()],
-      capabilityCount: 0,
+      skillCount: 0,
     })
 
     expect(report.next.command).toBeUndefined()
@@ -102,7 +102,7 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [],
       sessions: [session({ extensionId: null, connected: true, browser: 'Chromium (headless)' })],
-      capabilityCount: 0,
+      skillCount: 0,
     })
 
     expect(report.ready).toBe(true)
@@ -119,7 +119,7 @@ describe('buildDoctorReport', () => {
       relayError: 'Failed to start relay. Check logs at ~/.tabwright/relay-server.log',
       extensions: [extension({ playwriterVersion: '0.5.0' })],
       sessions: [],
-      capabilityCount: 0,
+      skillCount: 0,
     })
 
     expect(report.checks).toEqual(
@@ -147,7 +147,7 @@ describe('buildDoctorReport', () => {
         }),
       ],
       sessions: [session()],
-      capabilityCount: 0,
+      skillCount: 0,
     })
 
     expect(report.ready).toBe(true)
@@ -171,7 +171,7 @@ describe('buildDoctorReport', () => {
       relayFeatures: null,
       extensions: [extension()],
       sessions: [session()],
-      capabilityCount: 2,
+      skillCount: 2,
     })
 
     expect(report.checks).toEqual(
@@ -194,7 +194,7 @@ describe('buildDoctorReport', () => {
       relayVersion: null,
       extensions: [],
       sessions: [],
-      capabilityCount: 0,
+      skillCount: 0,
     })
 
     expect(report.ready).toBe(false)

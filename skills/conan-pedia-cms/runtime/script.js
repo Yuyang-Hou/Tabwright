@@ -1284,7 +1284,7 @@ if (!environmentOrigins) {
 const origin = environmentOrigins[operation.originKey || "cms"]
 const cookieHeader = secrets.cookieHeader
 if (!cookieHeader) {
-  throw new Error("Missing saved cookie auth. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json")
+  throw new Error("Skill runtime authentication is unavailable")
 }
 const params = input.params && typeof input.params === "object" && !Array.isArray(input.params) ? input.params : {}
 const pathValues = Object.fromEntries((operation.pathParams || []).map((name) => {
@@ -1324,7 +1324,7 @@ if (operation.multipart) {
 }
 const response = await fetch(url, { method: operation.method, headers, body })
 if (response.status === 401 || response.status === 403) {
-  throw new Error("Request failed " + response.status + ": login expired. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json")
+  throw new Error("Request failed " + response.status + ": login expired")
 }
 if (operation.binary) {
   if (!response.ok) throw new Error("Request failed " + response.status)

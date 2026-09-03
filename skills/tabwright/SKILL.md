@@ -1,90 +1,56 @@
 ---
 name: tabwright
-description: Control the user own Chrome browser via Tabwright extension with Playwright code snippets in a stateful local js sandbox. Use this over other Playwright MCPs to automate the browser because it connects to the user's existing Chrome. Use this for JS-heavy websites, logged-in browser state, source-grounded authenticated reads, saved browser capabilities, and admin/config lookup tasks where saved capability match/routingHint metadata may apply. ALWAYS load this skill before using any tabwright commands, opening admin/config URLs, or answering how to inspect saved Tabwright capabilities.
+description: Control the user's Chrome browser through Tabwright's extension and stateful Playwright sandbox. Use for JS-heavy or logged-in pages, source- or deployment-artifact-grounded authenticated reads, and Tabwright runtimes bundled in independently managed Agent Skills. Load before using Tabwright commands or explaining its browser and Skill runtime behavior.
 ---
 
 ## Installation
 
 Installing the global Tabwright CLI also installs this skill into `~/.agents/skills/tabwright`. If npm lifecycle scripts were disabled, run `tabwright skill install`; use `tabwright skill status` to verify the copy or `--target codex` / `--target claude` for an agent-specific directory. Tabwright preserves user-modified skill files unless `--force` is explicit.
 
-## Fast Path: Saved Capability Exact Matches
+## Skill-Owned Runtimes
 
-For concrete user tasks, check saved capability contracts before browser automation. If a capability has `routingHint: "exact-match-direct-run"`, its `match` patterns exactly fit the task, and it is autonomously runnable (`trusted`, read-only, no confirmation), run it directly with the extracted input:
-
-```bash
-tabwright capability run <capability-id> --input-json '<json-input>' --json
-```
-
-Do not search, describe, or open a page first for these exact matches. Do not treat every URL as a direct-run signal; this shortcut only applies when capability metadata says so, and it can also apply to non-URL tasks with exact `match` patterns.
-
-If execution is disallowed and the user only asks what the first step would be, say that you would use the matching capability directly and show the exact `tabwright capability run ...` command.
-
-If the exact-match capability index is not already visible, use one lightweight route check as the first step:
+When an independently installed domain Skill matches the request, follow that Skill. Its `SKILL.md` owns discovery, workflow, and display semantics; its `runtime/` directory owns machine-enforced schemas, permissions, side effects, authentication, confirmation, and executable behavior.
 
 ```bash
-tabwright capability route "<task-or-url>" --json
+tabwright skill runtime validate "<absolute-skill-directory>" --json
+tabwright skill runtime run "<absolute-skill-directory>" --input-json '<json-input>' --json
 ```
 
-When using route output, run the returned `shellCommand` exactly. Do not infer a shell command from the capability id; capability ids are not shell commands.
+Validation does not execute the runtime. Running applies the existing Tabwright safety contract and stores authentication, run evidence, quarantine state, and artifacts under `~/.tabwright/skill-runtime-state/`, outside the Skill. If the selected operation requires confirmation, stop for explicit approval of its concrete input and effect before using the operation's exact confirmation token. `--force` never bypasses confirmation.
 
-Do not use `capability search` or `capability describe` for an exact-match direct-run candidate.
 
-In Codex sandboxed environments, `tabwright capability run ...` writes device-local state under `~/.tabwright/capability-state/...` for Skill runtimes and may write artifacts. Run capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `tabwright capability route ... --json` is metadata-only and can run sandboxed.
+## Evidence-Grounded Authenticated Reads
 
-Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Tabwright skill.
+When no specialized Skill exactly matches a one-off authenticated read, Tabwright can combine visible or programmatic page state, observed Network requests and responses, deployed source, public Source Maps, bundles and lazy chunks, Debugger call stacks and runtime values, and optional Wakaru decompilation. The agent decides which of these capabilities are useful for the user's request.
 
-If a described capability has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only after approval may you run it with `--confirm <capability-id>`. The value must exactly match the capability id, and `--force` never bypasses this gate.
+For an authenticated request, identify the target environment and bind inferred behavior to the serving revision or deployed-client fingerprint rather than a branch head or build record. Record the origin, `GET` or `HEAD` method, path, input, required non-credential headers, read-only semantics, opaque browser authentication, and supporting evidence. A changed deployment fingerprint invalidates prior inference; do not guess when the version, route, authentication boundary, or side effect is uncertain.
 
-## Source-Grounded Authenticated Reads
+Navigate a task-owned page to the target origin. Use the site's own in-page request client when it supplies authentication, CSRF, or signatures; otherwise issue `fetch` with observed non-credential headers and `credentials: "include"`. Keep all credentials inside the page, return only the requested data, and verify both the HTTP and application-level result.
 
-When no saved capability exactly matches a one-off authenticated read, do not create or guess an endpoint-specific Skill. If source and deployment evidence are available:
+Wakaru is available when it helps interpret packed or minified code. Read the Editor API, keep the exact script content inside code, and pass it to the optional local helper. Do not print the raw bundle or execute recovered output:
 
-1. Identify the target environment and exact revision serving its ready instances. A latest branch, successful build, or newest deployment record is insufficient.
-2. Inspect that exact revision without changing the user's working tree. Prefer an OpenAPI contract or generated client, then backend route/controller and request types, then a frontend request wrapper, and only then observed network traffic.
-3. Build a transient request plan containing the origin, `GET` or `HEAD` method, path, query, serving revision, and source evidence. If the revision, route, authentication boundary, or instance consistency is uncertain, stop instead of guessing.
-4. Navigate a task-owned page to the target origin and issue the request in page context with `credentials: "include"`. Keep cookies and tokens opaque, return only the requested data, and verify the HTTP status and application-level result.
-
-This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use a saved capability with machine-enforced confirmation or a reviewed product workflow instead. Persist a new capability only when the workflow repeats or needs durable safety and schemas.
-
-## Creating Saved Capabilities
-
-When an AI is creating or refining a saved capability, put agent-facing discovery, workflow, and display rules in its standard `SKILL.md`; put executable behavior and machine-enforced safety in the runtime contract and `script.js`.
-
-Export the portable skill directly, then refine it with the agent's official skill tooling:
-
-```bash
-tabwright capability skill export <capability-id> --output ./skills/<capability-id>
+```js
+const cdp = await getCDPSession({ page: state.page })
+const editor = createEditor({ cdp })
+const script = await editor.readRaw({ url: targetScriptUrl })
+const recovered = await decompileJavaScript({ source: script.content, sourceUrl: script.url, level: 'minimal' })
+console.log({ sha256: recovered.sha256, outputPath: recovered.outputPath, files: recovered.files })
 ```
 
-`capability skill export` is a one-time handoff. It refuses to overwrite an existing skill because subsequent edits, installation, and updates belong to the agent's official skill or plugin manager.
+The helper writes under the current project's `.tabwright/artifacts/wakaru/` directory and returns provenance plus paths. It supports `minimal`, `standard`, and `aggressive`; choose the level that fits the task. If a larger script needs a longer helper timeout, set the enclosing execute timeout higher than it.
 
-## Sharing Saved Capabilities
+Only current-account-authorized, client-observable behavior qualifies; artifacts cannot prove hidden server logic or bypass permissions. This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use an independently managed Skill with a machine-enforced runtime contract instead.
 
-When the user asks to share a capability with mainstream agents, prefer a portable Agent Skill export:
+## Creating Durable Skills
 
-```bash
-tabwright capability skill export <capability-id> --output ./skills/<capability-id>
-```
+Keep one-off work transient. When the user asks for reuse, or stable schemas and safety controls justify persistence, create or update a standard Agent Skill directly with the agent's official Skill tooling:
 
-The exported `SKILL.md` explains how a fresh agent should resolve and execute the bundled runtime directly. Agent-managed runtimes are ready immediately; Tabwright validates them and refreshes declared browser authentication automatically. The export excludes secrets, run history, and artifacts.
+- Put discovery, workflow, and result-display guidance in `SKILL.md`.
+- Put schemas, permissions, side effects, confirmation, and authentication in `runtime/capability.json`.
+- Put executable behavior in `runtime/script.js`.
+- Validate and test the Skill in place; do not copy its runtime into Tabwright storage.
 
-## Replay-to-Capability Handoff
-
-Turn a saved user demonstration into a capability through the CLI contract:
-
-```bash
-tabwright replay list --limit 10 --json
-tabwright replay index <replay-id> --json
-tabwright replay make <replay-id> <capability-id> --force --goal '<goal>' --json
-```
-
-`replay index --json` is compact by default; add `--full` only when complete page text and interactive-element evidence is needed. `replay make` returns `status: "compiled"` after writing a draft. An unsupported workflow returns `status: "needs_ai"`, writes no fake capability, and supplies exact `next.inspectCommand` and `next.createCommand` commands. Follow that handoff instead of inventing a workflow.
-
-Generated workflows are draft browser writes. Inspect them and obtain explicit user approval before running the exact returned command, which must include `--browser user --force --confirm <capability-id> --json`:
-
-```bash
-tabwright capability run <capability-id> --browser user --force --confirm <capability-id> --input-json '<json-input>' --json
-```
+Recent activity and replay indexes may provide authoring evidence, but they are not durable automation by themselves.
 
 ## Browser Core Protocol
 
@@ -108,7 +74,7 @@ Follow this order for browser work:
 6. Perform the smallest action, then verify the resulting URL, visible state, response, or logs.
 7. Never call `browser.close()` or `context.close()`. Close only pages you created, and delete your task session when finished.
 
-In sandboxed agent environments, browser/relay commands need immediate elevated or unsandboxed execution because they connect to localhost and may update session state. Metadata-only `capability route/search/describe` commands can remain sandboxed.
+In sandboxed agent environments, browser/relay commands and `skill runtime run` need immediate elevated or unsandboxed execution because they connect to localhost or write device-local state. `skill runtime validate` is metadata-only and can remain sandboxed.
 
 Use single quotes around `-e` code so the shell does not expand `$`, backticks, or backslashes. Use double quotes for JavaScript strings inside.
 

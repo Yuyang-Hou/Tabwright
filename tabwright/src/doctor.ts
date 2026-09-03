@@ -14,7 +14,7 @@ export interface DoctorSession {
 }
 
 export interface DoctorCheck {
-  id: 'relay' | 'extension' | 'session' | 'capabilities'
+  id: 'relay' | 'extension' | 'session' | 'skills'
   status: DoctorCheckStatus
   message: string
   detail?: string
@@ -43,7 +43,7 @@ export function buildDoctorReport(options: {
   relayError?: string | null
   extensions: ExtensionStatus[]
   sessions: DoctorSession[]
-  capabilityCount: number
+  skillCount: number
 }): DoctorReport {
   const usableSessions = options.sessions.filter((session) => {
     if (session.connected === false) {
@@ -91,7 +91,7 @@ export function buildDoctorReport(options: {
         id: 'relay',
         status: 'warn',
         message: `Relay ${options.relayVersion} is reachable, but current saved-data features are missing.`,
-        detail: 'Core browser control may still work. Restart Tabwright before using recordings or capabilities.',
+        detail: 'Core browser control may still work. Restart Tabwright before using recordings or installed Skills.',
       }
     }
     return {
@@ -191,18 +191,18 @@ export function buildDoctorReport(options: {
               : 'Create one before running Playwright code.',
         }
 
-  const capabilityCheck: DoctorCheck =
-    options.capabilityCount > 0
+  const skillCheck: DoctorCheck =
+    options.skillCount > 0
       ? {
-          id: 'capabilities',
+          id: 'skills',
           status: 'pass',
-          message: `${options.capabilityCount} saved ${options.capabilityCount === 1 ? 'capability is' : 'capabilities are'} discoverable from this directory.`,
+          message: `${options.skillCount} Tabwright ${options.skillCount === 1 ? 'Skill is' : 'Skills are'} discoverable from this directory.`,
         }
       : {
-          id: 'capabilities',
+          id: 'skills',
           status: 'info',
-          message: 'No saved capabilities are discoverable from this directory yet.',
-          detail: 'This does not block browser control. Record or create a capability after the first successful task.',
+          message: 'No installed Tabwright Skills are discoverable from this directory.',
+          detail: 'This does not block one-off browser work.',
         }
 
   const next: DoctorNextStep = (() => {
@@ -217,7 +217,7 @@ export function buildDoctorReport(options: {
 
     if (relayFeatureMismatch) {
       return {
-        title: 'Restart the local service so recordings and capabilities become available.',
+        title: 'Restart the local service so recordings and installed Skills become available.',
         command: 'tabwright session list',
       }
     }
@@ -257,7 +257,7 @@ export function buildDoctorReport(options: {
     ready: relayCheck.status !== 'fail' && extensionCheck.status !== 'fail' && sessionCheck.status === 'pass',
     version: options.version,
     cwd: options.cwd,
-    checks: [relayCheck, extensionCheck, sessionCheck, capabilityCheck],
+    checks: [relayCheck, extensionCheck, sessionCheck, skillCheck],
     next,
   }
 }

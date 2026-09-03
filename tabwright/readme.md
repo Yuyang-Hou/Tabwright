@@ -39,10 +39,10 @@ npx tabwright@latest session new
 
 Run `tabwright skill` for the complete CLI and browser automation reference. See the [GitHub repository](https://github.com/Yuyang-Hou/tabwright) for architecture, development, remote access, and release documentation.
 
-Record and compile a repeatable workflow:
+Record and inspect a repeatable workflow before creating an Agent Skill:
 
 ```bash
 tabwright replay list --limit 10 --json
 tabwright replay index <replay-id> --json
-tabwright replay make <replay-id> <capability-id> --goal "repeat this workflow" --force --json
+tabwright skill runtime validate "/absolute/path/to/skill" --json
 ```

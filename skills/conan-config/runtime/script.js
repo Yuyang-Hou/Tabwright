@@ -57,7 +57,7 @@ function normalizeInput(rawInput) {
 async function requestJson(path) {
   const cookieHeader = secrets.cookieHeader;
   if (!cookieHeader) {
-    throw new Error("Missing saved cookie auth. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Skill runtime authentication is unavailable");
   }
 
   const response = await fetch(CONFIG_API_ORIGIN + path, {
@@ -69,7 +69,7 @@ async function requestJson(path) {
   const body = await response.json();
 
   if (response.status === 401 || response.status === 403) {
-    throw new Error("Request failed " + response.status + ": login expired. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Request failed " + response.status + ": login expired");
   }
   if (response.status < 200 || response.status >= 300) {
     throw new Error("Request failed " + response.status + ": " + JSON.stringify(body));
@@ -596,7 +596,7 @@ function saveConfigArtifacts(output) {
 async function requestJson(path, options = {}) {
   const cookieHeader = secrets.cookieHeader;
   if (!cookieHeader) {
-    throw new Error("Missing saved cookie auth. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Skill runtime authentication is unavailable");
   }
 
   const url = path.startsWith("http") ? path : CONFIG_API_ORIGIN + path;
@@ -618,7 +618,7 @@ async function requestJson(path, options = {}) {
   }
 
   if (response.status === 401 || response.status === 403) {
-    throw new Error("Request failed " + response.status + ": login expired. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Request failed " + response.status + ": login expired");
   }
   if (response.status < 200 || response.status >= 300) {
     throw new Error("Request failed " + response.status + ": " + (typeof body === "string" ? body : JSON.stringify(body)));
@@ -770,7 +770,7 @@ function parseTarget(rawInput) {
 
 async function requestJson(path) {
   if (!secrets.cookieHeader) {
-    throw new Error("Missing saved cookie auth. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Skill runtime authentication is unavailable");
   }
   const response = await fetch(API_ORIGIN + path, {
     headers: { "Content-Type": "application/json", Cookie: secrets.cookieHeader },
@@ -909,7 +909,7 @@ function parseTarget(rawInput) {
 
 async function requestJson(path, options = {}) {
   if (!secrets.cookieHeader) {
-    throw new Error("Missing saved cookie auth. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Skill runtime authentication is unavailable");
   }
   const response = await fetch(API_ORIGIN + path, {
     ...options,
@@ -1223,7 +1223,7 @@ const API_ORIGIN = CONFIG_ENVIRONMENTS[environment];
 
 async function requestJson(path, options = {}) {
   if (!secrets.cookieHeader) {
-    throw new Error("Missing saved cookie auth. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Skill runtime authentication is unavailable");
   }
   const response = await fetch(API_ORIGIN + path, {
     ...options,
@@ -1238,7 +1238,7 @@ async function requestJson(path, options = {}) {
     }
   })();
   if (response.status === 401 || response.status === 403) {
-    throw new Error("Request failed " + response.status + ": login expired. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Request failed " + response.status + ": login expired");
   }
   if (!response.ok) throw new Error("Request failed " + response.status + ": " + (typeof body === "string" ? body : JSON.stringify(body)));
   if (body && typeof body === "object" && body.code !== undefined && body.code !== 0) {
@@ -1664,7 +1664,7 @@ const API_ORIGIN = CONFIG_ENVIRONMENTS[environment];
 
 async function requestJson(path, options = {}) {
   if (!secrets.cookieHeader) {
-    throw new Error("Missing saved cookie auth. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Skill runtime authentication is unavailable");
   }
   const response = await fetch(API_ORIGIN + path, {
     ...options,
@@ -1679,7 +1679,7 @@ async function requestJson(path, options = {}) {
     }
   })();
   if (response.status === 401 || response.status === 403) {
-    throw new Error("Request failed " + response.status + ": login expired. Refresh this Skill runtime with: tabwright capability refresh-auth <runtime-dir> --browser user --json");
+    throw new Error("Request failed " + response.status + ": login expired");
   }
   if (!response.ok) throw new Error("Request failed " + response.status + ": " + (typeof body === "string" ? body : JSON.stringify(body)));
   if (body && typeof body === "object" && body.code !== undefined && body.code !== 0) {

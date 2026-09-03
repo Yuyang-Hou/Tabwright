@@ -217,24 +217,24 @@ const messageFallbacks = {
   status_loading_capabilities: 'Loading Tabwright Skills...',
   status_service_ready: 'Local service ready',
   status_capability_count_one: '$1 Tabwright Skill',
-  status_capability_count_other: '$1 Tabwright Skills and local capabilities',
+  status_capability_count_other: '$1 Tabwright Skills',
   error_load_replay: 'Failed to load replay: $1',
   error_invalid_replay_events: 'Invalid replay events response',
   error_load_recordings: 'Failed to load recordings: $1',
   error_invalid_recordings: 'Invalid recordings response',
-  error_load_capabilities: 'Failed to load capabilities: $1',
-  error_invalid_capabilities: 'Invalid capabilities response',
+  error_load_capabilities: 'Failed to load Tabwright Skills: $1',
+  error_invalid_capabilities: 'Invalid Tabwright Skills response',
   relay_review_warning_title: 'Saved data is temporarily unavailable',
   relay_version_outdated: 'Local service update required. Current version $1, required version $2.',
   relay_version_update_instructions: 'Run these commands in a terminal, then refresh this page.',
   relay_review_outdated:
-    'Browser control is connected, but this local service cannot list saved recordings or capabilities. Your files were not deleted. Restart or update Tabwright, then refresh.',
+    'Browser control is connected, but this local service cannot list saved recordings or installed Skills. Your files were not deleted. Restart or update Tabwright, then refresh.',
   relay_review_unavailable:
-    'Browser control is connected, but saved recordings and capabilities are temporarily unavailable. Your files were not deleted. Restart Tabwright, then refresh.',
+    'Browser control is connected, but saved recordings and installed Skills are temporarily unavailable. Your files were not deleted. Restart Tabwright, then refresh.',
   lifecycle_unsupported:
-    'This extension cannot interpret the capability lifecycle. Update Tabwright before running it.',
+    'This extension cannot interpret the Skill runtime state. Update Tabwright before running it.',
   empty_no_replays: 'No DOM replays yet.',
-  empty_no_capabilities: 'No installed Tabwright Skills or local capabilities found.',
+  empty_no_capabilities: 'No installed Tabwright Skills found.',
   empty_no_matches: 'No matches for this search.',
   copy_for_ai: 'Copy for AI',
   copy_skill_context: 'Copy details',
@@ -891,7 +891,7 @@ function normalizeCapabilityContract(value: unknown): CapabilityContract | null 
       ? {
           stage: 'drifted',
           nextAction: 'repair',
-          nextCommand: `tabwright capability describe ${shellQuote(value.id)} --json`,
+          nextCommand: '',
           contractHealth: { state: 'drifted', reasons: [unsupportedReason] },
         }
       : isCapabilityLifecycle(value.lifecycle)
@@ -1944,15 +1944,18 @@ function schemaSummary(schema: Record<string, unknown>): string {
 }
 
 function capabilityRunCommand(capability: CapabilityContract): string {
+  const skillDir = capability.agentSkill?.installations[0]?.skillDir
+  if (!skillDir) {
+    return ''
+  }
   const input = JSON.stringify(buildExampleInput(capability.inputSchema))
   return [
-    'tabwright capability run',
-    shellQuote(capability.id),
+    'tabwright skill runtime run',
+    shellQuote(skillDir),
     capability.runtime === 'browser' ? '--browser user' : '',
     '--input-json',
     shellQuote(input),
     '--json',
-    capability.status === 'trusted' ? '' : '--force',
     capability.requiresConfirmation ? '--confirm' : '',
     capability.requiresConfirmation ? shellQuote(capability.id) : '',
   ]
@@ -1966,33 +1969,17 @@ function resolveCapabilityLifecycle(capability: CapabilityContract): CapabilityL
   if (capability.lifecycle) {
     return capability.lifecycle
   }
-  if (capability.status === 'disabled') {
-    return {
-      stage: 'disabled',
-      nextAction: 'enable',
-      nextCommand: `tabwright capability draft ${shellQuote(capability.id)}`,
-      contractHealth: { state: 'unknown', reasons: [] },
-    }
-  }
   if (capability.status === 'drifted') {
     return {
       stage: 'drifted',
       nextAction: 'repair',
-      nextCommand: `tabwright capability show ${shellQuote(capability.id)}`,
+      nextCommand: '',
       contractHealth: { state: 'drifted', reasons: [] },
     }
   }
-  if (capability.status === 'trusted') {
-    return {
-      stage: 'trusted',
-      nextAction: 'run',
-      nextCommand: capabilityRunCommand(capability),
-      contractHealth: { state: 'unknown', reasons: [] },
-    }
-  }
   return {
-    stage: 'drafted',
-    nextAction: 'validate',
+    stage: 'trusted',
+    nextAction: 'run',
     nextCommand: capabilityRunCommand(capability),
     contractHealth: { state: 'unknown', reasons: [] },
   }
@@ -2011,7 +1998,7 @@ function capabilityAiContextText(capability: CapabilityContract): string {
   if (isChineseLocale()) {
     return [
       '这是一个 Tabwright Skill。',
-      `Capability ID：${capability.id}`,
+      `Skill runtime ID：${capability.id}`,
       `标题：${capability.title}`,
       `描述：${capability.description}`,
       `执行方式：${executionStrategyLabel(capability.execution.strategy)}`,
@@ -2024,7 +2011,7 @@ function capabilityAiContextText(capability: CapabilityContract): string {
 
   return [
     'This is a Tabwright Skill.',
-    `Capability ID: ${capability.id}`,
+    `Skill runtime ID: ${capability.id}`,
     `Title: ${capability.title}`,
     `Description: ${capability.description}`,
     `Execution: ${executionStrategyLabel(capability.execution.strategy)}`,

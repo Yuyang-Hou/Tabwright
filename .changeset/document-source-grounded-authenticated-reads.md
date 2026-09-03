@@ -1,5 +1,5 @@
 ---
-"tabwright": patch
+"tabwright": minor
 ---
 
-Teach agents to ground one-off authenticated reads in the exact deployed source revision instead of maintaining stale endpoint-specific Skills.
+Let agents combine browser evidence and a pinned local Wakaru tool using their own judgment, and run durable automation directly from independent Agent Skills. Remove the obsolete Capability registry, Studio, MCP routing tool, replay compiler, and draft-writing helpers.

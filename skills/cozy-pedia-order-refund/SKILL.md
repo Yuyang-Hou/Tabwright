@@ -15,7 +15,7 @@ description: "当用户明确要求通过后端 API 为指定 Cozy UID 退款近
 1. 展示 UID 和将执行真实退款的影响，等待用户对本次具体操作明确确认。
 
 ```bash
-tabwright capability run "<runtime-dir>" --confirm cozy-pedia-order-refund --input-json '{"uid":"204032468"}' --json
+tabwright skill runtime run "<skill-dir>" --confirm cozy-pedia-order-refund --input-json '{"uid":"204032468"}' --json
 ```
 
 2. 如果沙箱环境无法访问网络或写入运行产物，请在获得所需执行授权后重试同一命令。若后端返回业务错误，不要盲目重试真实退款；先检查返回的订单 ID 和错误信息。
@@ -28,7 +28,7 @@ tabwright capability run "<runtime-dir>" --confirm cozy-pedia-order-refund --inp
 
 ## Tabwright 运行环境
 
-将本 `SKILL.md` 同级的 `runtime/` 目录解析为绝对路径，并通过 `tabwright capability run "<技能绝对路径>/runtime" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
+将包含本 `SKILL.md` 的 Skill 目录解析为绝对路径，并通过 `tabwright skill runtime run "<技能绝对路径>" ...` 直接执行。不要将运行目录复制或安装到 Tabwright 数据目录。
 
 优先使用 `tabwright`。如命令不存在或不支持技能运行目录，改用 `npm exec --yes --package=tabwright@latest -- tabwright`。仅当 Node.js 或 npm 不可用时才询问用户。
 

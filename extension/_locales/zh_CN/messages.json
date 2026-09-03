@@ -16,7 +16,7 @@
   "language_zh_cn": { "message": "中文" },
   "recordings_eyebrow": { "message": "回放库" },
   "recordings_heading": { "message": "DOM 回放" },
-  "recordings_description": { "message": "查看已保存的页面录制，并把可复用流程沉淀成能力。" },
+  "recordings_description": { "message": "查看已保存的页面录制，并将其作为编写 Agent Skill 的证据。" },
   "capabilities_eyebrow": { "message": "Agent Skills" },
   "capabilities_heading": { "message": "Tabwright Skills" },
   "capabilities_description": { "message": "查看已安装的 Agent Skill 及其脱敏后的本机 Tabwright 运行态。" },
@@ -73,7 +73,7 @@
     "placeholders": { "count": { "content": "$1" } }
   },
   "status_capability_count_other": {
-    "message": "$count$ 个 Tabwright Skill 或本地能力",
+    "message": "$count$ 个 Tabwright Skill",
     "placeholders": { "count": { "content": "$1" } }
   },
   "error_load_replay": {
@@ -87,10 +87,10 @@
   },
   "error_invalid_recordings": { "message": "录制响应无效" },
   "error_load_capabilities": {
-    "message": "加载能力失败：$status$",
+    "message": "加载 Tabwright Skill 失败：$status$",
     "placeholders": { "status": { "content": "$1" } }
   },
-  "error_invalid_capabilities": { "message": "能力响应无效" },
+  "error_invalid_capabilities": { "message": "Tabwright Skill 响应无效" },
   "relay_review_warning_title": { "message": "保存的数据暂时不可用" },
   "relay_version_outdated": {
     "message": "本地服务需要更新，当前版本 $1，需要 $2。"
@@ -99,16 +99,16 @@
     "message": "在终端运行以下命令，完成后刷新页面。"
   },
   "relay_review_outdated": {
-    "message": "浏览器控制仍已连接，但当前本地服务无法列出保存的录制和能力。文件没有被删除；请重启或更新 Tabwright 后刷新。"
+    "message": "浏览器控制仍已连接，但当前本地服务无法列出保存的录制和已安装 Skill。文件没有被删除；请重启或更新 Tabwright 后刷新。"
   },
   "relay_review_unavailable": {
-    "message": "浏览器控制仍已连接，但保存的录制和能力暂时不可读取。文件没有被删除；请重启 Tabwright 后刷新。"
+    "message": "浏览器控制仍已连接，但保存的录制和已安装 Skill 暂时不可读取。文件没有被删除；请重启 Tabwright 后刷新。"
   },
   "lifecycle_unsupported": {
-    "message": "当前扩展无法识别这个能力的生命周期。更新 Tabwright 后再运行。"
+    "message": "当前扩展无法识别这个 Skill 的运行态。更新 Tabwright 后再运行。"
   },
   "empty_no_replays": { "message": "还没有 DOM 回放。" },
-  "empty_no_capabilities": { "message": "未发现已安装的 Tabwright Skill 或本地能力。" },
+  "empty_no_capabilities": { "message": "未发现已安装的 Tabwright Skill。" },
   "empty_no_matches": { "message": "没有匹配的结果。" },
   "copy_for_ai": { "message": "复制给 AI" },
   "copy_skill_context": { "message": "复制详情" },
@@ -244,7 +244,7 @@
     "placeholders": { "id": { "content": "$1" } }
   },
   "open_capability_aria": {
-    "message": "打开能力 $id$",
+    "message": "打开 Skill 运行态 $id$",
     "placeholders": { "id": { "content": "$1" } }
   },
   "auth_title": { "message": "浏览器认证" },
@@ -253,8 +253,8 @@
   "auth_status_expiring": { "message": "即将过期" },
   "auth_status_expired": { "message": "已过期" },
   "auth_status_unknown": { "message": "未知" },
-  "auth_description_missing": { "message": "请先连接当前 Chrome 登录态，再检查或运行这项能力。" },
-  "auth_description_authenticated": { "message": "认证已保存在本机，可供这项能力使用。" },
+  "auth_description_missing": { "message": "请先连接当前 Chrome 登录态，再运行这个 Skill。" },
+  "auth_description_authenticated": { "message": "认证已保存在本机，可供这个 Skill 使用。" },
   "auth_description_expiring": { "message": "认证将在 24 小时内过期，建议现在刷新，避免运行失败。" },
   "auth_description_expired": { "message": "保存的登录态已经到期，或最近运行报告了认证失败。" },
   "auth_description_unknown": { "message": "请刷新登录态，以便识别当前 Cookie 的过期情况。" },
@@ -265,8 +265,8 @@
   "auth_action_connect": { "message": "使用当前 Chrome 认证" },
   "auth_action_refresh": { "message": "刷新认证" },
   "auth_confirm_title": { "message": "允许读取浏览器登录态？" },
-  "auth_confirm_description": { "message": "Tabwright 只会读取以下域名的 Cookie，并保存在本机供这项能力使用。" },
-  "auth_privacy": { "message": "Cookie 值不会离开本机，也不会在分享能力时被打包。" },
+  "auth_confirm_description": { "message": "Tabwright 只会读取以下域名的 Cookie，并保存在本机供这个 Skill 使用。" },
+  "auth_privacy": { "message": "Cookie 值不会离开本机，也不会在分享 Skill 时被打包。" },
   "auth_confirm_action": { "message": "允许并认证" },
   "auth_cancel_action": { "message": "取消" },
   "auth_progress": {

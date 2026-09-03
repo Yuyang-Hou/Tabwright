@@ -731,42 +731,6 @@ export function initTabwrightToolbar(): void {
     return `'${value.replaceAll("'", "'\\''")}'`
   }
 
-  function replayCapabilityId(replayId: string): string {
-    const suffix =
-      replayId
-        .replace(/[^a-zA-Z0-9_-]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(-28) || 'workflow'
-    return `replay-${suffix}`
-  }
-
-  function replayMakeCommand(replayId: string): string {
-    const capabilityId = replayCapabilityId(replayId)
-    return [
-      'tabwright replay make',
-      shellQuote(replayId),
-      shellQuote(capabilityId),
-      '--force',
-      '--goal',
-      shellQuote('<describe the batch task goal>'),
-    ].join(' ')
-  }
-
-  function replayRunCommand(replayId: string): string {
-    const capabilityId = replayCapabilityId(replayId)
-    return [
-      'tabwright capability run',
-      shellQuote(capabilityId),
-      '--browser user',
-      '--force',
-      '--confirm',
-      shellQuote(capabilityId),
-      '--input-json',
-      shellQuote('{"value":"..."}'),
-      '--json',
-    ].join(' ')
-  }
-
   function replayAiHandoffText(result: ToolbarBridgeResult): string | null {
     const replayId = result.replayId || result.id
     if (!replayId) return null
@@ -779,13 +743,11 @@ export function initTabwrightToolbar(): void {
       '',
       '我的目标是：<描述要 AI 基于这次录制重复/批量完成什么>',
       '',
-      '请先编译成 capability：',
-      replayMakeCommand(replayId),
+      '请先读取完整录制证据：',
+      `tabwright replay index ${shellQuote(replayId)} --full --json`,
       '',
-      '这是写操作。先暂停并取得用户明确确认，确认后才可执行：',
-      replayRunCommand(replayId),
-      '',
-      '如果返回 needs_ai，请根据上下文修改脚本后继续跑。',
+      '根据证据直接创建或更新独立 Agent Skill；一次性任务无需持久化。',
+      'Skill runtime 涉及写操作时，执行前先暂停并取得用户明确确认。',
     ]
       .filter((line) => {
         return line.length > 0

@@ -18,14 +18,8 @@ import {
   type CapabilityRunContract,
   type CapabilityRunRecord,
   type ResolvedCapabilityOperation,
-} from './capability-registry.js'
-import type { ExecuteResult } from './executor.js'
-
-export interface CapabilityExecutor {
-  execute(code: string, timeout?: number, options?: { includeStructuredResult?: boolean }): Promise<ExecuteResult>
-}
-
-export interface PreparedCapabilityRun {
+} from './skill-runtime.js'
+export interface PreparedSkillRuntimeRun {
   capability: CapabilityRecord
   operation: ResolvedCapabilityOperation
   code: string
@@ -33,14 +27,7 @@ export interface PreparedCapabilityRun {
   inputHash: string
 }
 
-export interface CapabilityRunResult {
-  capability: CapabilityRecord
-  executeResult: ExecuteResult
-  output: unknown
-  runRecord: CapabilityRunRecord
-}
-
-export interface NodeCapabilityRunResult {
+export interface NodeSkillRuntimeRunResult {
   capability: CapabilityRecord
   output: unknown
   text: string
@@ -48,7 +35,7 @@ export interface NodeCapabilityRunResult {
   runRecord: CapabilityRunRecord
 }
 
-export interface CapabilityExecutionObservation {
+export interface SkillRuntimeExecutionObservation {
   status: 'success' | 'error'
   output: unknown
   error?: string
@@ -56,53 +43,53 @@ export interface CapabilityExecutionObservation {
   url?: string
 }
 
-export interface FinalizedCapabilityRun {
+export interface FinalizedSkillRuntimeRun {
   capability: CapabilityRecord
   output: unknown
   runRecord: CapabilityRunRecord
   contractError?: Error
 }
 
-interface CapabilityExecutionEnvelope {
-  __tabwrightCapabilityEnvelope: 1
+interface SkillRuntimeExecutionEnvelope {
+  __tabwrightSkillRuntimeEnvelope: 1
   output: unknown
   observedNetworkUrls: string[]
   url?: string
   error?: string
 }
 
-interface NodeCapabilityExecution {
+interface NodeSkillRuntimeExecution {
   output: unknown
   observedNetworkUrls: string[]
 }
 
-class ObservedCapabilityExecutionError extends Error {
+class ObservedSkillRuntimeExecutionError extends Error {
   observedNetworkUrls: string[]
 
   constructor(options: { cause: unknown; observedNetworkUrls: string[] }) {
     const message = options.cause instanceof Error ? options.cause.message : String(options.cause)
     super(message, { cause: options.cause })
-    this.name = 'ObservedCapabilityExecutionError'
+    this.name = 'ObservedSkillRuntimeExecutionError'
     this.observedNetworkUrls = options.observedNetworkUrls
   }
 }
 
-interface CapabilityArtifacts {
+interface SkillRuntimeArtifacts {
   root: string
   path(options: { filename: string }): string
   writeJson(options: { filename: string; value: unknown }): string
   writeText(options: { filename: string; text: string }): string
 }
 
-export function prepareCapabilityRun(options: {
+export function prepareSkillRuntimeRun(options: {
   id: string
   input: unknown
   cwd?: string
   force?: boolean
   confirmation?: string
-}): PreparedCapabilityRun {
+}): PreparedSkillRuntimeRun {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
-  const operation = validateCapabilityRunnable({
+  const operation = validateSkillRuntimeRunnable({
     capability,
     input: options.input,
     force: options.force,
@@ -113,25 +100,25 @@ export function prepareCapabilityRun(options: {
   return {
     capability,
     operation,
-    code: buildCapabilityCode({ capability, operation, script, input: options.input, force: options.force }),
+    code: buildSkillRuntimeCode({ capability, operation, script, input: options.input, force: options.force }),
     input: options.input,
     inputHash: hashInput(options.input),
   }
 }
 
-export async function runNodeCapability(options: {
+export async function runNodeSkillRuntime(options: {
   id: string
   input: unknown
   timeout?: number
   cwd?: string
   force?: boolean
   confirmation?: string
-}): Promise<NodeCapabilityRunResult> {
+}): Promise<NodeSkillRuntimeRunResult> {
   const capability = requireCapability({ id: options.id, cwd: options.cwd })
   if (capability.manifest.runtime !== 'node') {
-    throw new Error(`Capability ${options.id} is runtime "${capability.manifest.runtime}", not "node"`)
+    throw new Error(`Skill runtime ${options.id} is "${capability.manifest.runtime}", not "node"`)
   }
-  const operation = validateCapabilityRunnable({
+  const operation = validateSkillRuntimeRunnable({
     capability,
     input: options.input,
     force: options.force,
@@ -140,13 +127,13 @@ export async function runNodeCapability(options: {
 
   const start = Date.now()
   const inputHash = hashInput(options.input)
-  const execution = await executeNodeCapabilityScript({
+  const execution = await executeNodeSkillRuntimeScript({
     capability,
     operation,
     input: options.input,
     timeout: options.timeout || 10000,
   }).catch((error: unknown) => {
-    const finalized = finalizeCapabilityRun({
+    const finalized = finalizeSkillRuntimeRun({
       capability,
       operation,
       cwd: options.cwd,
@@ -156,12 +143,12 @@ export async function runNodeCapability(options: {
         status: 'error',
         output: undefined,
         error: error instanceof Error ? error.message : String(error),
-        observedNetworkUrls: error instanceof ObservedCapabilityExecutionError ? error.observedNetworkUrls : [],
+        observedNetworkUrls: error instanceof ObservedSkillRuntimeExecutionError ? error.observedNetworkUrls : [],
       },
     })
     throw finalized.contractError || error
   })
-  const finalized = finalizeCapabilityRun({
+  const finalized = finalizeSkillRuntimeRun({
     capability,
     operation,
     cwd: options.cwd,
@@ -186,82 +173,14 @@ export async function runNodeCapability(options: {
   }
 }
 
-export async function runCapabilityWithExecutor(options: {
-  executor: CapabilityExecutor
-  id: string
-  input: unknown
-  timeout?: number
-  cwd?: string
-  force?: boolean
-  confirmation?: string
-}): Promise<CapabilityRunResult> {
-  const prepared = prepareCapabilityRun(options)
-  const start = Date.now()
-  const executeResult = await options.executor
-    .execute(prepared.code, options.timeout || 10000, {
-      includeStructuredResult: true,
-    })
-    .catch((error: unknown) => {
-      finalizeCapabilityRun({
-        capability: prepared.capability,
-        operation: prepared.operation,
-        cwd: options.cwd,
-        inputHash: prepared.inputHash,
-        startedAt: start,
-        execution: {
-          status: 'error',
-          output: undefined,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-      throw error
-    })
-  const observation = readCapabilityExecutionObservation(executeResult.structuredResult)
-  const isExecutionError = executeResult.isError || Boolean(observation.error)
-  const normalizedExecuteResult: ExecuteResult = {
-    ...executeResult,
-    text: normalizeCapabilityExecutionText({
-      text: executeResult.text,
-      output: observation.output,
-      error: observation.error,
-    }),
-    isError: isExecutionError,
-    structuredResult: observation.output,
-  }
-  const finalized = finalizeCapabilityRun({
-    capability: prepared.capability,
-    operation: prepared.operation,
-    cwd: options.cwd,
-    inputHash: prepared.inputHash,
-    startedAt: start,
-    execution: {
-      status: isExecutionError ? 'error' : 'success',
-      output: observation.output,
-      error: isExecutionError ? observation.error || normalizedExecuteResult.text : undefined,
-      observedNetworkUrls: observation.observedNetworkUrls,
-      url: observation.url,
-    },
-  })
-  if (finalized.contractError) {
-    throw finalized.contractError
-  }
-
-  return {
-    capability: finalized.capability,
-    executeResult: normalizedExecuteResult,
-    output: finalized.output,
-    runRecord: finalized.runRecord,
-  }
-}
-
-export function finalizeCapabilityRun(options: {
+export function finalizeSkillRuntimeRun(options: {
   capability: CapabilityRecord
   operation: ResolvedCapabilityOperation
   cwd?: string
   inputHash: string
   startedAt: number
-  execution: CapabilityExecutionObservation
-}): FinalizedCapabilityRun {
+  execution: SkillRuntimeExecutionObservation
+}): FinalizedSkillRuntimeRun {
   const fingerprint = getCapabilityContractFingerprint(options.capability)
   const outputValidation =
     options.execution.status === 'success'
@@ -286,7 +205,7 @@ export function finalizeCapabilityRun(options: {
     ...network.undeclaredHosts.map((host) => {
       return {
         kind: 'undeclared-host' as const,
-        message: `Network host is not declared by capability permissions: ${host}`,
+        message: `Network host is not declared by Skill runtime permissions: ${host}`,
       }
     }),
   ]
@@ -327,19 +246,19 @@ export function finalizeCapabilityRun(options: {
     }
     return new Error(
       [
-        'Capability execution completed but contract conformance failed.',
+        'Skill runtime execution completed but contract conformance failed.',
         ...failures.map((failure) => {
           return failure.message
         }),
         options.operation.id
           ? `Operation ${options.operation.id} is quarantined for the current contract; other operations remain available.`
-          : 'This capability is quarantined for the current contract.',
+          : 'This Skill runtime operation is quarantined for the current contract.',
         'Repair its authentication or contract, then rerun this operation with --force to validate the repair.',
         'Do not automatically retry a write operation.',
       ].join('\n'),
     )
   })()
-  const runRecord = buildCapabilityRunRecord({
+  const runRecord = buildSkillRuntimeRunRecord({
     capability: options.capability,
     operation: options.operation,
     status: options.execution.status === 'error' || contractError ? 'error' : 'success',
@@ -358,13 +277,13 @@ export function finalizeCapabilityRun(options: {
   }
 }
 
-export function readCapabilityExecutionObservation(value: unknown): {
+export function readSkillRuntimeExecutionObservation(value: unknown): {
   output: unknown
   observedNetworkUrls: string[]
   url?: string
   error?: string
 } {
-  if (!isCapabilityExecutionEnvelope(value)) {
+  if (!isSkillRuntimeExecutionEnvelope(value)) {
     return { output: value, observedNetworkUrls: [] }
   }
   return {
@@ -375,7 +294,7 @@ export function readCapabilityExecutionObservation(value: unknown): {
   }
 }
 
-export function normalizeCapabilityExecutionText(options: { text: string; output: unknown; error?: string }): string {
+export function normalizeSkillRuntimeExecutionText(options: { text: string; output: unknown; error?: string }): string {
   const markerIndex = options.text.lastIndexOf('[return value]')
   if (markerIndex === -1) {
     return options.error || options.text
@@ -410,13 +329,13 @@ export function normalizeCapabilityExecutionText(options: { text: string; output
   )
 }
 
-function isCapabilityExecutionEnvelope(value: unknown): value is CapabilityExecutionEnvelope {
+function isSkillRuntimeExecutionEnvelope(value: unknown): value is SkillRuntimeExecutionEnvelope {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false
   }
-  const candidate = value as Partial<CapabilityExecutionEnvelope>
+  const candidate = value as Partial<SkillRuntimeExecutionEnvelope>
   return (
-    candidate.__tabwrightCapabilityEnvelope === 1 &&
+    candidate.__tabwrightSkillRuntimeEnvelope === 1 &&
     Array.isArray(candidate.observedNetworkUrls) &&
     candidate.observedNetworkUrls.every((url) => {
       return typeof url === 'string'
@@ -515,7 +434,7 @@ function matchesGlob(options: { value: string; pattern: string }): boolean {
   return new RegExp(`^${escaped}$`).test(options.value)
 }
 
-export function buildCapabilityRunRecord(options: {
+export function buildSkillRuntimeRunRecord(options: {
   capability: CapabilityRecord
   operation: ResolvedCapabilityOperation
   status: 'success' | 'error'
@@ -538,25 +457,22 @@ export function buildCapabilityRunRecord(options: {
   }
 }
 
-export function validateCapabilityUrl(options: { capability: CapabilityRecord; url: string; force?: boolean }): void {
+export function validateSkillRuntimeUrl(options: { capability: CapabilityRecord; url: string; force?: boolean }): void {
   if (options.force) {
     return
   }
   if (capabilityMatchesUrl({ capability: options.capability.manifest, url: options.url })) {
     return
   }
-  throw new Error(`Capability ${options.capability.manifest.id} does not match current page URL: ${options.url}`)
+  throw new Error(`Skill runtime ${options.capability.manifest.id} does not match current page URL: ${options.url}`)
 }
 
-function validateCapabilityRunnable(options: {
+function validateSkillRuntimeRunnable(options: {
   capability: CapabilityRecord
   input: unknown
   force?: boolean
   confirmation?: string
 }): ResolvedCapabilityOperation {
-  if (options.capability.manifest.status === 'disabled') {
-    throw new Error(`Capability is disabled: ${options.capability.manifest.id}`)
-  }
   const operation = resolveCapabilityOperation({ capability: options.capability, input: options.input })
   const contractHealth = getCapabilityOperationContractHealth({
     capability: options.capability,
@@ -564,11 +480,8 @@ function validateCapabilityRunnable(options: {
   })
   if (contractHealth.state === 'drifted' && !options.force) {
     throw new Error(
-      `Capability ${options.capability.manifest.id}${operation.id ? ` operation ${operation.id}` : ''} is quarantined after contract conformance failed. Repair its authentication or contract, then rerun this operation with --force to validate the repair.${operation.id ? ' Other operations remain available.' : ''}`,
+      `Skill runtime ${options.capability.manifest.id}${operation.id ? ` operation ${operation.id}` : ''} is quarantined after contract conformance failed. Repair its authentication or contract, then rerun this operation with --force to validate the repair.${operation.id ? ' Other operations remain available.' : ''}`,
     )
-  }
-  if (options.capability.manifest.status !== 'trusted' && !options.force) {
-    throw new Error(`Capability is ${options.capability.manifest.status}. Run with --force or trust it first.`)
   }
   const validation = validateJsonAgainstSchema({
     schema: operation.inputSchema,
@@ -576,25 +489,25 @@ function validateCapabilityRunnable(options: {
     label: 'input',
   })
   if (!validation.valid) {
-    throw new Error(`Invalid capability input:\n${validation.errors.join('\n')}`)
+    throw new Error(`Invalid Skill runtime input:\n${validation.errors.join('\n')}`)
   }
   if (operation.requiresConfirmation && options.confirmation !== operation.confirmationToken) {
     throw new Error(
-      `Capability ${options.capability.manifest.id}${operation.id ? ` operation ${operation.id}` : ''} requires explicit user confirmation for its ${operation.sideEffect} side effect. After approval, rerun with --confirm ${operation.confirmationToken}.`,
+      `Skill runtime ${options.capability.manifest.id}${operation.id ? ` operation ${operation.id}` : ''} requires explicit user confirmation for its ${operation.sideEffect} side effect. After approval, rerun with --confirm ${operation.confirmationToken}.`,
     )
   }
   return operation
 }
 
-async function executeNodeCapabilityScript(options: {
+async function executeNodeSkillRuntimeScript(options: {
   capability: CapabilityRecord
   operation: ResolvedCapabilityOperation
   input: unknown
   timeout: number
-}): Promise<NodeCapabilityExecution> {
+}): Promise<NodeSkillRuntimeExecution> {
   const script = fs.readFileSync(options.capability.scriptPath, 'utf-8')
   const secrets = readCapabilitySecrets({ capability: options.capability })
-  const artifacts = createCapabilityArtifacts({ capability: options.capability })
+  const artifacts = createSkillRuntimeArtifacts({ capability: options.capability })
   const observedNetworkUrls: Set<string> = new Set()
   const observedFetch: typeof fetch = async (input, init) => {
     const requestUrl = input instanceof Request ? input.url : input.toString()
@@ -636,15 +549,15 @@ async function executeNodeCapabilityScript(options: {
     crypto,
   })
   const wrappedCode = [
-    'const __tabwrightCapabilityOutput = await (async () => {',
+    'const __tabwrightSkillRuntimeOutput = await (async () => {',
     script,
     '\n})();',
-    'return __tabwrightCapabilityOutput === undefined ? undefined : JSON.parse(JSON.stringify(__tabwrightCapabilityOutput));',
-    `//# sourceURL=tabwright-node-capability://${options.capability.manifest.id}`,
+    'return __tabwrightSkillRuntimeOutput === undefined ? undefined : JSON.parse(JSON.stringify(__tabwrightSkillRuntimeOutput));',
+    `//# sourceURL=tabwright-node-skill-runtime://${options.capability.manifest.id}`,
     '',
   ].join('\n')
 
-  const timeout = createCapabilityTimeout({ timeout: options.timeout })
+  const timeout = createSkillRuntimeTimeout({ timeout: options.timeout })
   try {
     const output = await Promise.race([
       vm.runInContext(`(async () => { ${wrappedCode} })()`, vmContext, {
@@ -655,7 +568,7 @@ async function executeNodeCapabilityScript(options: {
     ])
     return { output, observedNetworkUrls: [...observedNetworkUrls] }
   } catch (error) {
-    throw new ObservedCapabilityExecutionError({
+    throw new ObservedSkillRuntimeExecutionError({
       cause: error,
       observedNetworkUrls: [...observedNetworkUrls],
     })
@@ -664,14 +577,14 @@ async function executeNodeCapabilityScript(options: {
   }
 }
 
-function createCapabilityTimeout(options: { timeout: number }): {
+function createSkillRuntimeTimeout(options: { timeout: number }): {
   promise: Promise<never>
   cancel: () => void
 } {
   const controller = new AbortController()
   const promise = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`Capability execution timed out after ${options.timeout}ms`))
+      reject(new Error(`Skill runtime execution timed out after ${options.timeout}ms`))
     }, options.timeout)
     controller.signal.addEventListener(
       'abort',
@@ -689,7 +602,7 @@ function createCapabilityTimeout(options: { timeout: number }): {
   }
 }
 
-function createCapabilityArtifacts(options: { capability: CapabilityRecord }): CapabilityArtifacts {
+function createSkillRuntimeArtifacts(options: { capability: CapabilityRecord }): SkillRuntimeArtifacts {
   ensureCapabilityStateDir(options.capability)
   const root = path.join(options.capability.stateDir, 'artifacts')
   return {
@@ -739,7 +652,7 @@ function formatNodeOutput(output: unknown): string {
   })}`
 }
 
-function buildCapabilityCode(options: {
+function buildSkillRuntimeCode(options: {
   capability: CapabilityRecord
   operation: ResolvedCapabilityOperation
   script: string
@@ -758,47 +671,47 @@ function buildCapabilityCode(options: {
   return [
     `const input = ${inputLiteral};`,
     `const capability = ${capabilityLiteral};`,
-    `const __tabwrightCapabilityMatch = ${matchLiteral};`,
-    `const __tabwrightCapabilityForce = ${options.force ? 'true' : 'false'};`,
-    'if (!__tabwrightCapabilityForce && __tabwrightCapabilityMatch.length > 0) {',
+    `const __tabwrightSkillRuntimeMatch = ${matchLiteral};`,
+    `const __tabwrightSkillRuntimeForce = ${options.force ? 'true' : 'false'};`,
+    'if (!__tabwrightSkillRuntimeForce && __tabwrightSkillRuntimeMatch.length > 0) {',
     '  const __currentUrl = page.url();',
-    '  const __matched = __tabwrightCapabilityMatch.some((pattern) => {',
+    '  const __matched = __tabwrightSkillRuntimeMatch.some((pattern) => {',
     "    const escaped = pattern.split('*').map((part) => part.replace(/[|\\\\{}()[\\]^$+?.]/g, '\\\\$&')).join('.*');",
     '    return new RegExp(`^${escaped}$`).test(__currentUrl);',
     '  });',
     '  if (!__matched) {',
-    '    throw new Error(`Capability ${capability.id} does not match current page URL: ${__currentUrl}`);',
+    '    throw new Error(`Skill runtime ${capability.id} does not match current page URL: ${__currentUrl}`);',
     '  }',
     '}',
-    'const __tabwrightCapabilityObservedNetworkUrls = new Set();',
-    'const __tabwrightCapabilityOnRequest = (request) => {',
-    '  __tabwrightCapabilityObservedNetworkUrls.add(request.url());',
+    'const __tabwrightSkillRuntimeObservedNetworkUrls = new Set();',
+    'const __tabwrightSkillRuntimeOnRequest = (request) => {',
+    '  __tabwrightSkillRuntimeObservedNetworkUrls.add(request.url());',
     '};',
-    "page.on('request', __tabwrightCapabilityOnRequest);",
+    "page.on('request', __tabwrightSkillRuntimeOnRequest);",
     'try {',
-    '  const __tabwrightCapabilityOutput = await (async () => {',
+    '  const __tabwrightSkillRuntimeOutput = await (async () => {',
     options.script,
     '\n  })();',
     '  return {',
-    '    __tabwrightCapabilityEnvelope: 1,',
-    '    output: __tabwrightCapabilityOutput === undefined ? undefined : JSON.parse(JSON.stringify(__tabwrightCapabilityOutput)),',
-    '    observedNetworkUrls: [...__tabwrightCapabilityObservedNetworkUrls],',
+    '    __tabwrightSkillRuntimeEnvelope: 1,',
+    '    output: __tabwrightSkillRuntimeOutput === undefined ? undefined : JSON.parse(JSON.stringify(__tabwrightSkillRuntimeOutput)),',
+    '    observedNetworkUrls: [...__tabwrightSkillRuntimeObservedNetworkUrls],',
     '    url: page.url(),',
     '  };',
-    '} catch (__tabwrightCapabilityError) {',
+    '} catch (__tabwrightSkillRuntimeError) {',
     '  return {',
-    '    __tabwrightCapabilityEnvelope: 1,',
+    '    __tabwrightSkillRuntimeEnvelope: 1,',
     '    output: undefined,',
-    '    observedNetworkUrls: [...__tabwrightCapabilityObservedNetworkUrls],',
+    '    observedNetworkUrls: [...__tabwrightSkillRuntimeObservedNetworkUrls],',
     '    url: page.url(),',
-    '    error: __tabwrightCapabilityError instanceof Error',
-    '      ? (__tabwrightCapabilityError.stack || __tabwrightCapabilityError.message)',
-    '      : String(__tabwrightCapabilityError),',
+    '    error: __tabwrightSkillRuntimeError instanceof Error',
+    '      ? (__tabwrightSkillRuntimeError.stack || __tabwrightSkillRuntimeError.message)',
+    '      : String(__tabwrightSkillRuntimeError),',
     '  };',
     '} finally {',
-    "  page.off('request', __tabwrightCapabilityOnRequest);",
+    "  page.off('request', __tabwrightSkillRuntimeOnRequest);",
     '}',
-    `//# sourceURL=tabwright-capability://${options.capability.manifest.id}`,
+    `//# sourceURL=tabwright-skill-runtime://${options.capability.manifest.id}`,
     '',
   ].join('\n')
 }

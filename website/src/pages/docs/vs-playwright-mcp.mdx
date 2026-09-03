@@ -26,8 +26,8 @@ exports the result as a portable Agent Skill.
 
 ## The difference is what survives the session
 
-Browser tools help an agent complete one task. A Tabwright capability is successful only when a fresh
-agent session can route to the saved Skill, provide structured input, respect its confirmation boundary,
+Browser tools help an agent complete one task. A durable Tabwright workflow belongs in an independent
+Agent Skill so a fresh session can discover it, provide structured input, respect its confirmation boundary,
 and complete the same work without rediscovering the site.
 
 ## How Tabwright is different
@@ -38,8 +38,8 @@ request through the UI, observe its response, and return structured output. CAPT
 become explicit human checkpoints instead of generic automation failures.
 
 ```bash
-tabwright replay make <replay-id> protected-generation --goal "generate an asset" --force --json
-tabwright capability describe protected-generation --json
+tabwright replay index <replay-id> --full --json
+tabwright skill runtime validate "/absolute/path/to/protected-generation" --json
 # execution.strategy: hybrid
 # execution.requiresUserBrowser: true
 # execution.humanAssistance: on-challenge

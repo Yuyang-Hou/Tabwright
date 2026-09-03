@@ -7,7 +7,7 @@
 准备完整的目标配置值：
 
 ```bash
-tabwright capability run "<runtime-dir>" --input-json '{"action":"prepare-change","url":"<config-url>","value":<complete-target-json>,"changeSummary":"<summary>"}' --json
+tabwright skill runtime run "<skill-dir>" --input-json '{"action":"prepare-change","url":"<config-url>","value":<complete-target-json>,"changeSummary":"<summary>"}' --json
 ```
 
 展示环境、变更路径、修改前后的值、警告和现有草稿状态。获得确认后，仅执行以下一个操作：

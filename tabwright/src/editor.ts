@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import type { ICDPSession } from './cdp-session.js'
 
 export interface ReadResult {
@@ -16,6 +17,18 @@ export interface SearchMatch {
 export interface EditResult {
   success: boolean
   stackChanged?: boolean
+}
+
+export interface RawScriptResult {
+  url: string
+  content: string
+  sha256: string
+  sourceMapURL?: string
+}
+
+interface ScriptRecord {
+  scriptId: string
+  sourceMapURL?: string
 }
 
 /**
@@ -48,7 +61,7 @@ export interface EditResult {
 export class Editor {
   private cdp: ICDPSession
   private enabled = false
-  private scripts = new Map<string, string>()
+  private scripts = new Map<string, ScriptRecord>()
   private stylesheets = new Map<string, string>()
   private sourceCache = new Map<string, string>()
 
@@ -61,7 +74,10 @@ export class Editor {
     this.cdp.on('Debugger.scriptParsed', (params) => {
       if (!params.url.startsWith('chrome') && !params.url.startsWith('devtools')) {
         const url = params.url || `inline://${params.scriptId}`
-        this.scripts.set(url, params.scriptId)
+        this.scripts.set(url, {
+          scriptId: params.scriptId,
+          sourceMapURL: params.sourceMapURL || undefined,
+        })
         this.sourceCache.delete(params.scriptId)
       }
     })
@@ -117,9 +133,9 @@ export class Editor {
   }
 
   private getIdByUrl(url: string): { scriptId: string } | { styleSheetId: string } {
-    const scriptId = this.scripts.get(url)
-    if (scriptId) {
-      return { scriptId }
+    const script = this.scripts.get(url)
+    if (script) {
+      return { scriptId: script.scriptId }
     }
     const styleSheetId = this.stylesheets.get(url)
     if (styleSheetId) {
@@ -214,6 +230,25 @@ export class Editor {
       totalLines,
       startLine: startLine + 1,
       endLine,
+    }
+  }
+
+  /**
+   * Returns an exact runtime script without line prefixes or truncation.
+   * Keep the result in code or pass it to decompileJavaScript; do not print large bundles.
+   */
+  async readRaw({ url }: { url: string }): Promise<RawScriptResult> {
+    await this.enable()
+    const script = this.scripts.get(url)
+    if (!script) {
+      throw new Error(`Script not found: ${url}`)
+    }
+    const content = await this.getSource({ scriptId: script.scriptId })
+    return {
+      url,
+      content,
+      sha256: crypto.createHash('sha256').update(content).digest('hex'),
+      sourceMapURL: script.sourceMapURL,
     }
   }
 

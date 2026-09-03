@@ -15,28 +15,40 @@ If using npx or bunx always use @latest for the first session command. so we are
 
 Global CLI installation creates or safely updates `~/.agents/skills/tabwright`. Run `tabwright skill install` when npm lifecycle scripts were disabled, `tabwright skill status` to inspect the installed copy, or pass `--target codex` / `--target claude` when an agent only scans its private directory. Tabwright never replaces a user-modified skill unless `--force` is explicit.
 
-### Capability routing shortcuts
+### Skill-owned runtimes
 
-For concrete user tasks, first check saved capability contracts. When a capability or one of its operations has `routingHint: "exact-match-direct-run"`, its `match` patterns exactly fit the task, and that operation's `autonomousInvocation.allowed` is true (`trusted`, `sideEffect: "read"`, `requiresConfirmation: false`), run it directly with the extracted input. Routed operation inputs include `action`. Do not search, describe, or open a page first.
+When an independently installed domain Skill matches the request, follow that Skill. Its `SKILL.md` owns discovery, workflow, and display semantics; its `runtime/` directory owns machine-enforced schemas, permissions, side effects, authentication, confirmation, and executable behavior.
 
-If the exact-match capability index is not already visible in the current skill or tool context, use `tabwright capability route "<task-or-url>" --json` as the metadata check. Do not use `capability search` or `capability describe` for an exact-match direct-run candidate.
+Validate or execute the Skill in place:
 
-When using route output, run the returned `shellCommand` exactly. Do not infer a shell command from the capability id; capability ids are not shell commands.
+```bash
+tabwright skill runtime validate "<absolute-skill-directory>" --json
+tabwright skill runtime run "<absolute-skill-directory>" --input-json '<json-input>' --json
+```
 
-In Codex sandboxed environments, `tabwright capability run ...` writes device-local state under `~/.tabwright/capability-state/...` for Skill runtimes and may write artifacts. Run trusted capability commands with escalated/unsandboxed permissions immediately instead of trying once in the sandbox and then retrying. `tabwright capability route ... --json` is metadata-only and can run sandboxed.
+Validation never executes the runtime. Running applies Tabwright's existing contract and stores authentication, run evidence, quarantine state, and artifacts outside the Skill under `~/.tabwright/skill-runtime-state/`. If the selected operation requires confirmation, stop for explicit approval of its concrete input and effect before using the exact confirmation token. `--force` never bypasses confirmation.
 
-Do not treat every URL as a direct-run signal. This shortcut only applies to exact capability matches, and it also applies to non-URL tasks when a capability's `match` patterns are specific enough. Capability-specific usage and display rules belong in that capability's own agent skill, not in this general Tabwright skill. If there is no exact match, use `capability search` and `capability describe` before running or creating new automation.
+### Evidence-grounded authenticated reads
 
-### Source-grounded authenticated reads
+When no specialized Skill exactly matches a one-off authenticated read, Tabwright can combine visible or programmatic page state, observed Network requests and responses, deployed source, public Source Maps, bundles and lazy chunks, Debugger call stacks and runtime values, and optional Wakaru decompilation. The agent decides which of these capabilities are useful for the user's request.
 
-When no saved capability exactly matches a one-off authenticated read, do not create or guess an endpoint-specific Skill. If source and deployment evidence are available:
+For an authenticated request, identify the target environment and bind inferred behavior to the serving revision or deployed-client fingerprint rather than a branch head or build record. Record the origin, `GET` or `HEAD` method, path, input, required non-credential headers, read-only semantics, opaque browser authentication, and supporting evidence. A changed deployment fingerprint invalidates prior inference; do not guess when the version, route, authentication boundary, or side effect is uncertain.
 
-1. Identify the target environment and exact revision serving its ready instances. A latest branch, successful build, or newest deployment record is insufficient.
-2. Inspect that exact revision without changing the user's working tree. Prefer an OpenAPI contract or generated client, then backend route/controller and request types, then a frontend request wrapper, and only then observed network traffic.
-3. Build a transient request plan containing the origin, `GET` or `HEAD` method, path, query, serving revision, and source evidence. If the revision, route, authentication boundary, or instance consistency is uncertain, stop instead of guessing.
-4. Navigate a task-owned page to the target origin and issue the request in page context with `credentials: "include"`. Keep cookies and tokens opaque, return only the requested data, and verify the HTTP status and application-level result.
+Navigate a task-owned page to the target origin. Use the site's own in-page request client when it supplies authentication, CSRF, or signatures; otherwise issue `fetch` with observed non-credential headers and `credentials: "include"`. Keep all credentials inside the page, return only the requested data, and verify both the HTTP and application-level result.
 
-This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use a saved capability with machine-enforced confirmation or a reviewed product workflow instead. Persist a new capability only when the workflow repeats or needs durable safety and schemas.
+Wakaru is available when it helps interpret packed or minified code. Read the Editor API, keep the exact script content inside code, and pass it to the optional local helper. Do not print the raw bundle or execute recovered output:
+
+```js
+const cdp = await getCDPSession({ page: state.page })
+const editor = createEditor({ cdp })
+const script = await editor.readRaw({ url: targetScriptUrl })
+const recovered = await decompileJavaScript({ source: script.content, sourceUrl: script.url, level: 'minimal' })
+console.log({ sha256: recovered.sha256, outputPath: recovered.outputPath, files: recovered.files })
+```
+
+The helper writes under the current project's `.tabwright/artifacts/wakaru/` directory and returns provenance plus paths. It supports `minimal`, `standard`, and `aggressive`; choose the level that fits the task. If a larger script needs a longer helper timeout, set the enclosing execute timeout higher than it.
+
+Only current-account-authorized, client-observable behavior qualifies; artifacts cannot prove hidden server logic or bypass permissions. This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use an independently managed Skill with a machine-enforced runtime contract instead.
 
 ### Sandboxed agent environments
 
@@ -44,7 +56,7 @@ Tabwright controls the real user browser through a local relay on `127.0.0.1:199
 
 ### Session management
 
-If setup state is unclear, run `tabwright doctor` first. It checks the relay, Chrome extension, enabled tabs, active sessions, and visible capabilities, then prints one next action. Agents may use `tabwright doctor --json` to consume the same result without parsing terminal formatting. Existing sessions may belong to another task: create a new session unless the user explicitly handed you one.
+If setup state is unclear, run `tabwright doctor` first. It checks the relay, Chrome extension, enabled tabs, active sessions, and installed Tabwright Skills, then prints one next action. Agents may use `tabwright doctor --json` to consume the same result without parsing terminal formatting. Existing sessions may belong to another task: create a new session unless the user explicitly handed you one.
 
 Each session runs in an **isolated sandbox** with its own `state` object. Use sessions to:
 
@@ -282,74 +294,36 @@ tabwright -s 1 -f script.js
 
 The file is read from disk and executed in the same sandbox as `-e`. All context variables (`state`, `page`, `context`, etc.) are available. `-e` and `-f` cannot be used together.
 
-### Saved capabilities
+### Skill-owned runtimes
 
-Saved capabilities are reusable Tabwright scripts with metadata, AI-readable intent, input schema, output schema, auth policy, trust status, and run logs. Use them to preserve repeated workflows such as querying a user in an admin console or calling a page-backed API without reopening Chrome.
+One-off work stays transient. When the user asks for reuse, or stable schemas and durable safety controls justify persistence, create or update a standard Agent Skill directly with the agent's official Skill tooling:
 
-Before writing new browser automation, search whether a saved capability already exists:
-
-```bash
-tabwright capability list
-tabwright capability route "current bilibili account"
-tabwright capability search "current bilibili account"
-tabwright capability describe bilibili-current-user --json
-tabwright capability show query-user
+```text
+query-user/
+├── SKILL.md
+└── runtime/
+    ├── capability.json
+    └── script.js
 ```
 
-Create and edit capabilities. Use `--runtime node` for API/HTTP capabilities that can run without a browser. Use `--contract-file` to update the AI-readable contract (`whenToUse`, `whenNotToUse`, `sideEffect`, `auth`, `execution`, schemas, examples, tags).
+- Put agent-facing discovery, workflow, and result-display semantics in `SKILL.md`.
+- Put schemas, permissions, side effects, confirmation requirements, auth, and executable operation definitions in `runtime/capability.json`. For multiple safety boundaries, define `operations` keyed by `input.action`.
+- Put executable behavior in `runtime/script.js`.
+- Keep secrets, run history, quarantine state, and artifacts out of the Skill.
 
-`execution` explains how the runtime completes the task without asking the user to understand the website's verification mechanism. Supported strategies are `direct-request`, `browser-request`, `browser-ui`, and `hybrid`. A hybrid workflow uses the real page to trigger a protected request and observes the matching network result. `requiresUserBrowser` means the capability must use the signed-in Chrome session. `humanAssistance` is `none`, `on-challenge`, or `required`; when a generated workflow returns `status: "needs_human"`, pause and ask the user to complete verification in the open browser, then rerun the same approved input.
-
-```bash
-tabwright capability create query-user --project --title "Query user"
-tabwright capability create bilibili-current-user --runtime node --title "Bilibili Current User"
-tabwright capability update query-user --from-file script.js
-tabwright capability update bilibili-current-user --contract-file contract.json
-tabwright capability trust query-user
-```
-
-For distribution through an Agent Skills-compatible agent or plugin manager, export a portable skill directory instead of making Tabwright own agent installation:
+Validate the bundled runtime without executing it, then run the Skill in place:
 
 ```bash
-tabwright capability skill export query-user --output ./skills/query-user
+tabwright skill runtime validate "/absolute/path/to/query-user" --json
+tabwright skill runtime run "/absolute/path/to/query-user" --input-json '{"email":"a@example.com"}' --json
 ```
 
-The exported directory contains the standard root `SKILL.md`, optional `agents/openai.yaml`, and a bundled runtime under `runtime/`. A fresh agent resolves the runtime relative to `SKILL.md` and passes that directory directly to `capability run`. Agent-managed runtimes are ready immediately; Tabwright validates them and refreshes declared browser authentication automatically. It never copies the runtime and stores only device-local state under `~/.tabwright/capability-state/<id>/`.
+`node` runtimes run locally without opening Chrome. Browser runtimes marked `execution.requiresUserBrowser: true` automatically select the signed-in user browser and reject `--browser headless`; other browser runtimes create a headless session by default when `-s` is omitted. `execution` strategies are `direct-request`, `browser-request`, `browser-ui`, and `hybrid`.
 
-The extension Options page has a read-only **Tabwright Skills** view. It discovers capability skills containing both `SKILL.md` and `runtime/capability.json` under the current project's and user's `.codex/skills`, `.agents/skills`, and `.claude/skills` directories. Additional manager roots can be supplied with the platform-delimited `TABWRIGHT_SKILL_DIRS` environment variable. Tabwright never installs, updates, or removes capability-specific skills; it only joins their runtime contract with safe local status from `~/.tabwright/capability-state/<id>/` and never exposes Cookie, Token, or secret values.
+If the selected operation has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only then rerun with its exact `confirmationToken`, typically `--confirm <runtime-id>:<operation>`. `--force` never bypasses this gate. When multiple Chrome extension connections exist, pass a browser key from `tabwright browser list` instead of `user`.
 
-When an AI is turning a user workflow into a durable capability, keep these responsibilities separate:
+The extension Options page discovers compatible Skills under the current project's and user's `.codex/skills`, `.agents/skills`, and `.claude/skills` directories. Tabwright validates and runs their bundled runtimes directly, refreshes declared browser authentication when needed, and stores device-local state under `~/.tabwright/skill-runtime-state/<id>/`.
 
-- Put agent-facing discovery, routing, workflow, and display semantics in the standard `SKILL.md`.
-- Put schemas, permissions, side effects, confirmation requirements, auth, and executable operation definitions in the runtime contract. For multiple safety boundaries, define `operations` keyed by `input.action`.
-- Put executable behavior in `script.js`.
-- Use the agent's official skill tooling to refine generated prose and manage installation.
-
-Export a new skill once, then let the agent's skill tooling own it:
-
-```bash
-tabwright capability skill export query-user --output ./skills/query-user
-```
-
-The export contains one semantic source, `SKILL.md`, plus a runtime-only contract under `runtime/`. The command refuses existing output directories; update and distribute the result through the user's agent-native skill or plugin manager.
-
-Run a registered capability id or an absolute Skill runtime directory with structured JSON input. `node` runtimes run locally without opening Chrome. Browser capabilities marked `execution.requiresUserBrowser: true` automatically select the signed-in user browser and reject `--browser headless`; other browser capabilities create a headless session by default when `-s` is omitted.
-
-```bash
-tabwright capability run "/absolute/path/to/skill/runtime" --input-json '{"query":"example"}' --json
-```
-
-If the selected operation has `requiresConfirmation: true`, stop and obtain explicit user approval for the concrete input and side effect. Only then rerun with its exact `confirmationToken`, typically `--confirm <capability-id>:<operation>`. Capabilities without operations continue to use `--confirm <capability-id>`. `--force` never bypasses this gate.
-
-```bash
-tabwright capability run query-user --input-json '{"email":"a@example.com"}' --json
-tabwright capability run query-user -s 1 --input-json '{"email":"a@example.com"}'
-tabwright capability run query-user --browser user --input-json '{"email":"a@example.com"}'
-tabwright capability run update-user --browser user --input-json '{"email":"a@example.com"}' --confirm update-user
-tabwright capability run bilibili-current-user --json
-```
-
-When multiple Chrome extension connections exist, pass a browser key from `tabwright browser list` instead of `user`.
 
 ### Recent attached activity
 
@@ -367,13 +341,13 @@ tabwright activity save --session <pw-tab-session-id> --from <timestamp> --to <t
 
 Saving recent activity is a device-local evidence operation, so the Agent may invoke it autonomously when needed to fulfill the user's request. Do not save activity speculatively or upload replay evidence. Treat captured input values as potentially sensitive and reveal only what the task requires.
 
-When turning recent activity or an explicit user demonstration into a repeatable workflow, do not analyze during the user's interaction. Save the relevant event range as evidence, then generate a draft browser capability only after the user gives a concrete goal. Prefer the cheapest verified strategy, but treat browser interaction as a valid final runtime rather than a failed API conversion. Generated workflow scripts should return `needs_ai` with page context when the live page diverges and `needs_human` when the live page presents a verification challenge.
+When turning recent activity or an explicit user demonstration into a repeatable workflow, do not analyze during the user's interaction. Save the relevant event range as evidence, then create an independent Agent Skill only after the user gives a concrete goal. Prefer the cheapest verified strategy, but treat browser interaction as a valid final runtime rather than a failed API conversion. Runtime scripts should return `needs_ai` with page context when the live page diverges and `needs_human` when the live page presents a verification challenge.
 
-Cookie auth declared with `refresh: "from-browser"` is refreshed automatically before a run when it is missing, expired, unknown, or stale and expiring. A read-only operation that reports a declared auth failure is refreshed and retried once. Write and dangerous operations are refreshed but never retried automatically after a request may have started. Cookie values stay in local `secrets.json` and are never printed or shown in the extension Options page.
+Cookie auth declared with `refresh: "from-browser"` is refreshed automatically before a run when it is missing, expired, unknown, or stale and expiring. A read-only operation that reports a declared auth failure is refreshed and retried once. Write and dangerous operations are refreshed but never retried automatically after a request may have started. Cookie values stay in device-local state and are never printed or shown in the extension Options page.
 
 Origins listed in `auth.browserUrls` are part of the declared authentication flow and do not count as undeclared network access. Other contract failures quarantine only the failing operation for the current runtime fingerprint; unrelated operations remain available. After repairing authentication or the contract, rerun that exact operation with `--force` to validate the repair. A passing validation clears its operation quarantine. Never automatically retry a write or dangerous operation, and always obtain its required fresh confirmation before a repair validation run.
 
-Browser capability scripts run in the normal Tabwright sandbox and receive `input` and `capability` globals in addition to `page`, `context`, `state`, `snapshot`, and other helpers:
+Browser runtime scripts run in the normal Tabwright sandbox and receive `input` and the machine contract as `capability`, in addition to `page`, `context`, `state`, `snapshot`, and other helpers:
 
 ```js
 await page.goto("https://admin.example.com/users")
@@ -386,7 +360,7 @@ return {
 }
 ```
 
-Node capability scripts receive `input`, `capability`, `secrets`, `artifacts`, `fetch`, URL helpers, timers, `Buffer`, text encoders, and `crypto` globals. Use `artifacts.writeJson({ filename, value })` and `artifacts.writeText({ filename, text })` to persist query results under the capability's scoped `artifacts` directory:
+Node runtime scripts receive `input`, the machine contract as `capability`, `secrets`, `artifacts`, `fetch`, URL helpers, timers, `Buffer`, text encoders, and `crypto` globals. Use `artifacts.writeJson({ filename, value })` and `artifacts.writeText({ filename, text })` to persist query results under the runtime's scoped artifact directory:
 
 ```js
 const response = await fetch("https://api.example.com/me", {
@@ -399,7 +373,7 @@ const filePath = artifacts.writeJson({ filename: "latest.json", value: data })
 return { data, artifacts: { filePath } }
 ```
 
-Agents should use capability search and describe before creating new automation. A capability operation can be called autonomously only when the capability is `trusted`, that operation has `sideEffect: "read"`, and it has `requiresConfirmation: false`. Draft capabilities require `--force` before they can run. Confirmation-required operations additionally require their exact `confirmationToken` after explicit user approval; `--force` cannot substitute for approval. Editing a trusted capability's script automatically downgrades it to draft. Updating the AI contract through `--contract-file` also downgrades trusted capabilities to draft unless the patch explicitly sets a status. Use `tabwright studio` to start the standalone local management page for capabilities.
+A Skill runtime operation can be called autonomously only when it has `sideEffect: "read"` and `requiresConfirmation: false`. Confirmation-required operations require their exact `confirmationToken` after explicit user approval; `--force` cannot substitute for approval. Contract failures quarantine only the affected operation for its current runtime fingerprint.
 
 ### Debugging tabwright issues
 
@@ -1099,7 +1073,7 @@ await dbg.setBreakpoint({ file: scripts[0].url, line: 42 })
 // when paused: dbg.inspectLocalVariables(), dbg.stepOver(), dbg.resume()
 ```
 
-**createEditor** - view and live-edit page scripts and CSS at runtime. Edits are in-memory (persist until reload). Useful for testing quick fixes, searching page scripts with grep, and toggling debug flags. ALWAYS read `https://playwriter.dev/resources/editor-api.md` first.
+**createEditor** - view and live-edit page scripts and CSS at runtime. Edits are in-memory (persist until reload). It can also return exact unprefixed script source for optional local analysis. Useful for testing quick fixes, searching page scripts with grep, and toggling debug flags. ALWAYS read `https://playwriter.dev/resources/editor-api.md` first.
 
 ```js
 const cdp = await getCDPSession({ page: state.page })
@@ -1108,6 +1082,8 @@ await editor.enable()
 const matches = await editor.grep({ regex: /console\.log/ })
 await editor.edit({ url: matches[0].url, oldString: 'DEBUG = false', newString: 'DEBUG = true' })
 ```
+
+**decompileJavaScript** - optional local Wakaru helper for a relevant script whose packed or minified form blocks understanding. Do not call it when page state, Network responses, Source Maps, or readable JavaScript already answer the task. It copies the supplied text into a scoped project artifact directory and never executes recovered code.
 
 **screenshotWithAccessibilityLabels** - take a screenshot with Vimium-style visual labels overlaid on interactive elements. Shows labels, captures screenshot, then removes labels. The image and accessibility snapshot are automatically included in the response. Can be called multiple times to capture multiple screenshots. Use a timeout of **20 seconds** for complex pages.
 
@@ -1134,7 +1110,7 @@ Labels are color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkbo
 
 **replay.start / replay.stop** - record the page as an rrweb DOM replay. This captures DOM snapshots, mutations, inputs, mouse movement, scrolls, and user-added Tabwright annotations into `~/.tabwright/rrweb-recordings/<id>.json`, then plays back in the Tabwright extension options page. DOM replays are for review and workflow understanding only: clicking inside the replay does **not** execute the original page's React/Vue/business logic.
 
-Use replay recordings when you need a compact, inspectable artifact for AI understanding, workflow compilation, and user review. The in-page toolbar records rrweb replay only; video capture is intentionally not part of the product.
+Use replay recordings when you need a compact, inspectable artifact for AI understanding, Skill authoring, and user review. The in-page toolbar records rrweb replay only; video capture is intentionally not part of the product.
 
 While recording, the toolbar's element selection button becomes an annotation tool. If the user selects an element and writes a note, the note is saved as a `tabwright.annotation` rrweb custom event and appears in `replay index` output as `annotations`. Treat these annotations as stronger intent signals than inferred labels/selectors.
 
@@ -1157,66 +1133,9 @@ console.log(state.replayResult)
 // replay.events({ id: state.replayResult.id })
 ```
 
-**workflow.saveFromRecording / workflow.saveCapability** - after the user gives a demonstration replay id and a concrete goal, save the derived reusable flow as a project capability. Prefer `workflow.saveFromRecording()` when the flow can be represented as structured steps; use `workflow.saveCapability()` when you need to write a custom script. Saved workflows start as `draft`, have `sideEffect: "write"` and `requiresConfirmation: true` by default, and can later be inspected or run with `tabwright capability ...`. Workflows with a `finalRequest` are marked as `hybrid`: the live frontend creates any required signature and the runtime observes the resulting request. The generated script returns `needs_ai` with a snapshot when the page no longer matches the replay, or `needs_human` when a CAPTCHA, SMS check, or similar challenge needs the user. Omit `finalRequest` for flows that do not have a real submit/request boundary.
+**replay list** - use `tabwright replay list --limit 10 --json` to discover saved demonstrations without connecting to the relay. Results are newest-first and include the exact inspect command for each replay.
 
-**replay list** - use `tabwright replay list --limit 10 --json` to discover saved demonstrations without connecting to the relay. Results are newest-first and include the exact inspect and make commands for each replay.
-
-**replay make / replay compile** - when the user gives an rrweb replay id and asks to run similar work, first compile the replay into a project capability instead of manually replaying every step. Prefer `tabwright replay make <replayId> <capabilityId> --force --goal "..." --json` because it builds the AI index and compiles in one step. A successful result has `status: "compiled"` and writes the draft capability. If the deterministic compiler cannot recognize the workflow, the result has `status: "needs_ai"`, writes no placeholder capability, and returns exact `next.inspectCommand` and `next.createCommand` commands for an AI authoring handoff. Generated workflows are draft browser writes: inspect the contract and script, stop for explicit user confirmation, then run with `tabwright capability run <capabilityId> --browser user --input-json ... --force --confirm <capabilityId> --json`. Use `replay compile` only when the index has already been inspected or generated separately. The generated script should execute the live frontend path, continue from an already-editing page when possible, and return `needs_ai` with page context when validation, DOM drift, or a missing selector blocks the flow.
-
-**replay index** - before compiling a replay, use `tabwright replay index <replayId> --json` to inspect the compact AI-readable view of the rrweb events. It preserves actions, fields, user annotations, warnings, and selector hints, but replaces bulky page text and interactive-element arrays with counts. Add `--full` only when the AI needs the complete evidence. The raw rrweb recording remains the source evidence; use `--write` only when you want to persist the generated index under `~/.tabwright/replay-ai-indexes`.
-
-**replay eval** - run the replay productization self-test platform. It creates local example pages, writes synthetic rrweb recordings, builds the AI index, compiles draft capabilities, runs the generated scripts in a real browser, and verifies the page/request result. Use it before changing recording/index/compiler/capability code:
-
-```bash
-tabwright replay eval
-tabwright replay eval --json
-tabwright replay eval --case zh-list-append --headed
-tabwright replay eval --report tmp/replay-eval-report.html --keep-artifacts
-```
-
-The default suite covers Chinese/English list append flows, already-editing pages, draft restart/continue dialogs, duplicate-value short-circuiting, deleted annotations, page drift returning `needs_ai`, and unsupported replays failing explicitly instead of generating fake automation.
-
-```js
-const latestReplay = (await replay.list({ limit: 1 }))[0]
-
-const saved = workflow.saveFromRecording({
-  id: 'create-material-from-demo',
-  title: 'Create material from demo',
-  description: 'Fill the material form from structured input and stop with needs_ai if the page drifts.',
-  recordingId: latestReplay.id,
-  match: ['https://admin.example.com/*'],
-  inputSchema: {
-    type: 'object',
-    properties: {
-      items: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            image: { type: 'string' },
-          },
-          required: ['title', 'image'],
-        },
-      },
-    },
-    required: ['items'],
-  },
-  steps: [
-    { action: 'goto', url: { value: 'https://admin.example.com/materials/new' } },
-    { action: 'fill', locator: '[name="title"]', value: { inputPath: 'title' } },
-    { action: 'setInputFiles', locator: '[name="image"]', path: { inputPath: 'image' } },
-  ],
-  finalRequest: {
-    url: '**/api/materials/**',
-    method: 'POST',
-    title: 'Create material',
-    trigger: { action: 'click', locator: 'button[type="submit"]' },
-  },
-})
-
-console.log(saved.capability)
-```
+**replay index** - use `tabwright replay index <replayId> --json` to inspect the compact AI-readable view of the rrweb events before authoring a Skill. It preserves actions, fields, user annotations, warnings, and selector hints, but replaces bulky page text and interactive-element arrays with counts. Add `--full` only when the AI needs the complete evidence. The raw rrweb recording remains the source evidence; use `--write` only when you want to persist the generated index under `~/.tabwright/replay-ai-indexes`.
 
 **ghostCursor.show / ghostCursor.hide** - the ghost cursor overlay is always on: the extension injects it on every Tabwright-attached tab and it stays visible at the last spot Playwright clicked or moved. These methods only matter if you want to change the cursor style or temporarily hide it:
 
