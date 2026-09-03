@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.5.0
+
+### Minor Changes
+
+- e04e53d: Cache exact runtime scripts as local content-addressed artifacts, reuse Wakaru output for unchanged inputs and options, and allow explicitly confirmed one-off browser mutations without requiring a durable Skill runtime.
+
 ## 3.4.1
 
 ### Patch Changes
