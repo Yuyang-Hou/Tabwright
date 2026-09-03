@@ -5,6 +5,7 @@ Publishing Tabwright currently depends on local commands and manually assembled 
 ## What Changes
 
 - Add a manually triggered GitHub Actions release workflow with separate CLI and extension targets.
+- Initialize only the public Playwright build submodule so unrelated private site sources cannot block CI or releases.
 - Publish the CLI from `main` to npm through npm trusted publishing, then create the matching latest GitHub Release from its changelog entry.
 - Build the production extension only after the matching CLI version is public, then attach its ZIP to a non-latest GitHub Release.
 - Non-goals: automatically publish to Chrome Web Store, release from feature branches, or store a long-lived npm write token.

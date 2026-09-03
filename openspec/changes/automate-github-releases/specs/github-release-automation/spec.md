@@ -11,6 +11,12 @@ The release workflow SHALL publish the version declared by the CLI package from 
 - **AND** npm trusted publishing publishes the declared public version
 - **AND** a latest GitHub Release is created from that version's changelog entry
 
+#### Scenario: Unrelated private submodule is unavailable
+
+- **WHEN** the GitHub runner checks out release sources without credentials for an unrelated private site submodule
+- **THEN** it initializes only the public Playwright build submodule
+- **AND** validation and publication can continue
+
 #### Scenario: Maintainer selects another branch
 
 - **WHEN** the workflow is dispatched from a branch other than `main`
