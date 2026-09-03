@@ -2,7 +2,7 @@
   "skills": [
     {
       "name": "tabwright",
-      "description": "Control the user's Chrome browser through Tabwright's extension and stateful Playwright sandbox. Use for JS-heavy or logged-in pages, source- or deployment-artifact-grounded authenticated reads, and Tabwright runtimes bundled in independently managed Agent Skills. Load before using Tabwright commands or explaining its browser and Skill runtime behavior.",
+      "description": "Control the user's Chrome browser through Tabwright's extension and stateful Playwright sandbox. Use for JS-heavy or logged-in pages, source- or deployment-artifact-grounded authenticated requests, and Tabwright runtimes bundled in independently managed Agent Skills. Load before using Tabwright commands or explaining its browser and Skill runtime behavior.",
       "files": [
         "SKILL.md"
       ]

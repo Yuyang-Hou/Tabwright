@@ -27,15 +27,26 @@ Tabwright SHALL expose copied runtime script source and pinned Wakaru decompilat
 - **AND** Wakaru writes only to a scoped artifact directory
 - **AND** Tabwright returns artifact paths and provenance without executing recovered code
 
+#### Scenario: Agent saves exact runtime source locally
+
+- **WHEN** the agent explicitly selects a runtime script for local analysis
+- **THEN** Tabwright stores the exact source under a content-addressed project artifact path
+- **AND** it returns the path, byte size, content hash, source-map URL when available, and cache status without returning the source text
+
+#### Scenario: Matching Wakaru output already exists
+
+- **WHEN** the same content hash, Wakaru version, level, and unpack mode were processed successfully
+- **THEN** Tabwright returns the existing derived artifact paths without invoking Wakaru again
+
 #### Scenario: Wakaru is unavailable on the host
 
 - **WHEN** the pinned Wakaru package does not support the current platform or its binary is unavailable
 - **THEN** the tool reports that limitation without changing browser state
 - **AND** the agent continues with other available evidence or reports the evidence gap
 
-### Requirement: One-off authenticated reads use exact deployed source
+### Requirement: One-off authenticated requests use exact deployed source
 
-When deployed source is available, the agent SHALL derive a transient read request only from the exact revision serving the target environment.
+When deployed source is available, the agent SHALL derive a transient request only from the exact revision serving the target environment.
 
 #### Scenario: Ready instances agree on a revision
 
@@ -48,7 +59,7 @@ When deployed source is available, the agent SHALL derive a transient read reque
 - **WHEN** ready instances disagree, deployment evidence is missing, or only a branch head or build result is known
 - **THEN** the agent stops without guessing or executing an endpoint
 
-### Requirement: No-source reads use exact deployed artifacts
+### Requirement: No-source requests use exact deployed artifacts
 
 When deployed source is unavailable, the agent SHALL bind any inferred request contract to the exact client deployment and SHALL analyze only browser-observable evidence relevant to the requested behavior.
 
@@ -81,7 +92,7 @@ The agent SHALL treat browser artifacts as evidence only for client-observable b
 
 ### Requirement: Browser authentication remains opaque
 
-The agent SHALL execute the verified read in page context on the target origin without extracting browser credentials.
+The agent SHALL execute the verified request in page context on the target origin without extracting browser credentials.
 
 #### Scenario: Verified read request succeeds
 
@@ -92,23 +103,37 @@ The agent SHALL execute the verified read in page context on the target origin w
 - **AND** the agent verifies the HTTP and application-level result
 - **AND** only the requested result is returned
 
-### Requirement: Transient source-grounded requests cannot mutate state
+### Requirement: One-off mutations require concrete confirmation and one-shot execution
 
-The agent SHALL NOT use the transient path for a request whose method or source semantics can mutate state.
+The agent SHALL classify requests by observed semantics rather than HTTP method. Before a one-off mutation, it SHALL establish the exact request and current state when observable, present the concrete effect for confirmation, execute only after explicit approval, and verify the outcome without automatically retrying an ambiguous result.
 
-#### Scenario: Source describes a mutation
+#### Scenario: Agent prepares a verified mutation
 
-- **WHEN** the request is not `GET` or `HEAD`, or a nominal read method has mutation semantics
-- **THEN** the agent does not execute it through the transient path
-- **AND** it requires an independent Skill runtime with machine-enforced confirmation or a reviewed product workflow
+- **WHEN** deployment evidence establishes the route, input, authentication boundary, and side effect
+- **THEN** the agent reads the current state when it is observable
+- **AND** it shows the user the target environment, method, path, input, and expected effect
+- **AND** it stops for explicit confirmation of that concrete mutation
+- **AND** after confirmation it executes the request exactly once in the page context
+
+#### Scenario: Mutation outcome is ambiguous
+
+- **WHEN** a mutation request may have started but its outcome is unclear
+- **THEN** the agent does not automatically retry it
+- **AND** it uses response evidence and a state readback when observable to determine the result
+- **AND** it reports an unknown outcome when verification is impossible
+
+#### Scenario: A nominal read method mutates state
+
+- **WHEN** an observed `GET` or `HEAD` route has mutation semantics
+- **THEN** the agent applies the mutation confirmation and one-shot execution requirements
 
 ### Requirement: Durable automation is created only when justified
 
-The agent SHALL keep a one-off read transient and MAY create an independent Agent Skill when repetition, stable schemas, or durable safety controls justify it.
+The agent SHALL keep a one-off request transient and MAY create an independent Agent Skill when repetition, stable schemas, or durable safety controls justify it.
 
 #### Scenario: A verified request is used once
 
-- **WHEN** the user asks for a one-off authenticated read
+- **WHEN** the user asks for a one-off authenticated request
 - **THEN** the agent does not create an endpoint-specific Skill or runtime contract solely for that request
 
 #### Scenario: Durable automation is justified

@@ -1,6 +1,6 @@
 ---
 name: tabwright
-description: Control the user's Chrome browser through Tabwright's extension and stateful Playwright sandbox. Use for JS-heavy or logged-in pages, source- or deployment-artifact-grounded authenticated reads, and Tabwright runtimes bundled in independently managed Agent Skills. Load before using Tabwright commands or explaining its browser and Skill runtime behavior.
+description: Control the user's Chrome browser through Tabwright's extension and stateful Playwright sandbox. Use for JS-heavy or logged-in pages, source- or deployment-artifact-grounded authenticated requests, and Tabwright runtimes bundled in independently managed Agent Skills. Load before using Tabwright commands or explaining its browser and Skill runtime behavior.
 ---
 
 ## Installation
@@ -21,27 +21,36 @@ Validation does not execute the runtime. Running applies the existing Tabwright 
 If a selected domain Skill invokes `tabwright capability ...`, it is outdated. Stop and tell the user to update or reinstall that Skill; do not retry, translate, or emulate the removed command.
 
 
-## Evidence-Grounded Authenticated Reads
+## Evidence-Grounded Authenticated Requests
 
-When no specialized Skill exactly matches a one-off authenticated read, Tabwright can combine visible or programmatic page state, observed Network requests and responses, deployed source, public Source Maps, bundles and lazy chunks, Debugger call stacks and runtime values, and optional Wakaru decompilation. The agent decides which of these capabilities are useful for the user's request.
+When no specialized Skill exactly matches a one-off authenticated request, Tabwright can combine visible or programmatic page state, observed Network requests and responses, deployed source, public Source Maps, bundles and lazy chunks, Debugger call stacks and runtime values, and optional Wakaru decompilation. The agent decides which of these capabilities are useful for the user's request.
 
-For an authenticated request, identify the target environment and bind inferred behavior to the serving revision or deployed-client fingerprint rather than a branch head or build record. Record the origin, `GET` or `HEAD` method, path, input, required non-credential headers, read-only semantics, opaque browser authentication, and supporting evidence. A changed deployment fingerprint invalidates prior inference; do not guess when the version, route, authentication boundary, or side effect is uncertain.
+For an authenticated request, identify the target environment and bind inferred behavior to the serving revision or deployed-client fingerprint rather than a branch head or build record. Record the origin, method, path, input, required non-credential headers, expected side effect, opaque browser authentication, and supporting evidence. A changed deployment fingerprint invalidates prior inference; do not guess when the version, route, input, authentication boundary, or side effect is uncertain.
 
 Navigate a task-owned page to the target origin. Use the site's own in-page request client when it supplies authentication, CSRF, or signatures; otherwise issue `fetch` with observed non-credential headers and `credentials: "include"`. Keep all credentials inside the page, return only the requested data, and verify both the HTTP and application-level result.
 
-Wakaru is available when it helps interpret packed or minified code. Read the Editor API, keep the exact script content inside code, and pass it to the optional local helper. Do not print the raw bundle or execute recovered output:
+Exact runtime scripts can be saved as content-addressed local files for bounded search and reuse without printing them into model context. Wakaru is separately available when it helps interpret packed or minified code. Read the Editor API and do not print the raw bundle or execute recovered output:
 
 ```js
 const cdp = await getCDPSession({ page: state.page })
 const editor = createEditor({ cdp })
-const script = await editor.readRaw({ url: targetScriptUrl })
-const recovered = await decompileJavaScript({ source: script.content, sourceUrl: script.url, level: 'minimal' })
-console.log({ sha256: recovered.sha256, outputPath: recovered.outputPath, files: recovered.files })
+const cached = await editor.saveRaw({ url: targetScriptUrl })
+console.log(cached)
 ```
 
-The helper writes under the current project's `.tabwright/artifacts/wakaru/` directory and returns provenance plus paths. It supports `minimal`, `standard`, and `aggressive`; choose the level that fits the task. If a larger script needs a longer helper timeout, set the enclosing execute timeout higher than it.
+Wakaru can be invoked separately against exact source:
 
-Only current-account-authorized, client-observable behavior qualifies; artifacts cannot prove hidden server logic or bypass permissions. This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use an independently managed Skill with a machine-enforced runtime contract instead.
+```js
+const script = await editor.readRaw({ url: targetScriptUrl })
+const recovered = await decompileJavaScript({ source: script.content, sourceUrl: script.url, level: 'minimal' })
+console.log({ sha256: recovered.sha256, cacheHit: recovered.cacheHit, outputPath: recovered.outputPath, files: recovered.files })
+```
+
+`saveRaw` writes exact scripts under the current project's `.tabwright/artifacts/web/blobs/` directory and returns only provenance plus a local path. The Wakaru helper stores derived output under `.tabwright/artifacts/wakaru/` and reuses output for the same content hash, Wakaru version, level, and unpack mode. It supports `minimal`, `standard`, and `aggressive`; choose the level that fits the task. If a larger script needs a longer helper timeout, set the enclosing execute timeout higher than it.
+
+Only current-account-authorized, client-observable behavior qualifies; artifacts cannot prove hidden server logic or bypass permissions. Classify a request by its observed semantics rather than its HTTP method: a state-changing `GET` is still a mutation.
+
+Before a one-off mutation, inspect the current state when it is observable and show the user the target environment, method, path, input, and expected effect. Stop for explicit confirmation of that concrete mutation. After confirmation, execute it exactly once in the page context, never automatically retry an ambiguous result, and verify both the response and resulting state when observable. Report an unknown outcome when verification is impossible.
 
 ## Creating Durable Skills
 

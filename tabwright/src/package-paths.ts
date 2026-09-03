@@ -40,4 +40,13 @@ export function getInstalledWakaruCliPath(): string {
   return path.join(path.dirname(packageJsonPath), 'bin', 'wakaru')
 }
 
+export function getInstalledWakaruVersion(): string {
+  const packageJsonPath = require.resolve('@wakaru/cli/package.json')
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
+  if (typeof packageJson.version !== 'string') {
+    throw new Error(`Wakaru package version is missing: ${packageJsonPath}`)
+  }
+  return packageJson.version
+}
+
 export const getInstalledPlaywriterPackageDir = getInstalledTabwrightPackageDir

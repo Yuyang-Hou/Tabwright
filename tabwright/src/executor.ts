@@ -1360,7 +1360,8 @@ export class PlaywrightExecutor {
       }
 
       const createDebugger = (options: { cdp: ICDPSession }) => new Debugger(options)
-      const createEditor = (options: { cdp: ICDPSession }) => new Editor(options)
+      const createEditor = (options: { cdp: ICDPSession }) =>
+        new Editor({ ...options, cwd: this.sessionCwd || process.cwd() })
       const decompileJavaScript = (options: Omit<DecompileJavaScriptOptions, 'cwd'>) => {
         return runWakaru({
           ...options,

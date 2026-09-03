@@ -30,7 +30,15 @@ async function readScript() {
   console.log(partial)
 }
 
-// Example: Decompile only when packed code blocks understanding
+// Example: Save exact script content for local search without printing it
+async function cacheScriptForLocalSearch() {
+  const cdp = await getCDPSession({ page })
+  const editor = createEditor({ cdp })
+  const cached = await editor.saveRaw({ url: 'https://example.com/assets/app.min.js' })
+  console.log(cached)
+}
+
+// Example: Decompile a packed script
 async function decompilePackedScript() {
   const cdp = await getCDPSession({ page })
   const editor = createEditor({ cdp })
@@ -40,7 +48,7 @@ async function decompilePackedScript() {
     sourceUrl: script.url,
     level: 'minimal',
   })
-  console.log({ sha256: result.sha256, outputPath: result.outputPath, files: result.files })
+  console.log({ sha256: result.sha256, cacheHit: result.cacheHit, outputPath: result.outputPath, files: result.files })
 }
 
 // Example: Edit a script (exact string replacement)

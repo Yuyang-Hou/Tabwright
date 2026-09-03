@@ -30,27 +30,41 @@ Validation never executes the runtime. Running applies Tabwright's existing cont
 
 If a selected domain Skill invokes `tabwright capability ...`, it is outdated. Stop and tell the user to update or reinstall that Skill; do not retry, translate, or emulate the removed command.
 
-### Evidence-grounded authenticated reads
+### Evidence-grounded authenticated requests
 
-When no specialized Skill exactly matches a one-off authenticated read, Tabwright can combine visible or programmatic page state, observed Network requests and responses, deployed source, public Source Maps, bundles and lazy chunks, Debugger call stacks and runtime values, and optional Wakaru decompilation. The agent decides which of these capabilities are useful for the user's request.
+When no specialized Skill exactly matches a one-off authenticated request, Tabwright can combine visible or programmatic page state, observed Network requests and responses, deployed source, public Source Maps, bundles and lazy chunks, Debugger call stacks and runtime values, and optional Wakaru decompilation. The agent decides which of these capabilities are useful for the user's request.
 
-For an authenticated request, identify the target environment and bind inferred behavior to the serving revision or deployed-client fingerprint rather than a branch head or build record. Record the origin, `GET` or `HEAD` method, path, input, required non-credential headers, read-only semantics, opaque browser authentication, and supporting evidence. A changed deployment fingerprint invalidates prior inference; do not guess when the version, route, authentication boundary, or side effect is uncertain.
+For an authenticated request, identify the target environment and bind inferred behavior to the serving revision or deployed-client fingerprint rather than a branch head or build record. Record the origin, method, path, input, required non-credential headers, expected side effect, opaque browser authentication, and supporting evidence. A changed deployment fingerprint invalidates prior inference; do not guess when the version, route, input, authentication boundary, or side effect is uncertain.
 
 Navigate a task-owned page to the target origin. Use the site's own in-page request client when it supplies authentication, CSRF, or signatures; otherwise issue `fetch` with observed non-credential headers and `credentials: "include"`. Keep all credentials inside the page, return only the requested data, and verify both the HTTP and application-level result.
 
-Wakaru is available when it helps interpret packed or minified code. Read the Editor API, keep the exact script content inside code, and pass it to the optional local helper. Do not print the raw bundle or execute recovered output:
+Exact runtime scripts can be saved as content-addressed local files for bounded search and reuse without printing them into model context. Wakaru is separately available when it helps interpret packed or minified code. Read the Editor API and do not print the raw bundle or execute recovered output:
 
 ```js
 const cdp = await getCDPSession({ page: state.page })
 const editor = createEditor({ cdp })
-const script = await editor.readRaw({ url: targetScriptUrl })
-const recovered = await decompileJavaScript({ source: script.content, sourceUrl: script.url, level: 'minimal' })
-console.log({ sha256: recovered.sha256, outputPath: recovered.outputPath, files: recovered.files })
+const cached = await editor.saveRaw({ url: targetScriptUrl })
+console.log(cached)
 ```
 
-The helper writes under the current project's `.tabwright/artifacts/wakaru/` directory and returns provenance plus paths. It supports `minimal`, `standard`, and `aggressive`; choose the level that fits the task. If a larger script needs a longer helper timeout, set the enclosing execute timeout higher than it.
+Wakaru can be invoked separately against exact source:
 
-Only current-account-authorized, client-observable behavior qualifies; artifacts cannot prove hidden server logic or bypass permissions. This transient path is read-only. Never use it for mutations, including endpoints that encode writes behind `GET`; use an independently managed Skill with a machine-enforced runtime contract instead.
+```js
+const script = await editor.readRaw({ url: targetScriptUrl })
+const recovered = await decompileJavaScript({ source: script.content, sourceUrl: script.url, level: 'minimal' })
+console.log({
+  sha256: recovered.sha256,
+  cacheHit: recovered.cacheHit,
+  outputPath: recovered.outputPath,
+  files: recovered.files,
+})
+```
+
+`saveRaw` writes exact scripts under the current project's `.tabwright/artifacts/web/blobs/` directory and returns only provenance plus a local path. The Wakaru helper stores derived output under `.tabwright/artifacts/wakaru/` and reuses output for the same content hash, Wakaru version, level, and unpack mode. It supports `minimal`, `standard`, and `aggressive`; choose the level that fits the task. If a larger script needs a longer helper timeout, set the enclosing execute timeout higher than it.
+
+Only current-account-authorized, client-observable behavior qualifies; artifacts cannot prove hidden server logic or bypass permissions. Classify a request by its observed semantics rather than its HTTP method: a state-changing `GET` is still a mutation.
+
+Before a one-off mutation, inspect the current state when it is observable and show the user the target environment, method, path, input, and expected effect. Stop for explicit confirmation of that concrete mutation. After confirmation, execute it exactly once in the page context, never automatically retry an ambiguous result, and verify both the response and resulting state when observable. Report an unknown outcome when verification is impossible.
 
 ### Sandboxed agent environments
 
@@ -1075,7 +1089,7 @@ await dbg.setBreakpoint({ file: scripts[0].url, line: 42 })
 // when paused: dbg.inspectLocalVariables(), dbg.stepOver(), dbg.resume()
 ```
 
-**createEditor** - view and live-edit page scripts and CSS at runtime. Edits are in-memory (persist until reload). It can also return exact unprefixed script source for optional local analysis. Useful for testing quick fixes, searching page scripts with grep, and toggling debug flags. ALWAYS read `https://playwriter.dev/resources/editor-api.md` first.
+**createEditor** - view and live-edit page scripts and CSS at runtime. Edits are in-memory (persist until reload). It can return exact unprefixed script source or save it as a content-addressed local file for optional analysis. Useful for testing quick fixes, searching page scripts with grep, and toggling debug flags. ALWAYS read `https://playwriter.dev/resources/editor-api.md` first.
 
 ```js
 const cdp = await getCDPSession({ page: state.page })
@@ -1085,7 +1099,9 @@ const matches = await editor.grep({ regex: /console\.log/ })
 await editor.edit({ url: matches[0].url, oldString: 'DEBUG = false', newString: 'DEBUG = true' })
 ```
 
-**decompileJavaScript** - optional local Wakaru helper for a relevant script whose packed or minified form blocks understanding. Do not call it when page state, Network responses, Source Maps, or readable JavaScript already answer the task. It copies the supplied text into a scoped project artifact directory and never executes recovered code.
+For local analysis without returning source text, use `await editor.saveRaw({ url })`; it returns the content hash, byte size, Source Map URL when available, local path, and cache status.
+
+**decompileJavaScript** - optional local Wakaru helper for a relevant packed or minified script. It stores the exact input by content hash, reuses matching derived output, and never executes recovered code.
 
 **screenshotWithAccessibilityLabels** - take a screenshot with Vimium-style visual labels overlaid on interactive elements. Shows labels, captures screenshot, then removes labels. The image and accessibility snapshot are automatically included in the response. Can be called multiple times to capture multiple screenshots. Use a timeout of **20 seconds** for complex pages.
 

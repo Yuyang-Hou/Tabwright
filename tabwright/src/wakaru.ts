@@ -1,8 +1,8 @@
 import childProcess from 'node:child_process'
-import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getInstalledWakaruCliPath } from './package-paths.js'
+import { saveJavaScriptArtifact } from './javascript-artifacts.js'
+import { getInstalledWakaruCliPath, getInstalledWakaruVersion } from './package-paths.js'
 import { getTabwrightProjectDataDir } from './product-paths.js'
 
 export type WakaruLevel = 'minimal' | 'standard' | 'aggressive'
@@ -21,6 +21,8 @@ export interface DecompileJavaScriptResult {
   sha256: string
   level: WakaruLevel
   unpack: boolean
+  wakaruVersion: string
+  cacheHit: boolean
   root: string
   inputPath: string
   outputPath: string
@@ -30,7 +32,6 @@ export interface DecompileJavaScriptResult {
   warnings: string[]
 }
 
-const MAX_SOURCE_BYTES = 50 * 1024 * 1024
 const MAX_OUTPUT_BYTES = 200 * 1024 * 1024
 const DEFAULT_TIMEOUT = 8_000
 const MAX_TIMEOUT = 120_000
@@ -76,28 +77,49 @@ function listArtifactFiles(options: { root: string; directory: string }): string
 }
 
 export async function decompileJavaScript(options: DecompileJavaScriptOptions): Promise<DecompileJavaScriptResult> {
-  if (!options.source.trim()) {
-    throw new Error('JavaScript source must not be empty')
-  }
-  const sourceBytes = Buffer.byteLength(options.source)
-  if (sourceBytes > MAX_SOURCE_BYTES) {
-    throw new Error(`JavaScript source exceeds the ${MAX_SOURCE_BYTES} byte limit`)
-  }
-
   const level = options.level || 'minimal'
   const unpack = options.unpack ?? true
   const timeout = Math.min(Math.max(options.timeout || DEFAULT_TIMEOUT, 1), MAX_TIMEOUT)
-  const sha256 = crypto.createHash('sha256').update(options.source).digest('hex')
+  const sourceArtifact = saveJavaScriptArtifact({ source: options.source, cwd: options.cwd })
+  const { sha256, bytes: sourceBytes, path: inputPath } = sourceArtifact
+  const wakaruVersion = getInstalledWakaruVersion()
   const artifactsRoot = path.join(getTabwrightProjectDataDir({ cwd: options.cwd }), 'artifacts', 'wakaru')
   fs.mkdirSync(artifactsRoot, { recursive: true, mode: 0o700 })
-  const root = fs.mkdtempSync(path.join(artifactsRoot, `${sha256.slice(0, 12)}-`))
-  const inputPath = path.join(root, 'input.js')
+  const cacheKey = `${sha256}-${wakaruVersion}-${level}-${unpack ? 'unpack' : 'single'}`
+  const root = path.join(artifactsRoot, cacheKey)
   const outputPath = path.join(root, unpack ? 'output' : 'output.js')
   const reportPath = path.join(root, 'wakaru-report.json')
   const manifestPath = path.join(root, 'manifest.json')
 
+  if (fs.existsSync(manifestPath) && fs.existsSync(outputPath) && fs.existsSync(reportPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { warnings?: unknown }
+    const warnings = Array.isArray(manifest.warnings)
+      ? manifest.warnings.filter((warning): warning is string => typeof warning === 'string')
+      : []
+    const files = listArtifactFiles({ root, directory: root })
+      .map((filePath) => path.relative(root, filePath))
+      .filter((filePath) => filePath !== 'manifest.json')
+    return {
+      sourceUrl: options.sourceUrl,
+      sha256,
+      level,
+      unpack,
+      wakaruVersion,
+      cacheHit: true,
+      root,
+      inputPath,
+      outputPath,
+      reportPath,
+      manifestPath,
+      files,
+      warnings,
+    }
+  }
+
+  fs.rmSync(root, { recursive: true, force: true })
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 })
+
   try {
-    fs.writeFileSync(inputPath, options.source, { encoding: 'utf8', mode: 0o600 })
     const result = await runWakaru({
       args: [inputPath, ...(unpack ? ['--unpack'] : []), '--level', level, '--json', '-o', outputPath],
       timeout,
@@ -119,6 +141,7 @@ export async function decompileJavaScript(options: DecompileJavaScriptOptions): 
       sourceBytes,
       level,
       unpack,
+      wakaruVersion,
       inputPath,
       outputPath,
       reportPath,
@@ -132,6 +155,8 @@ export async function decompileJavaScript(options: DecompileJavaScriptOptions): 
       sha256,
       level,
       unpack,
+      wakaruVersion,
+      cacheHit: false,
       root,
       inputPath,
       outputPath,

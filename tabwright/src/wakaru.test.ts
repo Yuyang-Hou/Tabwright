@@ -41,11 +41,26 @@ describe('decompileJavaScript', () => {
     expect(result.sha256).toMatch(/^[a-f0-9]{64}$/)
     expect(result.level).toBe('minimal')
     expect(result.unpack).toBe(true)
+    expect(result.wakaruVersion).toBe('1.10.0')
+    expect(result.cacheHit).toBe(false)
     expect(result.root.startsWith(path.join(cwd, '.tabwright', 'artifacts', 'wakaru'))).toBe(true)
+    expect(result.inputPath.startsWith(path.join(cwd, '.tabwright', 'artifacts', 'web', 'blobs'))).toBe(true)
+    expect(fs.readFileSync(result.inputPath, 'utf8')).toBe(source)
     expect(recovered).toContain('/notifications/indicator')
     expect(recovered).toContain('X-Requested-With')
     expect(recovered).toContain('unavailable')
     expect(fs.existsSync(result.manifestPath)).toBe(true)
+
+    const cached = await decompileJavaScript({
+      source,
+      sourceUrl: 'https://cdn.example.com/same-content.js',
+      cwd,
+      timeout: 30_000,
+    })
+    expect(cached.root).toBe(result.root)
+    expect(cached.inputPath).toBe(result.inputPath)
+    expect(cached.sourceUrl).toBe('https://cdn.example.com/same-content.js')
+    expect(cached.cacheHit).toBe(true)
   })
 
   test('rejects empty input before creating artifacts', async () => {
