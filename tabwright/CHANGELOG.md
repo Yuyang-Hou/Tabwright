@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.4.1
+
+### Patch Changes
+
+- 406ecdc: Publish installable registry metadata by converting workspace dependencies before upload.
+
 ## 3.4.0
 
 ### Minor Changes
