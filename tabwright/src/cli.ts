@@ -2558,7 +2558,13 @@ cli.version(VERSION)
 
 const commandLineArgs = process.argv.slice(2)
 const isVersionOnly = commandLineArgs.length === 1 && ['-v', '--version'].includes(commandLineArgs[0] || '')
-if (isVersionOnly) {
+if (commandLineArgs[0] === 'capability') {
+  exitWithError(
+    new Error(
+      'This legacy command comes from an outdated Agent Skill. Tabwright Capability commands were removed. Update or reinstall that Skill, then retry. Current Skills use `tabwright skill runtime run <absolute-skill-directory>`. Do not retry or translate the legacy command automatically.',
+    ),
+  )
+} else if (isVersionOnly) {
   cli.outputVersion()
 } else {
   await cli.parse()

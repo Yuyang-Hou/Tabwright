@@ -28,6 +28,8 @@ tabwright skill runtime run "<absolute-skill-directory>" --input-json '<json-inp
 
 Validation never executes the runtime. Running applies Tabwright's existing contract and stores authentication, run evidence, quarantine state, and artifacts outside the Skill under `~/.tabwright/skill-runtime-state/`. If the selected operation requires confirmation, stop for explicit approval of its concrete input and effect before using the exact confirmation token. `--force` never bypasses confirmation.
 
+If a selected domain Skill invokes `tabwright capability ...`, it is outdated. Stop and tell the user to update or reinstall that Skill; do not retry, translate, or emulate the removed command.
+
 ### Evidence-grounded authenticated reads
 
 When no specialized Skill exactly matches a one-off authenticated read, Tabwright can combine visible or programmatic page state, observed Network requests and responses, deployed source, public Source Maps, bundles and lazy chunks, Debugger call stacks and runtime values, and optional Wakaru decompilation. The agent decides which of these capabilities are useful for the user's request.

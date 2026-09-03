@@ -18,6 +18,8 @@ tabwright skill runtime run "<absolute-skill-directory>" --input-json '<json-inp
 
 Validation does not execute the runtime. Running applies the existing Tabwright safety contract and stores authentication, run evidence, quarantine state, and artifacts under `~/.tabwright/skill-runtime-state/`, outside the Skill. If the selected operation requires confirmation, stop for explicit approval of its concrete input and effect before using the operation's exact confirmation token. `--force` never bypasses confirmation.
 
+If a selected domain Skill invokes `tabwright capability ...`, it is outdated. Stop and tell the user to update or reinstall that Skill; do not retry, translate, or emulate the removed command.
+
 
 ## Evidence-Grounded Authenticated Reads
 

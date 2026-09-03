@@ -207,6 +207,18 @@ describe('tabwright cli help', () => {
     }
   }, 30000)
 
+  test('explains that legacy capability commands require a Skill update', async () => {
+    await expect(runCli(['capability', 'run', '/example/runtime', '--json'])).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('outdated Agent Skill'),
+    })
+
+    await expect(runCli(['capability', 'refresh-auth', '/example/runtime', '--json'])).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('Update or reinstall that Skill'),
+    })
+  }, 30000)
+
   test('unknown subcommand exits with code 1', async () => {
     try {
       await runCli(['session', 'nonexistent'])

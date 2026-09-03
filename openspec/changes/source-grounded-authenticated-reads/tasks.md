@@ -29,3 +29,4 @@
 - [x] 4.3 Remove legacy Capability authoring and routing from the primary Tabwright Skill workflow
 - [x] 4.4 Update README, generated resources, focused tests, and validation evidence
 - [x] 4.5 Delete the Capability registry, Studio, MCP tool, replay compiler/evaluator, draft-writing sandbox helpers, and migrate bundled Skills
+- [x] 4.6 Reject removed Capability commands with actionable outdated-Skill guidance and no compatibility execution

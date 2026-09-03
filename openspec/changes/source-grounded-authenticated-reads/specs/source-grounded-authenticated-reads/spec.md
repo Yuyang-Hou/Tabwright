@@ -135,6 +135,17 @@ Tabwright SHALL validate and execute a Skill's bundled runtime without copying i
 - **THEN** Tabwright applies the existing schema, permission, authentication, confirmation, isolation, and run-evidence controls
 - **AND** device-local state remains outside the Skill directory
 
+### Requirement: Legacy commands identify outdated Skills
+
+Tabwright SHALL reject removed Capability commands with guidance that lets an agent identify an outdated domain Skill.
+
+#### Scenario: Outdated Skill invokes a removed command
+
+- **WHEN** an Agent Skill invokes `tabwright capability ...`
+- **THEN** the CLI exits without executing or translating the command
+- **AND** it tells the agent to update or reinstall the selected Skill
+- **AND** it names the current Skill-owned runtime command
+
 ### Requirement: Replay remains authoring evidence
 
 Tabwright SHALL expose recorded activity for inspection without compiling it into a Tabwright-owned draft runtime.
