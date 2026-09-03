@@ -2,7 +2,7 @@
 
 - [x] 1.1 Document exact serving-revision and source-evidence requirements
 - [x] 1.2 Document authenticated page-context execution and stop conditions
-- [x] 1.3 Keep transient execution read-only and define when to persist a capability
+- [x] 1.3 Define confirmed one-off mutation safeguards and when to persist a Skill runtime
 - [x] 1.4 Add an exact-deployment fallback for pages whose source is unavailable
 - [x] 1.5 Preserve evidence-confirmed non-credential request headers
 
@@ -21,6 +21,7 @@
 - [x] 3.3 Describe page, Network, source, runtime debugging, and Wakaru as capabilities the agent may combine using its own judgment
 - [x] 3.4 Add focused tests for raw source provenance and local Wakaru output
 - [x] 3.5 Rebuild generated resources and rerun typecheck, OpenSpec, Skill, and diff validation
+- [x] 3.6 Store explicitly selected scripts by content hash and reuse matching Wakaru output
 
 ## 4. Skill-owned runtime
 

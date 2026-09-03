@@ -27,6 +27,14 @@ export interface RawScriptResult {
     sha256: string;
     sourceMapURL?: string;
 }
+export interface SavedRawScriptResult {
+    url: string;
+    sha256: string;
+    bytes: number;
+    path: string;
+    cacheHit: boolean;
+    sourceMapURL?: string;
+}
 /**
  * A class for viewing and editing web page scripts via Chrome DevTools Protocol.
  * Provides a Claude Code-like interface: list, read, edit, grep.
@@ -56,12 +64,14 @@ export interface RawScriptResult {
  */
 export declare class Editor {
     private cdp;
+    private cwd?;
     private enabled;
     private scripts;
     private stylesheets;
     private sourceCache;
-    constructor({ cdp }: {
+    constructor({ cdp, cwd }: {
         cdp: ICDPSession;
+        cwd?: string;
     });
     private setupEventListeners;
     /**
@@ -138,6 +148,13 @@ export declare class Editor {
     readRaw({ url }: {
         url: string;
     }): Promise<RawScriptResult>;
+    /**
+     * Saves an exact runtime script to a content-addressed local artifact without returning its content.
+     * Repeated saves of the same script reuse the existing file.
+     */
+    saveRaw({ url }: {
+        url: string;
+    }): Promise<SavedRawScriptResult>;
     private getSource;
     /**
      * Edits a script or stylesheet by replacing oldString with newString.
@@ -257,7 +274,15 @@ async function readScript() {
   console.log(partial)
 }
 
-// Example: Decompile only when packed code blocks understanding
+// Example: Save exact script content for local search without printing it
+async function cacheScriptForLocalSearch() {
+  const cdp = await getCDPSession({ page })
+  const editor = createEditor({ cdp })
+  const cached = await editor.saveRaw({ url: 'https://example.com/assets/app.min.js' })
+  console.log(cached)
+}
+
+// Example: Decompile a packed script
 async function decompilePackedScript() {
   const cdp = await getCDPSession({ page })
   const editor = createEditor({ cdp })
@@ -267,7 +292,7 @@ async function decompilePackedScript() {
     sourceUrl: script.url,
     level: 'minimal',
   })
-  console.log({ sha256: result.sha256, outputPath: result.outputPath, files: result.files })
+  console.log({ sha256: result.sha256, cacheHit: result.cacheHit, outputPath: result.outputPath, files: result.files })
 }
 
 // Example: Edit a script (exact string replacement)

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import type { ICDPSession } from './cdp-session.js'
+import { saveJavaScriptArtifact } from './javascript-artifacts.js'
 
 export interface ReadResult {
   content: string
@@ -23,6 +24,15 @@ export interface RawScriptResult {
   url: string
   content: string
   sha256: string
+  sourceMapURL?: string
+}
+
+export interface SavedRawScriptResult {
+  url: string
+  sha256: string
+  bytes: number
+  path: string
+  cacheHit: boolean
   sourceMapURL?: string
 }
 
@@ -60,13 +70,15 @@ interface ScriptRecord {
  */
 export class Editor {
   private cdp: ICDPSession
+  private cwd?: string
   private enabled = false
   private scripts = new Map<string, ScriptRecord>()
   private stylesheets = new Map<string, string>()
   private sourceCache = new Map<string, string>()
 
-  constructor({ cdp }: { cdp: ICDPSession }) {
+  constructor({ cdp, cwd }: { cdp: ICDPSession; cwd?: string }) {
     this.cdp = cdp
+    this.cwd = cwd
     this.setupEventListeners()
   }
 
@@ -248,6 +260,23 @@ export class Editor {
       url,
       content,
       sha256: crypto.createHash('sha256').update(content).digest('hex'),
+      sourceMapURL: script.sourceMapURL,
+    }
+  }
+
+  /**
+   * Saves an exact runtime script to a content-addressed local artifact without returning its content.
+   * Repeated saves of the same script reuse the existing file.
+   */
+  async saveRaw({ url }: { url: string }): Promise<SavedRawScriptResult> {
+    const script = await this.readRaw({ url })
+    const saved = saveJavaScriptArtifact({ source: script.content, cwd: this.cwd })
+    return {
+      url,
+      sha256: saved.sha256,
+      bytes: saved.bytes,
+      path: saved.path,
+      cacheHit: saved.cacheHit,
       sourceMapURL: script.sourceMapURL,
     }
   }

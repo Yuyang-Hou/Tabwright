@@ -62,3 +62,18 @@
 - Generated Skill resources were rebuilt, Skill Creator validation passed, and the updated Codex Skill was installed with matching bundled and installed hashes.
 - Focused Skill and CLI tests: 12 passed.
 - `openspec validate source-grounded-authenticated-reads --strict` and `git diff --check`: passed.
+
+## 2026-09-03 local bundle cache verification
+
+- `Editor.saveRaw` stores exact runtime JavaScript once under `.tabwright/artifacts/web/blobs/<sha256>.js` and returns only its path, hash, size, Source Map URL when available, and cache status.
+- Wakaru input reuses the content-addressed source file, while derived output is keyed by source hash, pinned Wakaru version, level, and unpack mode.
+- Focused Vitest run: 32 tests passed across Editor persistence, real Wakaru generation and cache reuse, executor utilities, and bundled Skill compatibility.
+- `pnpm typecheck`, the full `pnpm build`, Skill Creator validation, strict OpenSpec validation, Changesets status, and `git diff --check`: passed.
+
+## 2026-09-03 confirmed one-off mutation guidance
+
+- The compact and full Tabwright Skills allow evidence-grounded one-off mutations after showing the concrete environment, method, path, input, and expected effect and receiving explicit confirmation.
+- Mutation guidance classifies requests by observed semantics, executes a confirmed request once, prohibits automatic retry after an ambiguous result, and requires response and state verification when observable.
+- `pnpm typecheck`, the full `pnpm build`, Skill Creator validation, strict OpenSpec validation, Changesets status, and generated-resource equality checks passed.
+- Focused Skill installation and CLI tests: 17 passed.
+- The locally installed Codex Skill was safely updated from the local build and its installed hash matches the bundled hash.
