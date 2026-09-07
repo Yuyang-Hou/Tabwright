@@ -29,11 +29,31 @@ function truncateString(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength)}…[truncated ${truncatedCount} chars]`
 }
 
+function isCredentialField(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return /^(cookies?|setcookie|authorization|proxyauthorization)$|(?:token|secret|password|passwd|apikey|credentials?)$/.test(normalized)
+}
+
 function createTruncatingReplacer({ maxStringLength }: { maxStringLength: number }) {
   const seen = new WeakSet<object>()
-  return (_key: string, value: unknown) => {
+  return function (this: unknown, key: string, value: unknown): unknown {
+    if (isCredentialField(key)) {
+      return '[REDACTED]'
+    }
+    // CDP also represents headers as { name, value } pairs and raw header text.
+    if (key === 'value' && typeof this === 'object' && this !== null) {
+      const entry = this as { name?: unknown }
+      if (typeof entry.name === 'string' && isCredentialField(entry.name)) {
+        return '[REDACTED]'
+      }
+    }
     if (typeof value === 'string') {
-      return truncateString(value, maxStringLength)
+      const redacted = key.toLowerCase().endsWith('headerstext')
+        ? value.replace(/^([^:\r\n]+):[^\r\n]*/gm, (line: string, name: string) => {
+            return isCredentialField(name) ? `${name}: [REDACTED]` : line
+          })
+        : value
+      return truncateString(redacted, maxStringLength)
     }
     if (typeof value === 'object' && value !== null) {
       if (seen.has(value)) {

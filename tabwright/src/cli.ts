@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { goke, openInBrowser } from 'goke'
+import { goke } from 'goke'
 import { z } from 'zod'
 import pc from 'picocolors'
 
@@ -30,41 +30,56 @@ import {
   type ExtensionStatus,
 } from './relay-client.js'
 import { discoverChromeInstances, resolveDirectInput, type DiscoveredInstance } from './chrome-discovery.js'
-import { getCloudClient, loadCloudAuth, saveCloudAuth, CloudClient, buildLiveUrl } from './cloud-client.js'
-import {
-  getCapabilityExecutionConfig,
-  getCapabilitySafetySummary,
-  requireCapability,
-  resolveCapabilityOperation,
-  type CapabilityRecord,
-} from './skill-runtime.js'
 import {
   getTabwrightAgentSkillStatus,
   installTabwrightAgentSkill,
   type TabwrightAgentSkillTarget,
 } from './tabwright-agent-skill.js'
-import {
-  refreshSkillRuntimeAuthWithExecutor,
-  type CapabilityAuthRefreshResult,
-} from './skill-runtime-auth.js'
-import { getSkillRuntimeAuthState, shouldAutoRefreshSkillRuntimeAuth } from './skill-runtime-auth-state.js'
-import {
-  finalizeSkillRuntimeRun,
-  normalizeSkillRuntimeExecutionText,
-  prepareSkillRuntimeRun,
-  readSkillRuntimeExecutionObservation,
-  runNodeSkillRuntime,
-} from './skill-runtime-runner.js'
-import { createReplayAiIndexFromRecording, saveReplayAiIndex } from './replay-ai-index.js'
-import { listSavedRrwebRecordings } from './rrweb-recording-relay.js'
-import { buildReplayIndexCommand, toCompactReplayAiIndex } from './replay-handoff.js'
-import type { ExecuteResult } from './executor.js'
 import { buildDoctorReport, formatDoctorReport, type DoctorSession } from './doctor.js'
-import { discoverAgentSkillCapabilities } from './agent-skill-discovery.js'
+import { documentationTopics, readDocumentation } from './documentation.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const cli = goke('tabwright')
+
+cli
+  .command('docs [topic]', 'Read local browser debugging API references without connecting to a browser')
+  .option('--offset <lines>', z.number().default(0).describe('Zero-based starting line'))
+  .option('--limit <lines>', z.number().default(160).describe('Maximum lines to return (1-500)'))
+  .option('--json', 'Print structured documentation or the topic list')
+  .action((topic: string | undefined, options: { offset: number; limit: number; json?: boolean }) => {
+    try {
+      if (!topic) {
+        const topics = documentationTopics.map(({ topic, description }) => {
+          return { topic, description, command: `tabwright docs ${topic}` }
+        })
+        console.log(
+          options.json
+            ? JSON.stringify({ topics }, null, 2)
+            : topics
+                .map((item) => {
+                  return `${item.command.padEnd(28)} ${item.description}`
+                })
+                .join('\n'),
+        )
+        return
+      }
+      const reference = readDocumentation({ topic, offset: options.offset, limit: options.limit })
+      if (options.json) {
+        console.log(JSON.stringify(reference, null, 2))
+        return
+      }
+      console.log(reference.content)
+      console.log(
+        `\n[${reference.topic}: lines ${Math.min(reference.offset + 1, reference.end)}-${reference.end} of ${reference.totalLines}]`,
+      )
+      if (reference.nextCommand) {
+        console.log(`Next: ${reference.nextCommand}`)
+      }
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
 
 cli.on('command:*', () => {
   const firstArg = cli.args[0]
@@ -94,77 +109,77 @@ cli
   .option('--headed', 'Force headed mode even on Linux without DISPLAY/WAYLAND_DISPLAY')
   .option('--disable-sandbox', 'Disable the browser sandbox, useful on some VPS setups')
   .action(async (binaryPath, options) => {
-      if (options.headless && options.headed) {
-        console.error('Error: --headless and --headed cannot be used together.')
-        process.exit(1)
-      }
+    if (options.headless && options.headed) {
+      console.error('Error: --headless and --headed cannot be used together.')
+      process.exit(1)
+    }
 
-      try {
-        // Avoid loading playwright-core during generic CLI startup/help. This command
-        // is the only path that needs browser discovery and bundled extension launch.
-        const [{ getBrowserLaunchArgs, getDefaultBrowserUserDataDir, startBrowserProcess }, { resolveBrowserExecutablePath, shouldUseHeadlessByDefault }, { getBundledExtensionPath }] = await Promise.all([
-          import('./browser-launch.js'),
-          import('./browser-config.js'),
-          import('./package-paths.js'),
-        ])
-
-        await ensureRelayServer({ logger: console })
-
-        const browserPath = resolveBrowserExecutablePath({ browserPath: binaryPath })
-        const extensionPath = getBundledExtensionPath()
-        const userDataDir = path.resolve(options.userDataDir || getDefaultBrowserUserDataDir())
-        const headless = options.headed ? false : options.headless ? true : shouldUseHeadlessByDefault()
-        const args = getBrowserLaunchArgs({
-          extensionPath,
-          userDataDir,
-          headless,
-          noSandbox: options.disableSandbox,
-        })
-
-        const { pid } = startBrowserProcess({
-          browserPath,
-          args,
-          userDataDir,
-        })
-
-        const connectedExtensions = await waitForConnectedExtensions({
-          timeoutMs: 15000,
-          pollIntervalMs: 250,
-          logger: console,
-        })
-
-        console.log(`Browser started (pid ${pid}).`)
-        console.log(`  Binary: ${browserPath}`)
-        console.log(`  Extension: ${extensionPath}`)
-        console.log(`  Profile: ${userDataDir}`)
-        console.log(`  Mode: ${headless ? 'headless' : 'headed'}`)
-        console.log('  Replay recording: rrweb DOM capture enabled')
-
-        if (connectedExtensions.length > 0) {
-          console.log('Tabwright extension connected to the relay server.')
-          return
-        }
-
-        console.log('Browser started, but the extension has not connected yet.')
-        console.log(`Check logs at: ${LOG_FILE_PATH}`)
-      } catch (error: any) {
-        console.error(`Error: ${error.message}`)
-        process.exit(1)
-      }
-    },
-  )
-
-cli
-  .command('browser install', 'Download Chrome for Testing for headless browser automation')
-  .action(async () => {
     try {
-      const { installChrome } = await import('./browser-install.js')
-      await installChrome()
+      // Avoid loading playwright-core during generic CLI startup/help. This command
+      // is the only path that needs browser discovery and bundled extension launch.
+      const [
+        { getBrowserLaunchArgs, getDefaultBrowserUserDataDir, startBrowserProcess },
+        { resolveBrowserExecutablePath, shouldUseHeadlessByDefault },
+        { getBundledExtensionPath },
+      ] = await Promise.all([
+        import('./browser-launch.js'),
+        import('./browser-config.js'),
+        import('./package-paths.js'),
+      ])
+
+      await ensureRelayServer({ logger: console })
+
+      const browserPath = resolveBrowserExecutablePath({ browserPath: binaryPath })
+      const extensionPath = getBundledExtensionPath()
+      const userDataDir = path.resolve(options.userDataDir || getDefaultBrowserUserDataDir())
+      const headless = options.headed ? false : options.headless ? true : shouldUseHeadlessByDefault()
+      const args = getBrowserLaunchArgs({
+        extensionPath,
+        userDataDir,
+        headless,
+        noSandbox: options.disableSandbox,
+      })
+
+      const { pid } = startBrowserProcess({
+        browserPath,
+        args,
+        userDataDir,
+      })
+
+      const connectedExtensions = await waitForConnectedExtensions({
+        timeoutMs: 15000,
+        pollIntervalMs: 250,
+        logger: console,
+      })
+
+      console.log(`Browser started (pid ${pid}).`)
+      console.log(`  Binary: ${browserPath}`)
+      console.log(`  Extension: ${extensionPath}`)
+      console.log(`  Profile: ${userDataDir}`)
+      console.log(`  Mode: ${headless ? 'headless' : 'headed'}`)
+
+      if (connectedExtensions.length > 0) {
+        console.log('Tabwright extension connected to the relay server.')
+        return
+      }
+
+      console.log('Browser started, but the extension has not connected yet.')
+      console.log(`Check logs at: ${LOG_FILE_PATH}`)
     } catch (error: any) {
       console.error(`Error: ${error.message}`)
       process.exit(1)
     }
   })
+
+cli.command('browser install', 'Download Chrome for Testing for headless browser automation').action(async () => {
+  try {
+    const { installChrome } = await import('./browser-install.js')
+    await installChrome()
+  } catch (error: any) {
+    console.error(`Error: ${error.message}`)
+    process.exit(1)
+  }
+})
 
 cli
   .command('', 'Start the MCP server or controls the browser with -e')
@@ -172,10 +187,13 @@ cli
   .option('--host <host>', 'Remote relay server host to connect to (or use TABWRIGHT_HOST env var)')
   .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
   .option('-s, --session <name>', 'Session ID (required for -e, get one with `tabwright session new`)')
-  .option('-e, --eval <code>', 'Execute JavaScript code and exit, read https://playwriter.dev/SKILL.md for usage')
+  .option('-e, --eval <code>', 'Execute JavaScript; use `tabwright docs` for local browser debugging references')
   .option('-f, --file <path>', 'Execute JavaScript from a file and exit')
   .option('--patchright', 'Use @playwriter/patchright-core for stealth mode (bypasses bot detection)')
-  .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
+  .option(
+    '--timeout [ms]',
+    z.number().default(10000).describe('Response deadline in milliseconds; does not cancel browser actions'),
+  )
   .action(async (options) => {
     if (options.patchright) {
       process.env.TABWRIGHT_PATCHRIGHT = '1'
@@ -245,7 +263,9 @@ function buildAuthHeaders({ token, json }: { token?: string; json?: boolean }): 
   return headers
 }
 
-async function fetchExtensionsStatus({ host, token }: { host?: string; token?: string } = {}): Promise<ExtensionStatus[]> {
+async function fetchExtensionsStatus({ host, token }: { host?: string; token?: string } = {}): Promise<
+  ExtensionStatus[]
+> {
   try {
     const serverUrl = await getServerUrl(host)
     const headers = buildAuthHeaders({ token })
@@ -362,7 +382,6 @@ async function executeCode(options: {
       images: Array<{ data: string; mimeType: string }>
       screenshots: Array<{ path: string; base64: string; snapshot: string; labelCount: number }>
       isError: boolean
-      isCloud?: boolean
     }
 
     // Print output
@@ -405,14 +424,6 @@ async function executeCode(options: {
         }
       }
     }
-
-    if (result.isCloud) {
-      console.error(pc.dim(`\nCloud session. Run \`tabwright session delete ${sessionId}\` when done.`))
-    }
-
-    if (result.isError) {
-      process.exit(1)
-    }
   } catch (error: any) {
     if (error.cause?.code === 'ECONNREFUSED') {
       console.error('Error: Cannot connect to relay server.')
@@ -425,390 +436,11 @@ async function executeCode(options: {
   }
 }
 
-type CliExecuteResult = ExecuteResult & { isCloud?: boolean }
-
-interface SkillRuntimeRunOptions {
-  input?: string
-  inputJson?: string
-  session?: string
-  host?: string
-  token?: string
-  timeout?: number
-  force?: boolean
-  confirm?: string
-  browser?: string
-  json?: boolean
-  keepSession?: boolean
-}
-
-interface SkillRuntimeRefreshAuthOptions {
-  host?: string
-  token?: string
-  timeout?: number
-  browser?: string
-}
-
-function resolveSkillRuntimeTarget(options: { target: string; cwd?: string }): {
-  skillDir: string
-  runtimeDir: string
-  capability: CapabilityRecord
-} {
-  const skillDir = path.resolve(options.cwd || process.cwd(), options.target)
-  if (!fs.existsSync(path.join(skillDir, 'SKILL.md'))) {
-    throw new Error(`Agent Skill not found: ${skillDir}`)
-  }
-  const runtimeDir = path.join(skillDir, 'runtime')
-  const capability = requireCapability({ id: runtimeDir, cwd: options.cwd })
-  if (path.basename(skillDir) !== capability.manifest.id) {
-    throw new Error(
-      `Agent Skill directory name must match its runtime id (${capability.manifest.id}): ${skillDir}`,
-    )
-  }
-  return { skillDir, runtimeDir, capability }
-}
-
-function parseRuntimeInput(options: { input?: string; inputJson?: string }): unknown {
-  const rawInput = options.inputJson || options.input || '{}'
-  try {
-    return JSON.parse(rawInput)
-  } catch (error) {
-    throw new Error(`Invalid JSON input: ${rawInput}`, { cause: error })
-  }
-}
-
-async function requestCliExecute(options: {
-  code: string
-  timeout: number
-  sessionId: string
-  host?: string
-  token?: string
-  includeStructuredResult?: boolean
-}): Promise<CliExecuteResult> {
-  if (!options.host && !process.env.TABWRIGHT_HOST) {
-    await ensureRelayServer({ logger: console })
-  }
-  const serverUrl = await getServerUrl(options.host)
-
-  const response = await fetch(`${serverUrl}/cli/execute`, {
-    method: 'POST',
-    headers: buildAuthHeaders({ token: options.token, json: true }),
-    body: JSON.stringify({
-      sessionId: options.sessionId,
-      code: options.code,
-      timeout: options.timeout,
-      cwd: process.cwd(),
-      includeStructuredResult: options.includeStructuredResult,
-    }),
-  })
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`Execute failed: ${response.status} ${text}`)
-  }
-  return (await response.json()) as CliExecuteResult
-}
-
-async function createRuntimeRunSession(options: {
-  browser: string
-  host?: string
-  token?: string
-}): Promise<{ sessionId: string; autoCreated: boolean }> {
-  const isLocal = !options.host && !process.env.TABWRIGHT_HOST
-  await ensureRelayForSessionCreation(isLocal)
-  const serverUrl = await getServerUrl(options.host)
-
-  const body = (() => {
-    if (options.browser === 'headless') {
-      return { headless: true, cwd: process.cwd() }
-    }
-    if (options.browser === 'user') {
-      return { cwd: process.cwd() }
-    }
-    return { extensionId: options.browser, cwd: process.cwd() }
-  })()
-
-  const response = await fetch(`${serverUrl}/cli/session/new`, {
-    method: 'POST',
-    headers: buildAuthHeaders({ token: options.token, json: true }),
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`Failed to create ${options.browser} session: ${response.status} ${text}`)
-  }
-  const result = (await response.json()) as { id: string }
-  return { sessionId: result.id, autoCreated: true }
-}
-
-async function deleteRuntimeRunSession(options: { sessionId: string; host?: string; token?: string }): Promise<void> {
-  const serverUrl = await getServerUrl(options.host)
-  await fetch(`${serverUrl}/cli/session/delete`, {
-    method: 'POST',
-    headers: buildAuthHeaders({ token: options.token, json: true }),
-    body: JSON.stringify({ sessionId: options.sessionId }),
-  }).catch(() => {})
-}
-
-async function refreshRuntimeAuthFromCli(options: {
-  id: string
-  cliOptions: SkillRuntimeRefreshAuthOptions
-}): Promise<CapabilityAuthRefreshResult> {
-  const sessionInfo = await createRuntimeRunSession({
-    browser: options.cliOptions.browser || 'user',
-    host: options.cliOptions.host,
-    token: options.cliOptions.token,
-  })
-
-  try {
-    const result = await refreshSkillRuntimeAuthWithExecutor({
-      id: options.id,
-      cwd: process.cwd(),
-      timeout: options.cliOptions.timeout || 10000,
-      browserKey: options.cliOptions.browser || 'user',
-      executor: {
-        execute: (code, timeout, executeOptions) => {
-          return requestCliExecute({
-            code,
-            timeout: timeout || 10000,
-            sessionId: sessionInfo.sessionId,
-            host: options.cliOptions.host,
-            token: options.cliOptions.token,
-            includeStructuredResult: executeOptions?.includeStructuredResult,
-          })
-        },
-      },
-    })
-    return result
-  } finally {
-    await deleteRuntimeRunSession({
-      sessionId: sessionInfo.sessionId,
-      host: options.cliOptions.host,
-      token: options.cliOptions.token,
-    })
-  }
-}
-
-async function refreshRuntimeAuthForRun(options: {
-  id: string
-  cliOptions: SkillRuntimeRunOptions
-  force?: boolean
-}): Promise<boolean> {
-  const capability = requireCapability({ id: options.id, cwd: process.cwd() })
-  const authState = getSkillRuntimeAuthState({ capability })
-  if (!shouldAutoRefreshSkillRuntimeAuth({ state: authState, force: options.force })) {
-    return false
-  }
-  await refreshRuntimeAuthFromCli({
-    id: options.id,
-    cliOptions: {
-      host: options.cliOptions.host,
-      token: options.cliOptions.token,
-      timeout: options.cliOptions.timeout,
-      browser: 'user',
-    },
-  })
-  return true
-}
-
-function runtimeErrorMatchesAuth(options: { capability: CapabilityRecord; error: unknown }): boolean {
-  const message = options.error instanceof Error ? options.error.message : String(options.error)
-  const normalized = message.toLowerCase()
-  return options.capability.manifest.auth.failureSignals.some((signal) => {
-    return normalized.includes(signal.toLowerCase())
-  })
-}
-
-async function runSkillRuntimeFromCli(options: {
-  id: string
-  cliOptions: SkillRuntimeRunOptions
-}): Promise<void> {
-  const input = parseRuntimeInput({ input: options.cliOptions.input, inputJson: options.cliOptions.inputJson })
-  prepareSkillRuntimeRun({
-    id: options.id,
-    input,
-    cwd: process.cwd(),
-    force: options.cliOptions.force,
-    confirmation: options.cliOptions.confirm,
-  })
-  await refreshRuntimeAuthForRun({ id: options.id, cliOptions: options.cliOptions })
-  try {
-    await runSkillRuntimeFromCliOnce({
-      id: options.id,
-      cliOptions: options.cliOptions,
-      input,
-    })
-  } catch (error: unknown) {
-    const capability = requireCapability({ id: options.id, cwd: process.cwd() })
-    if (!runtimeErrorMatchesAuth({ capability, error })) {
-      throw error
-    }
-    const operation = resolveCapabilityOperation({ capability, input })
-    const refreshed = await refreshRuntimeAuthForRun({
-      id: options.id,
-      cliOptions: options.cliOptions,
-      force: true,
-    })
-    if (!refreshed) {
-      throw error
-    }
-    if (operation.sideEffect === 'read') {
-      await runSkillRuntimeFromCliOnce({
-        id: options.id,
-        cliOptions: options.cliOptions,
-        input,
-      })
-      return
-    }
-    throw new Error(
-      `Authentication was refreshed, but ${operation.sideEffect} operation ${operation.confirmationToken} was not retried automatically. Run the same confirmed command again.`,
-      { cause: error },
-    )
-  }
-}
-
-async function runSkillRuntimeFromCliOnce(options: {
-  id: string
-  cliOptions: SkillRuntimeRunOptions
-  input: unknown
-}): Promise<void> {
-  const prepared = prepareSkillRuntimeRun({
-    id: options.id,
-    input: options.input,
-    cwd: process.cwd(),
-    force: options.cliOptions.force,
-    confirmation: options.cliOptions.confirm,
-  })
-  if (prepared.capability.manifest.runtime === 'node') {
-    const result = await runNodeSkillRuntime({
-      id: options.id,
-      input: options.input,
-      cwd: process.cwd(),
-      force: options.cliOptions.force,
-      confirmation: options.cliOptions.confirm,
-      timeout: options.cliOptions.timeout || 10000,
-    })
-    if (options.cliOptions.json) {
-      console.log(
-        JSON.stringify(
-          {
-            runtime: result.capability.manifest.id,
-            output: result.output,
-            text: result.text,
-            isError: result.isError,
-          },
-          null,
-          2,
-        ),
-      )
-      return
-    }
-    console.log(JSON.stringify(result.output, null, 2))
-    return
-  }
-
-  const session = options.cliOptions.session || process.env.TABWRIGHT_SESSION
-  const execution = getCapabilityExecutionConfig(prepared.capability)
-  if (!session && execution.requiresUserBrowser && options.cliOptions.browser === 'headless') {
-    throw new Error(
-      `Skill runtime ${prepared.capability.manifest.id} requires the signed-in user browser and cannot run with --browser headless. Use --browser user or an explicit browser key.`,
-    )
-  }
-  const defaultBrowser = execution.requiresUserBrowser ? 'user' : 'headless'
-  const sessionInfo = session
-    ? { sessionId: session, autoCreated: false }
-    : await createRuntimeRunSession({
-        browser: options.cliOptions.browser || defaultBrowser,
-        host: options.cliOptions.host,
-        token: options.cliOptions.token,
-      })
-
-  const start = Date.now()
-  try {
-    const result = await requestCliExecute({
-      code: prepared.code,
-      timeout: options.cliOptions.timeout || 10000,
-      sessionId: sessionInfo.sessionId,
-      host: options.cliOptions.host,
-      token: options.cliOptions.token,
-      includeStructuredResult: true,
-    }).catch((error: unknown) => {
-      finalizeSkillRuntimeRun({
-        capability: prepared.capability,
-        operation: prepared.operation,
-        cwd: process.cwd(),
-        inputHash: prepared.inputHash,
-        startedAt: start,
-        execution: {
-          status: 'error',
-          output: undefined,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-      throw error
-    })
-    const observation = readSkillRuntimeExecutionObservation(result.structuredResult)
-    const isExecutionError = result.isError || Boolean(observation.error)
-    const normalizedText = normalizeSkillRuntimeExecutionText({
-      text: result.text,
-      output: observation.output,
-      error: observation.error,
-    })
-    const finalized = finalizeSkillRuntimeRun({
-      capability: prepared.capability,
-      operation: prepared.operation,
-      cwd: process.cwd(),
-      inputHash: prepared.inputHash,
-      startedAt: start,
-      execution: {
-        status: isExecutionError ? 'error' : 'success',
-        output: observation.output,
-        error: isExecutionError ? observation.error || normalizedText : undefined,
-        observedNetworkUrls: observation.observedNetworkUrls,
-        url: observation.url,
-      },
-    })
-    if (finalized.contractError) {
-      throw finalized.contractError
-    }
-    if (isExecutionError) {
-      throw new Error(observation.error || normalizedText)
-    }
-
-    if (options.cliOptions.json) {
-      console.log(
-        JSON.stringify(
-          {
-            runtime: prepared.capability.manifest.id,
-            output: observation.output,
-            text: normalizedText,
-            isError: isExecutionError,
-          },
-          null,
-          2,
-        ),
-      )
-    } else {
-      console.log(JSON.stringify(observation.output, null, 2))
-      if (isExecutionError) {
-        console.error(normalizedText)
-      }
-    }
-
-  } finally {
-    if (sessionInfo.autoCreated && !options.cliOptions.keepSession) {
-      await deleteRuntimeRunSession({
-        sessionId: sessionInfo.sessionId,
-        host: options.cliOptions.host,
-        token: options.cliOptions.token,
-      })
-    }
-  }
-}
-
 // Session management commands
 // Unified browser option type used in the multi-browser selection table
 interface BrowserOption {
   key: string
-  type: 'extension' | 'direct' | 'cloud' | 'headless'
+  type: 'extension' | 'direct' | 'headless'
   browser: string
   profile: string
   /** For extension entries */
@@ -817,8 +449,6 @@ interface BrowserOption {
   wsUrl?: string
   /** Raw profile data from discovery (for passing to relay) */
   profiles?: Array<{ name: string; email: string }>
-  /** For cloud entries — active BU session's cloud session ID (if VM is running) */
-  activeCloudSessionId?: string
 }
 
 function exitWithError(error: unknown): never {
@@ -827,289 +457,19 @@ function exitWithError(error: unknown): never {
   process.exit(1)
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function parseActivityDuration(value: string | undefined): number | undefined {
-  if (!value) {
-    return undefined
-  }
-  const match = /^(\d+)(ms|s|m|h)?$/.exec(value.trim())
-  if (!match) {
-    throw new Error(`Invalid duration: ${value}. Use values such as 30s, 5m, or 1h.`)
-  }
-  const amount = Number(match[1])
-  const unit = match[2] || 'ms'
-  const multipliers: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }
-  return amount * multipliers[unit]
-}
-
-async function activityRequest(options: {
-  pathname: '/activity/list' | '/activity/inspect' | '/activity/save'
-  method: 'GET' | 'POST'
-  host?: string
-  token?: string
-  body?: Record<string, unknown>
-}): Promise<{ response: Response; result: unknown }> {
-  if (!options.host && !process.env.TABWRIGHT_HOST) {
-    await ensureRelayServer({ logger: console })
-    await waitForConnectedExtensions({ timeoutMs: 5000, pollIntervalMs: 200, settleMs: 300, logger: console })
-  }
-  const serverUrl = await getServerUrl(options.host)
-  const response = await fetch(new URL(options.pathname, serverUrl), {
-    method: options.method,
-    headers: buildAuthHeaders({ token: options.token, json: options.method === 'POST' }),
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  })
-  return { response, result: (await response.json()) as unknown }
-}
-
-function activitySelectionBody(options: {
-  session?: string
-  last?: string
-  from?: number
-  to?: number
-}): Record<string, unknown> {
-  return {
-    ...(options.session ? { sessionId: options.session } : {}),
-    ...(options.last ? { lastMs: parseActivityDuration(options.last) } : {}),
-    ...(options.from !== undefined ? { from: options.from } : {}),
-    ...(options.to !== undefined ? { to: options.to } : {}),
-  }
-}
-
-cli
-  .command('activity list', 'List attached tabs whose recent activity is available to the Agent')
-  .option('--host <host>', 'Remote relay server host')
-  .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
-  .option('--json', 'Print JSON')
-  .action(async (options: { host?: string; token?: string; json?: boolean }) => {
-    try {
-      const { response, result } = await activityRequest({
-        pathname: '/activity/list',
-        method: 'GET',
-        host: options.host,
-        token: options.token,
-      })
-      if (!response.ok || !isRecord(result) || !Array.isArray(result.activities)) {
-        throw new Error(`Failed to list recent browser activity: ${response.status}`)
-      }
-      if (options.json) {
-        console.log(JSON.stringify({ activities: result.activities }, null, 2))
-        return
-      }
-      if (result.activities.length === 0) {
-        console.log('No attached browser activity is available yet.')
-        return
-      }
-      result.activities.forEach((activity) => {
-        if (!isRecord(activity)) {
-          return
-        }
-        console.log(`${String(activity.sessionId || '-')}  ${String(activity.url || '-')}`)
-      })
-    } catch (error: unknown) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('activity inspect', 'Inspect an AI-readable timeline without saving the attached activity stream')
-  .option('--session <sessionId>', 'Attached tab CDP session ID')
-  .option('--last <duration>', 'Inspect the latest duration, for example 30s or 5m')
-  .option('--from <timestamp>', z.number().describe('Start rrweb timestamp in milliseconds'))
-  .option('--to <timestamp>', z.number().describe('End rrweb timestamp in milliseconds'))
-  .option('--host <host>', 'Remote relay server host')
-  .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
-  .option('--json', 'Print JSON')
-  .action(
-    async (options: {
-      session?: string
-      last?: string
-      from?: number
-      to?: number
-      host?: string
-      token?: string
-      json?: boolean
-    }) => {
-      try {
-        const { response, result } = await activityRequest({
-          pathname: '/activity/inspect',
-          method: 'POST',
-          host: options.host,
-          token: options.token,
-          body: activitySelectionBody(options),
-        })
-        if (!response.ok || !isRecord(result) || result.success !== true) {
-          const message = isRecord(result) && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`
-          throw new Error(message)
-        }
-        console.log(JSON.stringify(result, null, 2))
-      } catch (error: unknown) {
-        exitWithError(error)
-      }
-    },
-  )
-
-cli
-  .command('activity save', 'Copy a selected event range from ongoing attached activity into a reusable replay')
-  .option('--session <sessionId>', 'Attached tab CDP session ID')
-  .option('--last <duration>', 'Save the latest duration, for example 30s or 5m')
-  .option('--from <timestamp>', z.number().describe('Start rrweb timestamp in milliseconds'))
-  .option('--to <timestamp>', z.number().describe('End rrweb timestamp in milliseconds'))
-  .option('--host <host>', 'Remote relay server host')
-  .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
-  .option('--json', 'Print JSON')
-  .action(
-    async (options: {
-      session?: string
-      last?: string
-      from?: number
-      to?: number
-      host?: string
-      token?: string
-      json?: boolean
-    }) => {
-      try {
-        const { response, result } = await activityRequest({
-          pathname: '/activity/save',
-          method: 'POST',
-          host: options.host,
-          token: options.token,
-          body: activitySelectionBody(options),
-        })
-        if (!response.ok || !isRecord(result) || result.success !== true || !isRecord(result.replay)) {
-          const message = isRecord(result) && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`
-          throw new Error(message)
-        }
-        const replayId = typeof result.replay.id === 'string' ? result.replay.id : undefined
-        if (!replayId) {
-          throw new Error('Recent activity was saved without a replay ID')
-        }
-        const output = {
-          success: true,
-          observing: true,
-          replay: {
-            id: replayId,
-            url: result.replay.url,
-            savedAt: result.replay.savedAt,
-            durationMs: result.replay.duration,
-            eventCount: result.replay.eventCount,
-            selectionStart: result.replay.selectionStart,
-            selectionEnd: result.replay.selectionEnd,
-          },
-          next: {
-            inspectCommand: buildReplayIndexCommand({ replayId }),
-          },
-        }
-        if (options.json) {
-          console.log(JSON.stringify(output, null, 2))
-          return
-        }
-        console.log(`Recent activity saved as ${replayId}. Observation is still running.`)
-        console.log(`Inspect: ${output.next.inspectCommand}`)
-      } catch (error: unknown) {
-        exitWithError(error)
-      }
-    },
-  )
-
-cli
-  .command('replay list', 'List saved rrweb replays and the inspect command for each recording')
-  .option('--limit <n>', z.number().default(10).describe('Maximum number of recordings'))
-  .option('--json', 'Print JSON')
-  .action((options: { limit?: number; json?: boolean }) => {
-    try {
-      const recordings = listSavedRrwebRecordings({ limit: options.limit || 10 }).map((recording) => {
-        return {
-          id: recording.id,
-          url: recording.url,
-          savedAt: recording.savedAt,
-          durationMs: recording.duration,
-          eventCount: recording.eventCount,
-          commands: {
-            inspect: buildReplayIndexCommand({ replayId: recording.id }),
-          },
-        }
-      })
-      if (options.json) {
-        console.log(
-          JSON.stringify(
-            {
-              recordings,
-              next:
-                recordings.length > 0
-                  ? recordings[0]?.commands
-                  : { action: 'record', command: 'Use replay.start() and replay.stop() in a Tabwright session.' },
-            },
-            null,
-            2,
-          ),
-        )
-        return
-      }
-      if (recordings.length === 0) {
-        console.log('No saved replays. Use replay.start() and replay.stop() in a Tabwright session first.')
-        return
-      }
-      recordings.forEach((recording) => {
-        console.log(`${recording.id}  ${recording.url || '-'}  ${recording.eventCount} events`)
-        console.log(`  Inspect: ${recording.commands.inspect}`)
-      })
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('replay index <replayId>', 'Build an AI-readable index from an rrweb replay')
-  .option('--write', 'Save the index under ~/.tabwright/replay-ai-indexes')
-  .option('--full', 'Include page text and the full interactive-element inventory')
-  .option('--json', 'Print JSON')
-  .action((replayId: string, options: { write?: boolean; full?: boolean; json?: boolean }) => {
-    try {
-      const index = createReplayAiIndexFromRecording(replayId)
-      const saved = options.write ? saveReplayAiIndex(index) : undefined
-      if (options.json) {
-        const outputIndex = options.full ? index : toCompactReplayAiIndex(index)
-        console.log(JSON.stringify(saved ? { index: outputIndex, saved } : { index: outputIndex }, null, 2))
-        return
-      }
-      console.log(`Replay: ${index.replayId}`)
-      console.log(`URL: ${index.url || '-'}`)
-      console.log(`Actions: ${index.actions.length}`)
-      console.log(`Fields: ${index.fields.length}`)
-      console.log(`Annotations: ${index.annotations.length}`)
-      console.log(`Stats: ${JSON.stringify(index.stats)}`)
-      if (saved) {
-        console.log(`Saved: ${saved.path}`)
-      }
-      index.annotations.slice(0, 8).forEach((annotation, index) => {
-        const target = annotation.target?.label || annotation.target?.selectorHints[0] || annotation.target?.tagName || 'target'
-        console.log(`${index + 1}. ${pc.magenta('annotation')} ${target}: ${annotation.text}`)
-      })
-      index.actions.slice(0, 12).forEach((action, index) => {
-        const value = action.value === undefined ? '' : ` = ${JSON.stringify(action.value)}`
-        console.log(`${index + 1}. ${pc.cyan(action.kind)} ${action.label}${value}`)
-      })
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-
 cli
   .command('session new', 'Create a new session and print the session ID')
   .option('--host <host>', 'Remote relay server host')
   .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
-  .option('--browser <key>', 'Browser key when multiple browsers are available. Special values: "headless" (launch headless Chrome, no extension), "cloud" (cloud browser with stealth/proxies)')
+  .option(
+    '--browser <key>',
+    'Browser key when multiple browsers are available. Use "headless" to launch a separate Chrome without the extension',
+  )
   .option('--patchright', 'Use @playwriter/patchright-core for stealth mode (bypasses bot detection)')
-  .option('--direct [endpoint]', 'Use direct CDP connection without the extension. Enable debugging first at chrome://inspect/#remote-debugging or launch Chrome with --remote-debugging-port=9222. Auto-discovers instances or accepts an explicit ws:// endpoint')
-  .option('--proxy <region>', 'Enable residential proxy for cloud browser (e.g. us, de, jp). Disabled by default. Use for anti-detection or geo-targeting.')
-  .option('--custom-proxy <url>', 'Custom proxy for cloud browser (host:port or user:pass@host:port)')
-  .option('--timeout <minutes>', 'Cloud browser timeout in minutes (1-240, default 60)')
-  .option('--disable-proxy-bandwidth-acceleration', 'Allow loading images, video, and fonts when proxy is enabled (they are blocked by default to save proxy bandwidth)')
+  .option(
+    '--direct [endpoint]',
+    'Use direct CDP connection without the extension. Enable debugging first at chrome://inspect/#remote-debugging or launch Chrome with --remote-debugging-port=9222. Auto-discovers instances or accepts an explicit ws:// endpoint',
+  )
   .action(async (options) => {
     if (options.patchright) {
       process.env.TABWRIGHT_PATCHRIGHT = '1'
@@ -1142,7 +502,6 @@ cli
         }
         const result = (await response.json()) as { id: string }
         console.log(`Session ${result.id} created (headless). Use with: tabwright -s ${result.id} -e "..."`)
-        console.log(pc.dim('NOTE: Recording unavailable in headless mode.'))
       } catch (error: any) {
         if (error.message?.includes('Could not find a supported browser binary')) {
           console.error('No Chrome browser found. Install one first:')
@@ -1176,7 +535,6 @@ cli
       const serverUrl = await getServerUrl(options.host)
       const result = await createDirectSession({ serverUrl, cdpEndpoint, token: options.token })
       console.log(`Session ${result.id} created (direct CDP). Use with: tabwright -s ${result.id} -e "..."`)
-      console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
       return
     }
 
@@ -1204,12 +562,17 @@ cli
       if (instances.length === 1 && !options.browser) {
         const instance = instances[0]
         const serverUrl = await getServerUrl(options.host)
-        const result = await createDirectSession({ serverUrl, cdpEndpoint: instance.wsUrl, browser: instance.browser, profiles: instance.profiles, token: options.token })
+        const result = await createDirectSession({
+          serverUrl,
+          cdpEndpoint: instance.wsUrl,
+          browser: instance.browser,
+          profiles: instance.profiles,
+          token: options.token,
+        })
         const profileLabel = formatInstanceProfiles(instance)
         console.log(
           `Session ${result.id} created (direct CDP, ${instance.browser}${profileLabel}). Use with: tabwright -s ${result.id} -e "..."`,
         )
-        console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         return
       }
 
@@ -1223,15 +586,19 @@ cli
           return opt.key === options.browser
         })
         if (!selected) {
-          await handleCloudBrowserNotFound(options.browser, { hasCloudOptions: false })
           console.error(`Browser not found: ${options.browser}`)
           console.error('Available: ' + directOptions.map((opt) => opt.key).join(', '))
           process.exit(1)
         }
         const serverUrl = await getServerUrl(options.host)
-        const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles, token: options.token })
+        const result = await createDirectSession({
+          serverUrl,
+          cdpEndpoint: selected.wsUrl!,
+          browser: selected.browser,
+          profiles: selected.profiles,
+          token: options.token,
+        })
         console.log(`Session ${result.id} created (direct CDP). Use with: tabwright -s ${result.id} -e "..."`)
-        console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         return
       }
 
@@ -1266,57 +633,8 @@ cli
     }
 
     if (extensions.length === 0) {
-      // Before giving up, check if cloud browsers are available
-      const cloudOptions = await discoverCloudBrowsers()
-      if (cloudOptions.length > 0) {
-        // Cloud-only user: skip extension requirement, show cloud options
-        await ensureRelayForSessionCreation(isLocal)
-        const allOptions: BrowserOption[] = [...cloudOptions]
-
-        if (options.browser) {
-          const selected = allOptions.find((opt) => { return opt.key === options.browser })
-          if (!selected) {
-            await handleCloudBrowserNotFound(options.browser, { hasCloudOptions: true })
-            console.error(`Browser not found: ${options.browser}`)
-            console.error('Available: ' + allOptions.map((opt) => opt.key).join(', '))
-            process.exit(1)
-          }
-          const serverUrl = await getServerUrl(options.host)
-          // Reuse existing running VM if selected, otherwise create new
-          const result = selected.activeCloudSessionId
-            ? await attachExistingCloudSession({
-              serverUrl,
-              cloudSessionId: selected.activeCloudSessionId,
-              blockProxyResources: computeBlockProxyResources(options),
-              token: options.token,
-            })
-            : await createCloudSession({
-              serverUrl,
-              proxyRegion: options.proxy,
-              customProxy: options.customProxy,
-              timeout: parseCloudTimeout(options.timeout),
-              blockProxyResources: computeBlockProxyResources(options),
-              token: options.token,
-            })
-          console.log(`Session ${result.id} created (cloud). Use with: tabwright -s ${result.id} -e "..."`)
-          if (result.liveUrl) {
-            console.log(pc.dim(`Live view: ${result.liveUrl}`))
-          }
-          return
-        }
-
-        console.log('\nNo local browsers detected, but cloud browsers are available:\n')
-        printBrowserTable(allOptions)
-        console.log('\nRun again with --browser <key>.')
-        process.exit(1)
-      }
-
-      if (options.browser) {
-        await handleCloudBrowserNotFound(options.browser, { hasCloudOptions: false })
-      }
       console.error('No connected browsers detected. Click the Tabwright extension icon.')
       console.error(pc.dim('Tip: Use --direct to connect via Chrome DevTools Protocol instead.'))
-      console.error(pc.dim('Tip: Run `tabwright cloud login` to use cloud browsers.'))
       process.exit(1)
     }
 
@@ -1353,7 +671,6 @@ cli
         }
         const result = (await response.json()) as { id: string; extensionId: string | null }
         console.log(`Session ${result.id} created. Use with: tabwright -s ${result.id} -e "..."`)
-        printCloudTip()
       } catch (error: any) {
         console.error(`Error: ${error.message}`)
         process.exit(1)
@@ -1361,15 +678,14 @@ cli
       return
     }
 
-    // Multiple extensions: also discover direct CDP instances and cloud browsers.
+    // Multiple extensions: also discover local direct CDP instances.
     // Direct discovery only works locally — remote relay can't reach local Chrome debug ports.
-    const directInstances = isLocal ? await (async () => {
-      console.log(pc.dim('Discovering additional Chrome instances...'))
-      return await discoverChromeInstances()
-    })() : []
-
-    // Fetch cloud browser slots if user is logged in
-    const cloudOptions = await discoverCloudBrowsers()
+    const directInstances = isLocal
+      ? await (async () => {
+          console.log(pc.dim('Discovering additional Chrome instances...'))
+          return await discoverChromeInstances()
+        })()
+      : []
 
     const allOptions: BrowserOption[] = [
       ...extensions.map((ext) => {
@@ -1384,7 +700,6 @@ cli
       ...directInstances.map((instance) => {
         return instanceToBrowserOption(instance)
       }),
-      ...cloudOptions,
     ]
 
     if (options.browser) {
@@ -1392,7 +707,6 @@ cli
         return opt.key === options.browser
       })
       if (!selected) {
-        await handleCloudBrowserNotFound(options.browser, { hasCloudOptions: cloudOptions.length > 0 })
         console.error(`Browser not found: ${options.browser}`)
         console.error('Available: ' + allOptions.map((opt) => opt.key).join(', '))
         process.exit(1)
@@ -1400,31 +714,15 @@ cli
 
       try {
         const serverUrl = await getServerUrl(options.host)
-        if (selected.type === 'cloud') {
-          // Reuse existing running VM if selected, otherwise create new
-          const result = selected.activeCloudSessionId
-            ? await attachExistingCloudSession({
-              serverUrl,
-              cloudSessionId: selected.activeCloudSessionId,
-              blockProxyResources: computeBlockProxyResources(options),
-              token: options.token,
-            })
-            : await createCloudSession({
-              serverUrl,
-              proxyRegion: options.proxy,
-              customProxy: options.customProxy,
-              timeout: parseCloudTimeout(options.timeout),
-              blockProxyResources: computeBlockProxyResources(options),
-              token: options.token,
-            })
-          console.log(`Session ${result.id} created (cloud). Use with: tabwright -s ${result.id} -e "..."`)
-          if (result.liveUrl) {
-            console.log(pc.dim(`Live view: ${result.liveUrl}`))
-          }
-        } else if (selected.type === 'direct') {
-          const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles, token: options.token })
+        if (selected.type === 'direct') {
+          const result = await createDirectSession({
+            serverUrl,
+            cdpEndpoint: selected.wsUrl!,
+            browser: selected.browser,
+            profiles: selected.profiles,
+            token: options.token,
+          })
           console.log(`Session ${result.id} created (direct CDP). Use with: tabwright -s ${result.id} -e "..."`)
-          console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         } else {
           const cwd = process.cwd()
           const response = await fetch(`${serverUrl}/cli/session/new`, {
@@ -1439,7 +737,6 @@ cli
           }
           const result = (await response.json()) as { id: string }
           console.log(`Session ${result.id} created. Use with: tabwright -s ${result.id} -e "..."`)
-          printCloudTip()
         }
       } catch (error: any) {
         console.error(`Error: ${error.message}`)
@@ -1509,285 +806,9 @@ function formatInstanceProfiles(instance: DiscoveredInstance): string {
     .join(', ')
 }
 
-/** Discover cloud sessions from the website API, if logged in.
- *  Also adds a "cloud-new" option to create a new cloud browser. */
-async function discoverCloudBrowsers(): Promise<BrowserOption[]> {
-  const client = getCloudClient()
-  if (!client) return []
-
-  try {
-    const { sessions } = await client.getStatus()
-    const options: BrowserOption[] = sessions.map((s) => {
-      return {
-        key: `cloud-${s.index}`,
-        type: 'cloud' as const,
-        browser: 'Chromium',
-        profile: `(running, expires ${new Date(s.timeoutAt).toLocaleTimeString()})`,
-        activeCloudSessionId: s.cloudSessionId,
-      }
-    })
-    // Always offer a "cloud-new" option to spin up a fresh VM
-    options.push({
-      key: 'cloud',
-      type: 'cloud' as const,
-      browser: 'Chromium',
-      profile: '(new cloud browser)',
-    })
-    return options
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error(pc.dim(`Cloud browser discovery failed: ${msg}`))
-    return []
-  }
-}
-
-/** Compute whether to block images/video/fonts for proxy bandwidth savings.
- *  Enabled by default when proxy or custom-proxy is set, disabled via
- *  --disable-proxy-bandwidth-acceleration. */
-function computeBlockProxyResources(options: { proxy?: string; customProxy?: string; disableProxyBandwidthAcceleration?: boolean }): boolean | undefined {
-  const proxyEnabled = !!(options.proxy || options.customProxy)
-  if (!proxyEnabled) return undefined // no proxy, no blocking needed
-  if (options.disableProxyBandwidthAcceleration) return false
-  return true
-}
-
-/** Check if user requested a cloud browser that isn't available.
- *  Shows helpful login/subscribe instructions instead of a generic "not found" error.
- *  @param hasCloudOptions whether any cloud options were discovered (to distinguish
- *         "not logged in" from "typo in cloud key") */
-async function handleCloudBrowserNotFound(browserKey: string, { hasCloudOptions }: { hasCloudOptions: boolean }): Promise<boolean> {
-  if (!browserKey.startsWith('cloud')) return false
-  // If cloud options exist, this is a typo (e.g. cloud-99) — let the
-  // generic "Browser not found" message show the available list instead.
-  if (hasCloudOptions) return false
-  const auth = loadCloudAuth()
-  if (!auth) {
-    console.error('Cloud browsers require authentication.')
-    console.error('')
-    console.error('  Option 1: Run `tabwright cloud login` (interactive browser flow)')
-    console.error('  Option 2: Set TABWRIGHT_API_KEY env var (create one at playwriter.dev/dashboard)')
-    console.error('')
-    console.error('  Then subscribe at playwriter.dev/dashboard and run `tabwright session new --browser cloud`')
-  } else {
-    // Verify token is still valid with a quick API check
-    const client = getCloudClient()
-    const tokenValid = await (async () => {
-      if (!client) return false
-      try {
-        await client.getStatus()
-        return true
-      } catch {
-        return false
-      }
-    })()
-
-    if (!tokenValid) {
-      console.error('Cloud authentication expired. Please re-authenticate.')
-      console.error('')
-      console.error('  Run `tabwright cloud login` or set TABWRIGHT_API_KEY env var.')
-    } else {
-      console.error('No cloud browser sessions available.')
-      console.error('')
-      console.error('  You are logged in, but you may need an active subscription.')
-      console.error('  Run `tabwright cloud subscribe` to manage your plan.')
-      console.error('  Then run `tabwright session new --browser cloud` to start a cloud browser.')
-    }
-  }
-  process.exit(1)
-}
-
-function printCloudTip(): void {
-  console.log('')
-  console.log(
-    pc.dim('Tip: Need stealth browsing, VPS control, or auto CAPTCHA solving? Run `tabwright cloud login` or set TABWRIGHT_API_KEY'),
-  )
-  console.log(
-    pc.dim('     to control a browser in the cloud instead of local Chrome.'),
-  )
-}
-
-/** Parse a custom proxy string (host:port or user:pass@host:port) into an object. */
-function parseCustomProxy(proxyStr: string): { host: string; port: number; username?: string; password?: string } {
-  // Format: [user:pass@]host:port
-  const atIdx = proxyStr.lastIndexOf('@')
-  let hostPort: string
-  let username: string | undefined
-  let password: string | undefined
-
-  if (atIdx !== -1) {
-    const userPass = proxyStr.slice(0, atIdx)
-    hostPort = proxyStr.slice(atIdx + 1)
-    const colonIdx = userPass.indexOf(':')
-    if (colonIdx !== -1) {
-      username = userPass.slice(0, colonIdx)
-      password = userPass.slice(colonIdx + 1)
-    } else {
-      username = userPass
-    }
-  } else {
-    hostPort = proxyStr
-  }
-
-  const lastColon = hostPort.lastIndexOf(':')
-  if (lastColon === -1) {
-    throw new Error(`Invalid proxy format: missing port in "${proxyStr}". Expected host:port or user:pass@host:port`)
-  }
-  const host = hostPort.slice(0, lastColon)
-  const port = parseInt(hostPort.slice(lastColon + 1), 10)
-  if (isNaN(port)) {
-    throw new Error(`Invalid proxy port in "${proxyStr}"`)
-  }
-
-  return { host, port, username, password }
-}
-
-/** Parse and validate the --timeout CLI option (integer 1-240). */
-function parseCloudTimeout(value: string | undefined): number | undefined {
-  if (value === undefined) return undefined
-  if (!/^\d+$/.test(value)) {
-    throw new Error('--timeout must be an integer from 1 to 240')
-  }
-  const timeout = Number(value)
-  if (timeout < 1 || timeout > 240) {
-    throw new Error('--timeout must be between 1 and 240 minutes')
-  }
-  return timeout
-}
-
-/** Connect to a cloud browser and create a tabwright session via the relay. */
-async function createCloudSession({
-  serverUrl,
-  proxyRegion,
-  customProxy,
-  timeout,
-  blockProxyResources,
-  token,
-}: {
-  serverUrl: string
-  proxyRegion?: string
-  customProxy?: string
-  /** Cloud browser timeout in minutes (1-240, default 60) */
-  timeout?: number
-  /** Block images/video/fonts to save proxy bandwidth (default: true when proxy is enabled) */
-  blockProxyResources?: boolean
-  token?: string
-}): Promise<{ id: string; liveUrl: string | null }> {
-  const client = getCloudClient()
-  if (!client) {
-    throw new Error('Not logged in to cloud. Run `tabwright cloud login` first.')
-  }
-
-  const connectResult = await client.connect({
-    proxyRegion,
-    customProxy: customProxy ? parseCustomProxy(customProxy) : undefined,
-    timeout,
-  })
-
-  if (!connectResult.cdpUrl) {
-    throw new Error('Cloud browser returned no CDP URL. The VM may have failed to start.')
-  }
-
-  // Normalize https:// CDP URL to wss:// for the relay
-  const cdpEndpoint = await resolveDirectInput(connectResult.cdpUrl)
-
-  // Create a tabwright session via the relay using the CDP URL (same as --direct).
-  // Also pass cloud metadata so the relay can track idle timeout and auto-disconnect.
-  const auth = loadCloudAuth()!
-  const cwd = process.cwd()
-  let response: Response
-  try {
-    response = await fetch(`${serverUrl}/cli/session/new`, {
-      method: 'POST',
-      headers: buildAuthHeaders({ token, json: true }),
-      body: JSON.stringify({
-        cdpEndpoint,
-        cwd,
-        browser: 'Chromium (cloud)',
-        cloud: {
-          cloudSessionId: connectResult.cloudSessionId,
-          cloudBaseUrl: auth.baseUrl,
-          cloudToken: auth.token,
-          timeoutAt: connectResult.timeoutAt,
-          blockProxyResources,
-        },
-      }),
-    })
-  } catch (cause) {
-    // Relay session creation failed — stop the cloud VM so we don't leak a paid resource
-    await client.disconnect(connectResult.cloudSessionId).catch(() => {})
-    throw new Error('Failed to create relay session', { cause })
-  }
-
-  if (!response.ok) {
-    await client.disconnect(connectResult.cloudSessionId).catch(() => {})
-    const text = await response.text()
-    throw new Error(`${response.status} ${text}`)
-  }
-  const result = (await response.json()) as { id: string }
-
-  return { id: result.id, liveUrl: connectResult.cdpUrl ? buildLiveUrl(connectResult.cdpUrl, auth.baseUrl) : null }
-}
-
-/** Reattach to an existing running cloud browser VM instead of creating a new one.
- *  Fetches the session's cdpUrl from the cloud API and creates a relay session. */
-async function attachExistingCloudSession({
-  serverUrl,
-  cloudSessionId,
-  blockProxyResources,
-  token,
-}: {
-  serverUrl: string
-  cloudSessionId: string
-  blockProxyResources?: boolean
-  token?: string
-}): Promise<{ id: string; liveUrl: string | null }> {
-  const client = getCloudClient()
-  if (!client) {
-    throw new Error('Not logged in to cloud. Run `tabwright cloud login` first.')
-  }
-
-  const session = await client.getSessionStatus(cloudSessionId)
-  if (!session || session.status !== 'active') {
-    throw new Error('Cloud session is no longer active. It may have timed out.')
-  }
-  if (!session.cdpUrl) {
-    throw new Error('Cloud session has no CDP URL available.')
-  }
-
-  const cdpEndpoint = await resolveDirectInput(session.cdpUrl)
-  const auth = loadCloudAuth()!
-  const cwd = process.cwd()
-
-  const response = await fetch(`${serverUrl}/cli/session/new`, {
-    method: 'POST',
-    headers: buildAuthHeaders({ token, json: true }),
-    body: JSON.stringify({
-      cdpEndpoint,
-      cwd,
-      browser: 'Chromium (cloud)',
-      cloud: {
-        cloudSessionId,
-        cloudBaseUrl: auth.baseUrl,
-        cloudToken: auth.token,
-        timeoutAt: session.timeoutAt,
-        blockProxyResources,
-      },
-    }),
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`${response.status} ${text}`)
-  }
-  const result = (await response.json()) as { id: string }
-
-  return { id: result.id, liveUrl: session.cdpUrl ? buildLiveUrl(session.cdpUrl, auth.baseUrl) : null }
-}
-
 function printBrowserTable(options: BrowserOption[]): void {
   const typeLabels = options.map((opt) => {
     if (opt.type === 'direct') return '--direct'
-    if (opt.type === 'cloud') return 'cloud'
     return opt.type
   })
   const keyWidth = Math.max(3, ...options.map((opt) => opt.key.length))
@@ -1898,7 +919,6 @@ cli
       relayError: relayStartup.error,
       extensions,
       sessions,
-      skillCount: discoverAgentSkillCapabilities({ cwd: process.cwd() }).length,
     })
 
     if (options.json) {
@@ -2070,7 +1090,10 @@ cli
     'serve',
     `Start the relay server on this machine (must be the same host where Chrome is running). Remote clients (Docker, other machines) connect via TABWRIGHT_HOST. Use --host localhost for Docker (no token needed) — containers reach it via host.docker.internal. Use --host 0.0.0.0 for LAN/internet access (requires --token).`,
   )
-  .option('--host [host]', z.string().default('0.0.0.0').describe('Host to bind to (use "localhost" for Docker, "0.0.0.0" for remote access)'))
+  .option(
+    '--host [host]',
+    z.string().default('0.0.0.0').describe('Host to bind to (use "localhost" for Docker, "0.0.0.0" for remote access)'),
+  )
   .option('--token <token>', 'Authentication token, required when --host is 0.0.0.0 (or use TABWRIGHT_TOKEN env var)')
   .option('--replace', 'Kill existing server if running')
   .action(async (options) => {
@@ -2189,19 +1212,19 @@ cli
       isLocal ? discoverChromeInstances() : Promise.resolve([] as DiscoveredInstance[]),
     ])
 
-    const cloudOptions = await discoverCloudBrowsers()
-
     // Check if a Chrome binary is available for headless mode
     const headlessOption: BrowserOption[] = await (async () => {
       try {
         const { resolveBrowserExecutablePath } = await import('./browser-config.js')
         resolveBrowserExecutablePath()
-        return [{
-          key: 'headless',
-          type: 'headless' as const,
-          browser: 'Chrome (Headless)',
-          profile: '-',
-        }]
+        return [
+          {
+            key: 'headless',
+            type: 'headless' as const,
+            browser: 'Chrome (Headless)',
+            profile: '-',
+          },
+        ]
       } catch {
         return []
       }
@@ -2219,7 +1242,6 @@ cli
       }),
       ...directInstances.map(instanceToBrowserOption),
       ...headlessOption,
-      ...cloudOptions,
     ]
 
     if (allOptions.length === 0) {
@@ -2227,7 +1249,6 @@ cli
       console.log('  Extension: click the Tabwright icon on a tab to connect')
       console.log('  Direct:    open chrome://inspect/#remote-debugging in Chrome')
       console.log('  Headless:  run `tabwright browser install` then `--browser headless`')
-      console.log('  Cloud:     run `tabwright cloud login` to connect cloud browsers')
       return
     }
 
@@ -2243,182 +1264,6 @@ cli
     } else {
       console.log(pc.dim('Use with: tabwright session new [--browser <key>]'))
     }
-
-    const hasCloud = allOptions.some((opt) => {
-      return opt.type === 'cloud'
-    })
-    if (!hasCloud) {
-      printCloudTip()
-    }
-  })
-
-// ── Cloud commands ──────────────────────────────────────────────────
-
-cli
-  .command('cloud login', 'Authenticate with playwriter.dev to use cloud browsers')
-  .option('--base-url <url>', 'Website base URL (default: https://playwriter.dev)')
-  .action(async (options) => {
-    const baseUrl = options.baseUrl || process.env.TABWRIGHT_CLOUD_URL || 'https://playwriter.dev'
-
-    // Use the better-auth client SDK so we don't hardcode endpoint URLs.
-    // Hardcoded URLs broke before when better-auth changed paths between versions.
-    const { createAuthClient } = await import('better-auth/client')
-    const { deviceAuthorizationClient } = await import('better-auth/client/plugins')
-    const client = createAuthClient({
-      baseURL: baseUrl,
-      plugins: [deviceAuthorizationClient()],
-    })
-
-    console.log('Requesting device authorization...')
-    const { data: deviceData, error: requestError } = await client.device.code({
-      client_id: 'tabwright-cli',
-    })
-    if (requestError || !deviceData) {
-      console.error(`Error: failed to request device code — ${requestError?.error_description || requestError?.error || 'unknown error'}`)
-      process.exit(1)
-    }
-
-    const verificationUrl = deviceData.verification_uri_complete || `${baseUrl}/device?user_code=${deviceData.user_code}`
-    console.log(`\nOpen this URL in your browser:\n  ${verificationUrl}\n`)
-    console.log(`Code: ${deviceData.user_code}\n`)
-
-    await openInBrowser(verificationUrl)
-
-    console.log('Waiting for approval...')
-    const pollInterval = (deviceData.interval || 5) * 1000
-    const deadline = Date.now() + (deviceData.expires_in || 300) * 1000
-
-    while (Date.now() < deadline) {
-      await new Promise((r) => { setTimeout(r, pollInterval) })
-      const { data: tokenData, error: pollError } = await client.device.token({
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        device_code: deviceData.device_code,
-        client_id: 'tabwright-cli',
-      })
-      if (tokenData?.access_token) {
-        saveCloudAuth({ token: tokenData.access_token, baseUrl })
-        console.log(pc.green('\nLogged in successfully!'))
-        console.log('Cloud browsers will now appear in `tabwright session new`.')
-        return
-      }
-      if (pollError?.error === 'authorization_pending' || pollError?.error === 'slow_down') {
-        continue
-      }
-      if (pollError) {
-        console.error(`\nError: Device authorization failed — ${pollError.error_description || pollError.error}`)
-        process.exit(1)
-      }
-    }
-
-    console.error('\nError: Device authorization timed out.')
-    process.exit(1)
-  })
-
-cli
-  .command('cloud subscribe', 'Open the subscription page to purchase cloud browser sessions')
-  .action(async () => {
-    const auth = loadCloudAuth()
-    if (!auth) {
-      console.error('Not logged in. Run `tabwright cloud login` first.')
-      process.exit(1)
-    }
-    const subscribeUrl = new URL('/dashboard', auth.baseUrl).toString()
-    console.log(`Open your browser to manage your subscription:\n  ${subscribeUrl}\n`)
-    await openInBrowser(subscribeUrl)
-  })
-
-cli
-  .command('cloud status', 'Show active cloud browser sessions')
-  .action(async () => {
-    const client = getCloudClient()
-    if (!client) {
-      console.error('Not logged in. Run `tabwright cloud login` first.')
-      process.exit(1)
-    }
-
-    try {
-      const { sessions } = await client.getStatus()
-
-      if (sessions.length === 0) {
-        console.log('No active cloud sessions.')
-        console.log(pc.dim('Start one with: tabwright session new --browser cloud'))
-        return
-      }
-
-      const keyWidth = Math.max(3, ...sessions.map((s) => `cloud-${s.index}`.length))
-      console.log('KEY'.padEnd(keyWidth) + '  ' + 'STATUS'.padEnd(10) + '  ' + 'DETAILS')
-      console.log('-'.repeat(keyWidth + 30))
-
-      for (const s of sessions) {
-        const key = `cloud-${s.index}`
-        const timeoutAt = new Date(s.timeoutAt).toLocaleTimeString()
-        console.log(
-          key.padEnd(keyWidth) +
-            '  ' +
-            pc.green('running'.padEnd(10)) +
-            '  ' +
-            `expires ${timeoutAt}`,
-        )
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
-      console.error(`Error: ${msg}`)
-      process.exit(1)
-    }
-  })
-
-cli
-  .command('cloud live [key]', 'Open a live browser view for an active cloud session')
-  .action(async (key) => {
-    const client = getCloudClient()
-    if (!client) {
-      console.error('Not logged in. Run `tabwright cloud login` first.')
-      process.exit(1)
-    }
-
-    try {
-      const { sessions } = await client.getStatus()
-      if (sessions.length === 0) {
-        console.log('No active cloud sessions.')
-        console.log(pc.dim('Start one with: tabwright session new --browser cloud'))
-        process.exit(1)
-      }
-
-      let session: (typeof sessions)[number] | undefined
-      if (key) {
-        // Match by cloud-N key or by cloudSessionId
-        session = sessions.find((s) => {
-          return `cloud-${s.index}` === key || s.cloudSessionId === key || s.browserUseSessionId === key
-        })
-        if (!session) {
-          console.error(`No active session matching "${key}".`)
-          console.error('Active sessions: ' + sessions.map((s) => { return `cloud-${s.index}` }).join(', '))
-          process.exit(1)
-        }
-      } else if (sessions.length === 1) {
-        session = sessions[0]!
-      } else {
-        console.log('Multiple active sessions. Specify one:\n')
-        for (const s of sessions) {
-          console.log(`  cloud-${s.index}  (expires ${new Date(s.timeoutAt).toLocaleTimeString()})`)
-        }
-        console.log(`\nUsage: tabwright cloud live cloud-1`)
-        process.exit(1)
-      }
-
-      if (!session.cdpUrl) {
-        console.error('Session has no CDP URL — it may still be starting.')
-        process.exit(1)
-      }
-      const auth = loadCloudAuth()!
-      const liveUrl = buildLiveUrl(session.cdpUrl, auth.baseUrl)
-      console.log(liveUrl)
-      await openInBrowser(liveUrl)
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
-      console.error(`Error: ${msg}`)
-      process.exit(1)
-    }
   })
 
 cli.command('logfile', 'Print the path to the relay server log file').action(() => {
@@ -2432,80 +1277,22 @@ cli
   .option('--skill-root <dir>', 'Override the target Agent Skills root directory')
   .option('--force', 'Overwrite a user-modified installed Tabwright Skill')
   .option('--json', 'Print JSON')
-  .action(
-    (options: { target?: string; skillRoot?: string; force?: boolean; json?: boolean }) => {
-      try {
-        const result = installTabwrightAgentSkill({
-          target: parseTabwrightAgentSkillTarget(options.target),
-          skillRoot: options.skillRoot,
-          overwrite: options.force,
-        })
-        if (options.json) {
-          console.log(JSON.stringify(result, null, 2))
-          return
-        }
-        console.log(`Tabwright Agent Skill ${result.fileStatus}: ${result.installedPath}`)
-        result.next.map((step) => {
-          console.log(`Next: ${step}`)
-          return step
-        })
-      } catch (error) {
-        exitWithError(error)
-      }
-    },
-  )
-
-cli
-  .command('skill runtime validate <skillDir>', "Validate an Agent Skill's bundled Tabwright runtime")
-  .option('--json', 'Print JSON')
-  .action((skillDir: string, options: { json?: boolean }) => {
+  .action((options: { target?: string; skillRoot?: string; force?: boolean; json?: boolean }) => {
     try {
-      const resolved = resolveSkillRuntimeTarget({ target: skillDir })
-      const safety = getCapabilitySafetySummary(resolved.capability)
-      const result = {
-        valid: true,
-        skill: {
-          id: resolved.capability.manifest.id,
-          dir: resolved.skillDir,
-        },
-        runtime: {
-          dir: resolved.runtimeDir,
-          type: resolved.capability.manifest.runtime,
-          entry: resolved.capability.manifest.entry,
-          operations: Object.keys(resolved.capability.manifest.operations),
-          sideEffect: safety.sideEffect,
-          requiresConfirmation: safety.requiresConfirmation,
-        },
-      }
+      const result = installTabwrightAgentSkill({
+        target: parseTabwrightAgentSkillTarget(options.target),
+        skillRoot: options.skillRoot,
+        overwrite: options.force,
+      })
       if (options.json) {
         console.log(JSON.stringify(result, null, 2))
         return
       }
-      console.log(`Valid Tabwright Skill runtime: ${resolved.capability.manifest.id}`)
-      console.log(`Skill: ${resolved.skillDir}`)
-      console.log(`Runtime: ${resolved.runtimeDir}`)
-    } catch (error) {
-      exitWithError(error)
-    }
-  })
-
-cli
-  .command('skill runtime run <skillDir>', "Run an Agent Skill's bundled Tabwright runtime")
-  .option('--input <json>', 'JSON input object')
-  .option('--input-json <json>', 'JSON input object')
-  .option('-s, --session <id>', 'Existing Tabwright session id')
-  .option('--host <host>', 'Remote relay server host')
-  .option('--token <token>', 'Authentication token (or use TABWRIGHT_TOKEN env var)')
-  .option('--browser <headless|user|key>', 'Runtime when --session is omitted (default: headless)')
-  .option('--force', 'Run a draft runtime or bypass URL match checks')
-  .option('--confirm <runtime-id>', 'Confirmation token obtained after explicit user approval')
-  .option('--keep-session', 'Keep auto-created session alive after run')
-  .option('--json', 'Print JSON envelope')
-  .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
-  .action(async (skillDir: string, options: SkillRuntimeRunOptions) => {
-    try {
-      const resolved = resolveSkillRuntimeTarget({ target: skillDir })
-      await runSkillRuntimeFromCli({ id: resolved.runtimeDir, cliOptions: options })
+      console.log(`Tabwright Agent Skill ${result.fileStatus}: ${result.installedPath}`)
+      result.next.map((step) => {
+        console.log(`Next: ${step}`)
+        return step
+      })
     } catch (error) {
       exitWithError(error)
     }
@@ -2536,7 +1323,7 @@ cli
     }
   })
 
-cli.command('skill', 'Print the full tabwright usage instructions').action(() => {
+cli.command('skill', 'Print the full browser debugging reference (use docs for one topic)').action(() => {
   const skillPath = path.join(__dirname, '..', 'src', 'skill.md')
   const content = fs.readFileSync(skillPath, 'utf-8')
   console.log(content)
@@ -2558,10 +1345,13 @@ cli.version(VERSION)
 
 const commandLineArgs = process.argv.slice(2)
 const isVersionOnly = commandLineArgs.length === 1 && ['-v', '--version'].includes(commandLineArgs[0] || '')
-if (commandLineArgs[0] === 'capability') {
+if (
+  ['capability', 'cloud', 'activity', 'replay'].includes(commandLineArgs[0] || '') ||
+  (commandLineArgs[0] === 'skill' && commandLineArgs[1] === 'runtime')
+) {
   exitWithError(
     new Error(
-      'This legacy command comes from an outdated Agent Skill. Tabwright Capability commands were removed. Update or reinstall that Skill, then retry. Current Skills use `tabwright skill runtime run <absolute-skill-directory>`. Do not retry or translate the legacy command automatically.',
+      'Managed Skill runtimes, recording and cloud provisioning have been removed. Migrate business validation, confirmation and authentication into your own script, then use `tabwright -s <id> -f <file>`. No business request was sent. Do not automatically translate or retry the old command.',
     ),
   )
 } else if (isVersionOnly) {

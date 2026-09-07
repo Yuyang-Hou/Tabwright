@@ -44,9 +44,10 @@ describe('tabwright cli help', () => {
 
     expect(stdout).toContain('tabwright')
     expect(stdout).toContain('doctor')
+    expect(stdout).toContain('docs [topic]')
     expect(stdout).toContain('serve')
-    expect(stdout).toContain('skill runtime validate')
-    expect(stdout).toContain('skill runtime run')
+    expect(stdout).not.toContain('skill runtime validate')
+    expect(stdout).not.toContain('skill runtime run')
     expect(stdout).toContain('-e, --eval <code>')
     expect(stdout).not.toContain('tabwright  Start the MCP server')
     expect(stdout).not.toContain('capability create')
@@ -86,98 +87,70 @@ describe('tabwright cli help', () => {
     expect(stderr).toBe('')
   }, 30000)
 
-  test('renders replay discovery and compact evidence help', async () => {
-    const listHelp = await runCli(['replay', 'list', '--help'])
-    const indexHelp = await runCli(['replay', 'index', '--help'])
+  test.each([['replay', 'list'], ['activity', 'list'], ['cloud', 'login'], ['skill', 'runtime', 'run']])(
+    'rejects removed commands before execution: %s',
+    async (...args) => {
+      await expect(runCli(args)).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining('No business request was sent.'),
+      })
+    },
+    30000,
+  )
 
-    expect(listHelp.stdout).toContain('inspect command')
-    expect(listHelp.stdout).toContain('--limit')
-    expect(indexHelp.stdout).toContain('--full')
-    expect(listHelp.stderr).toBe('')
-    expect(indexHelp.stderr).toBe('')
-  }, 30000)
+  test('lists local references without connecting to a browser', async () => {
+    const { stdout, stderr } = await runCliWithEnv({
+      args: ['docs', '--json'],
+      env: { ...process.env, TABWRIGHT_HOST: 'http://127.0.0.1:1' },
+    })
+    const report = JSON.parse(stdout) as {
+      topics: Array<{ topic: string; description: string; command: string }>
+    }
 
-  test('teaches a fresh agent to author and run independent Agent Skills directly', async () => {
-    const { stdout, stderr } = await runCli(['skill'])
-    const discoverySkill = fs.readFileSync(path.resolve(tabwrightDir, '..', 'skills', 'tabwright', 'SKILL.md'), 'utf-8')
-
-    expect(stdout).toContain('tabwright skill runtime validate "/absolute/path/to/query-user"')
-    expect(stdout).toContain('tabwright skill runtime run "/absolute/path/to/query-user"')
-    expect(stdout).not.toContain('Legacy `tabwright capability')
-    expect(discoverySkill).toContain('tabwright skill runtime validate "<absolute-skill-directory>"')
-    expect(discoverySkill).toContain('do not copy its runtime into Tabwright storage')
+    expect(
+      report.topics.map(({ topic, command }) => {
+        return { topic, command }
+      }),
+    ).toEqual([
+      { topic: 'browser', command: 'tabwright docs browser' },
+      { topic: 'network', command: 'tabwright docs network' },
+      { topic: 'editor', command: 'tabwright docs editor' },
+      { topic: 'debugger', command: 'tabwright docs debugger' },
+      { topic: 'styles', command: 'tabwright docs styles' },
+      { topic: 'performance', command: 'tabwright docs performance' },
+    ])
+    expect(
+      report.topics.every(({ description }) => {
+        return description.length > 0
+      }),
+    ).toBe(true)
     expect(stderr).toBe('')
   }, 30000)
 
-  test('validates and runs a Skill-owned runtime without a capability registry entry', async () => {
-    const testRoot = path.join(tabwrightDir, 'tmp', `skill-runtime-cli-${process.pid}-${Date.now()}`)
-    const skillDir = path.join(testRoot, 'cli-runtime-test')
-    const runtimeDir = path.join(skillDir, 'runtime')
-    const isolatedHome = path.join(testRoot, 'home')
-    fs.mkdirSync(runtimeDir, { recursive: true })
-    fs.mkdirSync(isolatedHome, { recursive: true })
-    fs.writeFileSync(
-      path.join(skillDir, 'SKILL.md'),
-      '---\nname: cli-runtime-test\ndescription: Test Skill runtime.\n---\n',
-    )
-    fs.writeFileSync(
-      path.join(runtimeDir, 'capability.json'),
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          id: 'cli-runtime-test',
-          title: 'CLI runtime test',
-          inputSchema: {
-            type: 'object',
-            properties: { value: { type: 'string' } },
-            required: ['value'],
-          },
-          outputSchema: {
-            type: 'object',
-            properties: { value: { type: 'string' } },
-            required: ['value'],
-          },
-          sideEffect: 'read',
-          requiresConfirmation: false,
-          entry: 'script.js',
-          runtime: 'node',
-          status: 'draft',
-          createdBy: 'ai',
-        },
-        null,
-        2,
-      )}\n`,
-    )
-    fs.writeFileSync(path.join(runtimeDir, 'script.js'), 'throw new Error("validation must not execute this")\n')
+  test('renders local documentation pagination help', async () => {
+    const { stdout, stderr } = await runCli(['docs', '--help'])
 
-    try {
-      const env = { ...process.env, HOME: isolatedHome, USERPROFILE: isolatedHome }
-      const validated = await runCliWithEnv({
-        args: ['skill', 'runtime', 'validate', skillDir, '--json'],
-        env,
-      })
-      expect(JSON.parse(validated.stdout)).toMatchObject({
-        valid: true,
-        skill: { id: 'cli-runtime-test', dir: skillDir },
-        runtime: { dir: runtimeDir, type: 'node', sideEffect: 'read', requiresConfirmation: false },
-      })
-      expect(validated.stderr).toBe('')
+    expect(stdout).toContain('--offset <lines>')
+    expect(stdout).toContain('--limit <lines>')
+    expect(stdout).toContain('--json')
+    expect(stderr).toBe('')
+  }, 30000)
 
-      fs.writeFileSync(path.join(runtimeDir, 'script.js'), 'return { value: input.value }\n')
-      const executed = await runCliWithEnv({
-        args: ['skill', 'runtime', 'run', skillDir, '--input-json', '{"value":"ok"}', '--json'],
-        env,
-      })
-      expect(JSON.parse(executed.stdout)).toMatchObject({
-        runtime: 'cli-runtime-test',
-        output: { value: 'ok' },
-        isError: false,
-      })
-      expect(executed.stderr).toBe('')
-      expect(fs.existsSync(path.join(isolatedHome, '.tabwright', 'capabilities'))).toBe(false)
-    } finally {
-      fs.rmSync(testRoot, { recursive: true, force: true })
-    }
+  test('introduces browser debugging, local references, and independent scripts', async () => {
+    const { stdout, stderr } = await runCli(['skill'])
+    const discoverySkill = fs.readFileSync(path.resolve(tabwrightDir, '..', 'skills', 'tabwright', 'SKILL.md'), 'utf-8')
+
+    expect(stdout).toContain('# Browser Debugging')
+    expect(stdout).toContain('createNetwork({ cdp, maxEntries? })')
+    expect(stdout).toContain('### Local documentation')
+    expect(stdout).toContain('tabwright docs editor --offset 160 --limit 120')
+    expect(stdout).toContain('### Independent scripts and Skills')
+    expect(stdout).not.toContain('Legacy `tabwright capability')
+    expect(discoverySkill).toContain('tabwright docs network')
+    expect(discoverySkill).toContain('tabwright docs editor')
+    expect(discoverySkill).toContain('tabwright docs debugger')
+    expect(discoverySkill).toContain('## Independent scripts')
+    expect(stderr).toBe('')
   }, 30000)
 
   test('exposes automatic skill installation recovery and status commands', async () => {
@@ -185,8 +158,9 @@ describe('tabwright cli help', () => {
     const installHelp = await runCli(['skill', 'install', '--help'])
     const statusHelp = await runCli(['skill', 'status', '--help'])
 
-    expect(instructions.stdout).toContain('Global CLI installation creates or safely updates')
+    expect(instructions.stdout).toContain('installed automatically in')
     expect(instructions.stdout).toContain('tabwright skill install')
+    expect(instructions.stdout).toContain('tabwright skill status')
     expect(installHelp.stdout).toContain('bundled with this CLI')
     expect(installHelp.stdout).toContain('agents, codex, or claude')
     expect(installHelp.stdout).toContain('--force')
@@ -210,12 +184,12 @@ describe('tabwright cli help', () => {
   test('explains that legacy capability commands require a Skill update', async () => {
     await expect(runCli(['capability', 'run', '/example/runtime', '--json'])).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringContaining('outdated Agent Skill'),
+      stderr: expect.stringContaining('Migrate business validation'),
     })
 
     await expect(runCli(['capability', 'refresh-auth', '/example/runtime', '--json'])).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringContaining('Update or reinstall that Skill'),
+      stderr: expect.stringContaining('Do not automatically translate'),
     })
   }, 30000)
 

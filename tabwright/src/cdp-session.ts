@@ -1,5 +1,6 @@
 import type { Page, CDPSession as PlaywrightCDPSession } from '@xmorse/playwright-core'
 import type { ProtocolMapping } from 'devtools-protocol/types/protocol-mapping.js'
+import { getCDPResources } from './cdp-resources.js'
 
 /**
  * Type-safe CDP session interface using devtools-protocol ProtocolMapping.
@@ -38,6 +39,7 @@ export class PlaywrightCDPSessionAdapter implements ICDPSession {
 
   constructor(playwrightSession: PlaywrightCDPSession) {
     this._playwrightSession = playwrightSession
+    getCDPResources(this)
   }
 
   async send<K extends keyof ProtocolMapping.Commands>(
@@ -65,13 +67,33 @@ export class PlaywrightCDPSessionAdapter implements ICDPSession {
   }
 }
 
+const sessionsByPage = new WeakMap<Page, Promise<PlaywrightCDPSessionAdapter>>()
+
 /**
  * Gets a CDP session for a page by reusing Playwright's internal existing CDP session.
  * This uses the same WebSocket Playwright already has, avoiding new connections.
  * Works through the relay because it doesn't call Target.attachToTarget.
  */
 export async function getCDPSessionForPage({ page }: { page: Page }): Promise<PlaywrightCDPSessionAdapter> {
-  const context = page.context()
-  const playwrightSession = await context.getExistingCDPSession(page)
-  return new PlaywrightCDPSessionAdapter(playwrightSession)
+  if (page.isClosed()) {
+    throw new Error('Cannot create CDP session for closed page')
+  }
+  const existing = sessionsByPage.get(page)
+  if (existing) {
+    return await existing
+  }
+  const pending = page
+    .context()
+    .getExistingCDPSession(page)
+    .then((playwrightSession) => {
+      // The fork's borrowed session keeps detach() a no-op; page lifecycle owns it.
+      return new PlaywrightCDPSessionAdapter(playwrightSession)
+    })
+  sessionsByPage.set(page, pending)
+  try {
+    return await pending
+  } catch (error) {
+    sessionsByPage.delete(page)
+    throw error
+  }
 }

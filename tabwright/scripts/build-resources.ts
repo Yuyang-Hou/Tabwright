@@ -102,6 +102,38 @@ function buildEditorApi() {
   writeToDestinations('editor-api.md', content)
 }
 
+function buildNetworkApi() {
+  const networkTypes = cleanTypes(readFile('dist/network-inspector.d.ts'))
+  const content = dedent`
+    # Network Inspector API
+
+    Create with \`createNetwork({ cdp })\` in execute, or import \`NetworkInspector\`.
+    Call \`enable()\` before reproducing the relevant request. Capture is target-scoped,
+    opt-in, and bounded (200 entries by default). No bodies are retained automatically.
+    Query \`list()\`, inspect one entry with \`inspect({ requestId })\`, and request a
+    bounded response excerpt with \`responseBody({ requestId, offset, limit })\`.
+    Request IDs are inspector-owned; each redirect hop has its own identity.
+    Initiator line and column positions are CDP zero-based values. Editor.read uses
+    a zero-based line offset; Debugger.setBreakpoint uses a one-based line number.
+
+    Headers are a redacted CDP view, not a complete wire capture. Arbitrary URLs,
+    application data, and response bodies can remain sensitive. Body excerpts
+    preserve CDP encoding; base64 slices are not independently decodable. The
+    underlying CDP call still transfers the complete body. Unavailable bodies
+    return an explicit reason rather than a different request's response.
+
+    \`clear()\` forgets entries. \`dispose()\` releases only this inspector's listeners;
+    neither disables the shared Network domain or detaches the CDP session.
+
+    ## Types
+
+    \`\`\`ts
+    ${networkTypes}
+    \`\`\`
+  `
+  writeToDestinations('network-api.md', content)
+}
+
 function buildStylesApi() {
   const stylesTypes = cleanTypes(readFile('dist/styles.d.ts'))
   const stylesExamples = readFile('src/styles-examples.ts')
@@ -511,6 +543,7 @@ function buildWellKnownSkills() {
 // Run all builds
 buildDebuggerApi()
 buildEditorApi()
+buildNetworkApi()
 buildStylesApi()
 buildPerformanceProfiling()
 buildPromptFromSkill()

@@ -16,25 +16,21 @@
   },
   "license": "Apache-2.0",
   "scripts": {
-    "build": "tsc --project . && vite build --config vite.config.mts && tsx scripts/download-prism.ts",
+    "build": "tsc --project . && vite build --config vite.config.mts",
     "test:connection": "tsx --test scripts/connection-ownership.test.ts",
-    "test:replay-logger": "tsx --test scripts/replay-logger.test.ts",
     "reload": "bun run build && open -a 'Google Chrome' 'chrome://extensions/?id=pebbngnfojnignonigcnkdilknapkgid'",
     "watch": "vite build --watch --config vite.config.mts",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.315",
-    "concurrently": "^8.2.2",
-    "esbuild": "^0.25.12",
     "typescript": "^5.8.2",
     "vite": "^8.0.13",
     "vite-plugin-static-copy": "^3.1.1"
   },
   "dependencies": {
-    "tabwright": "workspace:^",
-    "rrweb": "^2.1.0",
     "string-dedent": "^3.0.2",
+    "tabwright": "workspace:^",
     "zustand": "^5.0.8"
   }
 }

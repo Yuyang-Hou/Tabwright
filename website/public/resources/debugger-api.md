@@ -50,7 +50,7 @@ export declare class Debugger {
     private paused;
     private currentCallFrames;
     private breakpoints;
-    private scripts;
+    private resources;
     private xhrBreakpoints;
     private blackboxPatterns;
     /**

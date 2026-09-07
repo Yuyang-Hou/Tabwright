@@ -1,5 +1,6 @@
 import type { ICDPSession } from './cdp-session.js'
 import type { Protocol } from 'devtools-protocol'
+import { getCDPResources, type CDPResources } from './cdp-resources.js'
 
 export interface BreakpointInfo {
   id: string
@@ -51,7 +52,7 @@ export class Debugger {
   private paused = false
   private currentCallFrames: Protocol.Debugger.CallFrame[] = []
   private breakpoints = new Map<string, BreakpointInfo>()
-  private scripts = new Map<string, ScriptInfo>()
+  private resources: CDPResources
   private xhrBreakpoints = new Set<string>()
   private blackboxPatterns: string[] = []
 
@@ -70,6 +71,7 @@ export class Debugger {
    */
   constructor({ cdp }: { cdp: ICDPSession }) {
     this.cdp = cdp
+    this.resources = getCDPResources(cdp)
     this.setupEventListeners()
   }
 
@@ -82,15 +84,6 @@ export class Debugger {
     this.cdp.on('Debugger.resumed', () => {
       this.paused = false
       this.currentCallFrames = []
-    })
-
-    this.cdp.on('Debugger.scriptParsed', (params) => {
-      if (params.url && !params.url.startsWith('chrome') && !params.url.startsWith('devtools')) {
-        this.scripts.set(params.scriptId, {
-          scriptId: params.scriptId,
-          url: params.url,
-        })
-      }
     })
   }
 
@@ -107,9 +100,6 @@ export class Debugger {
     if (this.debuggerEnabled) {
       return
     }
-    await this.cdp.send('Debugger.disable')
-    await this.cdp.send('Runtime.disable')
-    this.scripts.clear()
     const scriptsReady = new Promise<void>((resolve) => {
       let timeout: ReturnType<typeof setTimeout>
       const listener = () => {
@@ -530,7 +520,13 @@ export class Debugger {
    */
   async listScripts({ search }: { search?: string } = {}): Promise<ScriptInfo[]> {
     await this.enable()
-    const scripts = Array.from(this.scripts.values())
+    const scripts = Array.from(this.resources.scripts.values())
+      .filter((script) => {
+        return !script.url.startsWith('inline://')
+      })
+      .map(({ scriptId, url }) => {
+        return { scriptId, url }
+      })
     const filtered = search ? scripts.filter((s) => s.url.toLowerCase().includes(search.toLowerCase())) : scripts
     return filtered.slice(0, 20)
   }

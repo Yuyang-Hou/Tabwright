@@ -3,7 +3,15 @@
  * Used by both MCP and CLI to execute Playwright code with persistent state.
  */
 
-import type { Page, Frame, Browser, BrowserContext, Locator, FrameLocator, ElementHandle } from '@xmorse/playwright-core'
+import type {
+  Page,
+  Frame,
+  Browser,
+  BrowserContext,
+  Locator,
+  FrameLocator,
+  ElementHandle,
+} from '@xmorse/playwright-core'
 import { getChromium, isPatchrightEnabled } from './playwright-import.js'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -21,6 +29,7 @@ import { waitForPageLoad, WaitForPageLoadOptions, WaitForPageLoadResult } from '
 import { ICDPSession, getCDPSessionForPage } from './cdp-session.js'
 import { Debugger } from './debugger.js'
 import { Editor } from './editor.js'
+import { NetworkInspector } from './network-inspector.js'
 import { getStylesForLocator, formatStylesAsText, type StylesResult } from './styles.js'
 import { getReactSource, getReactComponentInfo, type ReactSourceLocation } from './react-source.js'
 import { ScopedFS } from './scoped-fs.js'
@@ -35,7 +44,6 @@ import { createGhostBrowserChrome, type GhostBrowserCommandResult } from './ghos
 export type { SnapshotFormat }
 import { getCleanHTML, type GetCleanHTMLOptions } from './clean-html.js'
 import { getPageMarkdown, type GetPageMarkdownOptions } from './page-markdown.js'
-import { createReplayApi } from './rrweb-recording.js'
 import { type GhostCursorClientOptions } from './ghost-cursor.js'
 import { GhostCursorController } from './ghost-cursor-controller.js'
 import { decompileJavaScript as runWakaru, type DecompileJavaScriptOptions } from './wakaru.js'
@@ -47,9 +55,47 @@ const require = createRequire(import.meta.url)
 
 export class CodeExecutionTimeoutError extends Error {
   constructor(timeout: number) {
-    super(`Code execution timed out after ${timeout}ms`)
+    super(
+      `Code execution timed out after ${timeout}ms. Outcome unknown: asynchronous actions may still be running; they were not cancelled. Do not retry the action or reset this session until execution finishes and you verify the page state.`,
+    )
     this.name = 'CodeExecutionTimeoutError'
   }
+}
+
+export interface ExecutionState {
+  status: 'idle' | 'running' | 'timed-out'
+  startedAt: number | null
+}
+
+export async function runWithExecutionState<T>(options: {
+  state: ExecutionState
+  timeout: number
+  execute: () => Promise<T>
+}): Promise<T> {
+  if (options.state.status !== 'idle') {
+    throw new Error(
+      'Session is busy: the previous execution is still running. No new code was executed. Check session status and wait for it to finish before inspecting the outcome.',
+    )
+  }
+  options.state.status = 'running'
+  options.state.startedAt = Date.now()
+  const timer: { handle?: ReturnType<typeof setTimeout> } = {}
+  const expired = new Promise<never>((_, reject) => {
+    timer.handle = setTimeout(() => {
+      options.state.status = 'timed-out'
+      reject(new CodeExecutionTimeoutError(options.timeout))
+    }, options.timeout)
+  })
+  // Keep the session occupied after a timeout until all awaited work and its collectors finish.
+  // Detached promises/listeners remain caller-owned, including actions deliberately separated for debugging.
+  const execution = Promise.resolve()
+    .then(options.execute)
+    .finally(() => {
+      clearTimeout(timer.handle)
+      options.state.status = 'idle'
+      options.state.startedAt = null
+    })
+  return await Promise.race([execution, expired])
 }
 
 const usefulGlobals = {
@@ -149,44 +195,10 @@ export function wrapCode(code: string): string {
 const EXTENSION_NOT_CONNECTED_ERROR = `The Tabwright Chrome extension is not connected. Make sure you have:
 1. Installed the extension: https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep
 2. Clicked the extension icon on a tab to enable it (or refreshed the page if just installed)
-3. Or use a cloud browser instead: run \`tabwright cloud login\` in your terminal to rent a browser in the cloud, with auto CAPTCHA solving, residential proxies and anti-detection built in`
+Run \`tabwright doctor --json\` for local connection diagnostics.`
 
 const NO_PAGES_AVAILABLE_ERROR =
   'No Playwright pages are available. Enable Tabwright on a tab or unset TABWRIGHT_AUTO_ENABLE=false to auto-create one.'
-
-const CLOUD_SESSION_EXPIRED_ERROR =
-  'Cloud browser session expired or was destroyed. Create a new session with: tabwright session new --browser cloud'
-
-/** Patterns that indicate the browser/page/context was closed or the WebSocket died.
- *  Used to detect cloud VM expiration vs other Playwright errors. */
-const DISCONNECTION_PATTERNS = [
-  'browser has been closed',
-  'browser.close',
-  'Target page, context or browser has been closed',
-  'Target closed',
-  'connection refused',
-  'WebSocket is not open',
-  'WebSocket error',
-  'connect ECONNREFUSED',
-  'Session closed',
-  'Connection closed',
-  'NS_ERROR_NET_RESET',
-]
-
-function isDisconnectionError(error: Error): boolean {
-  const msg = error.message || ''
-  const stack = error.stack || ''
-  const matchesHere = DISCONNECTION_PATTERNS.some((pattern) => {
-    return msg.includes(pattern) || stack.includes(pattern)
-  })
-  if (matchesHere) return true
-  // Walk the cause chain — ensureConnection wraps the real WebSocket error
-  // in a new Error with { cause }, so we need to check nested causes too.
-  if (error.cause instanceof Error) {
-    return isDisconnectionError(error.cause)
-  }
-  return false
-}
 
 const MAX_LOGS_PER_PAGE = 5000
 
@@ -291,14 +303,7 @@ export interface SessionInfo {
   connected: boolean
   pageUrl: string | null
   pagesCount: number
-}
-
-export interface CloudSessionInfo {
-  /** Timestamp (epoch ms) when the BU VM will hard-timeout */
-  timeoutAt?: number
-  /** Whether proxy is enabled — when true, images/video/fonts are blocked to save bandwidth.
-   *  Set to false via --disable-proxy-bandwidth-acceleration to allow all resources. */
-  blockProxyResources?: boolean
+  execution: ExecutionState
 }
 
 export interface ExecutorOptions {
@@ -307,8 +312,6 @@ export interface ExecutorOptions {
   logger?: ExecutorLogger
   /** Working directory for scoped fs access */
   cwd?: string
-  /** Set when this executor is connected to a cloud Browser Use VM */
-  cloudSession?: CloudSessionInfo
 }
 
 function isRegExp(value: any): value is RegExp {
@@ -339,6 +342,7 @@ export function isPlaywrightChannelOwner(value: any): boolean {
 }
 
 export class PlaywrightExecutor {
+  readonly executionState: ExecutionState = { status: 'idle', startedAt: null }
   private isConnected = false
   private page: Page | null = null
   private browser: Browser | null = null
@@ -371,17 +375,11 @@ export class PlaywrightExecutor {
   private hasWarnedExtensionOutdated = false
 
   private ghostCursorController: GhostCursorController
-  /** Non-null when this executor is backed by a cloud Browser Use VM */
-  private cloudSession: CloudSessionInfo | null
-  /** Last minute bucket for which a cloud timeout warning was enqueued (dedup) */
-  private lastCloudTimeoutWarningMinute: number | null = null
-
   constructor(options: ExecutorOptions) {
     this.cdpConfig = options.cdpConfig
     this.logger = options.logger || { log: console.log, error: console.error }
     this.sessionMetadata = options.sessionMetadata || { extensionId: null, browser: null, profile: null }
     this.sessionCwd = options.cwd ? path.resolve(options.cwd) : null
-    this.cloudSession = options.cloudSession || null
     // ScopedFS expects an array of allowed directories. If cwd is provided, use it; otherwise use defaults.
     this.scopedFs = new ScopedFS(
       this.sessionCwd ? [this.sessionCwd, '/tmp', os.tmpdir()] : undefined,
@@ -433,43 +431,6 @@ export class PlaywrightExecutor {
     options.deviceScaleFactor = 2
   }
 
-  /** Block images, video, and font resources via Network.setBlockedURLs to save
-   *  residential proxy bandwidth. Single CDP command, zero per-request overhead.
-   *  Applied per-context on every page (existing and future). */
-  private async applyProxyResourceBlocking(context: BrowserContext): Promise<void> {
-    // URL patterns using the URLPattern spec syntax (absolute patterns).
-    // Covers the vast majority of image/video/font resources by file extension.
-    const blockedPatterns = [
-      // Images (SVGs excluded — lightweight and often used for icons/UI)
-      '*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.avif',
-    ]
-
-    const applyToPage = async (page: Page) => {
-      try {
-        const cdpSession = await page.context().newCDPSession(page)
-        await cdpSession.send('Network.enable')
-        await cdpSession.send('Network.setBlockedURLs', {
-          urls: blockedPatterns,
-        })
-        await cdpSession.detach()
-      } catch (err) {
-        // Best-effort: don't break the session if blocking fails
-        this.logger.error('Failed to apply proxy resource blocking:', err)
-      }
-    }
-
-    // Apply to existing pages
-    const pages = context.pages().filter((p) => !p.isClosed())
-    await Promise.all(pages.map(applyToPage))
-
-    // Apply to future pages
-    context.on('page', (page) => {
-      applyToPage(page)
-    })
-
-    this.logger.log('Proxy bandwidth acceleration enabled: blocking raster images')
-  }
-
   private clearUserState() {
     Object.keys(this.userState).forEach((key) => delete this.userState[key])
   }
@@ -484,13 +445,6 @@ export class PlaywrightExecutor {
   enqueueWarning(message: string) {
     this.nextWarningEventId += 1
     this.warningEvents.push({ id: this.nextWarningEventId, message })
-  }
-
-  /** Update the cloud session timeout from external tracking (relay timer). */
-  updateCloudTimeout(timeoutAt: number) {
-    if (this.cloudSession) {
-      this.cloudSession.timeoutAt = timeoutAt
-    }
   }
 
   private beginWarningScope(): WarningScope {
@@ -822,13 +776,6 @@ export class PlaywrightExecutor {
 
       await this.setDeviceScaleFactorForMacOS(context)
 
-      // Block images, video, and fonts for cloud sessions with proxy enabled
-      // to reduce residential proxy bandwidth costs. Uses Network.setBlockedURLs
-      // which is a single fire-and-forget CDP command with zero per-request overhead.
-      if (this.cloudSession?.blockProxyResources) {
-        await this.applyProxyResourceBlocking(context)
-      }
-
       return { browser, page, context }
     }
 
@@ -984,11 +931,6 @@ export class PlaywrightExecutor {
 
       return { browser, page }
     } catch (error) {
-      // Cloud sessions that fail to connect are likely expired VMs.
-      // Give a clear error instead of a cryptic WebSocket/connection error.
-      if (this.cloudSession && error instanceof Error && isDisconnectionError(error)) {
-        throw new Error(CLOUD_SESSION_EXPIRED_ERROR, { cause: error })
-      }
       throw error
     }
   }
@@ -1020,6 +962,21 @@ export class PlaywrightExecutor {
   }
 
   async reset(): Promise<{ page: Page; context: BrowserContext }> {
+    if (this.executionState.status !== 'idle') {
+      throw new Error(
+        'Session is busy: reset cannot cancel its running code. Wait for execution to finish, then inspect the outcome before retrying any action.',
+      )
+    }
+    return await runWithExecutionState({
+      state: this.executionState,
+      timeout: 60000,
+      execute: () => {
+        return this.resetConnection()
+      },
+    })
+  }
+
+  private async resetConnection(): Promise<{ page: Page; context: BrowserContext }> {
     this.suppressPageCloseWarnings = true
     try {
       if (this.isHeadlessMode()) {
@@ -1053,6 +1010,41 @@ export class PlaywrightExecutor {
   }
 
   async execute(code: string, timeout = 10000, options: ExecuteOptions = {}): Promise<ExecuteResult> {
+    try {
+      return await runWithExecutionState({
+        state: this.executionState,
+        timeout,
+        execute: async () => {
+          try {
+            return await this.executeCode({ code, timeout, options })
+          } finally {
+            if (this.executionState.status === 'timed-out') {
+              this.lastSnapshots = new WeakMap()
+              this.lastRefToLocator = new WeakMap()
+              this.pageLogCursor.clear()
+            }
+          }
+        },
+      })
+    } catch (error: unknown) {
+      return {
+        text: `Error executing code: ${error instanceof Error ? error.message : String(error)}`,
+        images: [],
+        screenshots: [],
+        isError: true,
+      }
+    }
+  }
+
+  private async executeCode({
+    code,
+    timeout,
+    options,
+  }: {
+    code: string
+    timeout: number
+    options: ExecuteOptions
+  }): Promise<ExecuteResult> {
     const consoleLogs: Array<{ method: string; args: any[] }> = []
     const warningScope = this.beginWarningScope()
 
@@ -1080,26 +1072,11 @@ export class PlaywrightExecutor {
     }
 
     try {
-      // Warn if cloud VM is approaching its hard timeout (deduped by minute bucket)
-      if (this.cloudSession?.timeoutAt) {
-        const remainingMs = this.cloudSession.timeoutAt - Date.now()
-        if (remainingMs <= 0) {
-          throw new Error(CLOUD_SESSION_EXPIRED_ERROR)
-        }
-        if (remainingMs < 5 * 60_000) {
-          const mins = Math.ceil(remainingMs / 60_000)
-          if (this.lastCloudTimeoutWarningMinute !== mins) {
-            this.lastCloudTimeoutWarningMinute = mins
-            this.enqueueWarning(
-              `Cloud browser expires in ~${mins} minute${mins === 1 ? '' : 's'}. ` +
-                `Create a new session soon with: tabwright session new --browser cloud`,
-            )
-          }
-        }
-      }
-
       await this.ensureConnection()
       const page = await this.getCurrentPage(timeout)
+      if (this.executionState.status === 'timed-out') {
+        throw new CodeExecutionTimeoutError(timeout)
+      }
       const context = this.context || page.context()
 
       this.logger.log('Executing code:', code)
@@ -1303,9 +1280,7 @@ export class PlaywrightExecutor {
 
         // Advance cursors after collecting so next sinceLastCall call starts fresh
         if (sinceLastCall) {
-          const pagesToAdvance = filterPage
-            ? this.pagesRelatedToPage(filterPage)
-            : [...this.browserLogs.keys()]
+          const pagesToAdvance = filterPage ? this.pagesRelatedToPage(filterPage) : [...this.browserLogs.keys()]
           for (const p of pagesToAdvance) {
             const logs = this.browserLogs.get(p)
             if (logs) {
@@ -1360,6 +1335,9 @@ export class PlaywrightExecutor {
       }
 
       const createDebugger = (options: { cdp: ICDPSession }) => new Debugger(options)
+      const createNetwork = (options: { cdp: ICDPSession; maxEntries?: number }) => {
+        return new NetworkInspector(options)
+      }
       const createEditor = (options: { cdp: ICDPSession }) =>
         new Editor({ ...options, cwd: this.sessionCwd || process.cwd() })
       const decompileJavaScript = (options: Omit<DecompileJavaScriptOptions, 'cwd'>) => {
@@ -1401,9 +1379,11 @@ export class PlaywrightExecutor {
         }
 
         this.userState.page = targetPage
-        const handle = (await targetPage.evaluateHandle((expression) => {
-          return Function(`return (${expression})`)()
-        }, elementExpression)).asElement()
+        const handle = (
+          await targetPage.evaluateHandle((expression) => {
+            return Function(`return (${expression})`)()
+          }, elementExpression)
+        ).asElement()
 
         const result = await (async () => {
           if (!handle) {
@@ -1446,11 +1426,10 @@ export class PlaywrightExecutor {
         })
       }
 
-      const relayPort = this.cdpConfig.port || 19988
       const self = this
       const ghostCursorController = this.ghostCursorController
 
-      const showGhostCursor = async (options?: ({ page?: Page } & GhostCursorClientOptions)) => {
+      const showGhostCursor = async (options?: { page?: Page } & GhostCursorClientOptions) => {
         const targetPage = options?.page || page
         const cursorOptions: GhostCursorClientOptions | undefined = (() => {
           if (!options) {
@@ -1469,11 +1448,6 @@ export class PlaywrightExecutor {
         await ghostCursorController.hide({ page: targetPage })
       }
 
-      const replayApi = createReplayApi({
-        context,
-        defaultPage: page,
-        relayPort,
-      })
       // Ghost Browser API - creates chrome object that mirrors Ghost Browser's APIs
       // See extension/src/ghost-browser-api.d.ts for full API documentation
       const chromeGhostBrowser = createGhostBrowserChrome(async (namespace, method, args) => {
@@ -1485,7 +1459,6 @@ export class PlaywrightExecutor {
         }
         return typed.result
       })
-
 
       let vmContextObj: any = {
         page,
@@ -1504,6 +1477,7 @@ export class PlaywrightExecutor {
         waitForPageLoad,
         getCDPSession,
         createDebugger,
+        createNetwork,
         createEditor,
         decompileJavaScript,
         getStylesForLocator: getStylesForLocatorFn,
@@ -1519,22 +1493,13 @@ export class PlaywrightExecutor {
           show: showGhostCursor,
           hide: hideGhostCursor,
         },
-        replay: {
-          start: replayApi.start,
-          stop: replayApi.stop,
-          isRecording: replayApi.isRecording,
-          cancel: replayApi.cancel,
-          list: replayApi.list,
-          events: replayApi.events,
-        },
-        // Backward-compatible aliases
-        startReplay: replayApi.start,
-        stopReplay: replayApi.stop,
-        isReplayRecording: replayApi.isRecording,
-        cancelReplay: replayApi.cancel,
-        listReplays: replayApi.list,
         resetPlaywright: async () => {
-          const { page: newPage, context: newContext } = await self.reset()
+          if (self.executionState.status === 'timed-out') {
+            throw new Error(
+              'Cannot reset after execution timed out: wait for the running code to finish and inspect the outcome.',
+            )
+          }
+          const { page: newPage, context: newContext } = await self.resetConnection()
           vmContextObj.page = newPage
           vmContextObj.context = newContext
           vmContextObj.browser = self.browser
@@ -1552,8 +1517,16 @@ export class PlaywrightExecutor {
         process: new Proxy(process, {
           get(target, prop, receiver) {
             if (prop === 'cwd') return () => self.sessionCwd || target.cwd()
-            if (prop === 'exit') return () => { throw new Error('process.exit() is not allowed in the sandbox') }
-            if (prop === 'chdir') return () => { throw new Error('process.chdir() is not allowed in the sandbox, use a new session with a different cwd instead') }
+            if (prop === 'exit')
+              return () => {
+                throw new Error('process.exit() is not allowed in the sandbox')
+              }
+            if (prop === 'chdir')
+              return () => {
+                throw new Error(
+                  'process.chdir() is not allowed in the sandbox, use a new session with a different cwd instead',
+                )
+              }
             return Reflect.get(target, prop, receiver)
           },
         }),
@@ -1561,15 +1534,11 @@ export class PlaywrightExecutor {
 
       const vmContext = vm.createContext(vmContextObj)
       const autoReturnExpr = getAutoReturnExpression(code)
-      const wrappedCode = autoReturnExpr !== null
-        ? `(async () => { return await (${autoReturnExpr}) })()`
-        : `(async () => { ${code} })()`
+      const wrappedCode =
+        autoReturnExpr !== null ? `(async () => { return await (${autoReturnExpr}) })()` : `(async () => { ${code} })()`
       const hasExplicitReturn = autoReturnExpr !== null || /\breturn\b/.test(code)
 
-      const result = await Promise.race([
-        vm.runInContext(wrappedCode, vmContext, { timeout, displayErrors: true }),
-        new Promise((_, reject) => setTimeout(() => reject(new CodeExecutionTimeoutError(timeout)), timeout)),
-      ])
+      const result = await vm.runInContext(wrappedCode, vmContext, { timeout, displayErrors: true })
 
       let responseText = formatConsoleLogs(consoleLogs)
 
@@ -1641,14 +1610,8 @@ export class PlaywrightExecutor {
       const logsText = formatConsoleLogs(consoleLogs, 'Console output (before error)')
       const warningText = this.flushWarningsForScope(warningScope)
 
-      // Cloud sessions: disconnection errors mean the VM expired or was destroyed.
-      // Give a clear actionable message instead of a generic "call reset" hint.
-      const isDisconnect = error instanceof Error && isDisconnectionError(error)
       const resetHint = (() => {
         if (isTimeoutError) return ''
-        if (this.cloudSession && isDisconnect) {
-          return `\n\n[Cloud browser expired or disconnected. Create a new session with: tabwright session new --browser cloud]`
-        }
         return '\n\n[HINT: If this is an internal Playwright error, page/browser closed, or connection issue, call reset to reconnect.]'
       })()
 
@@ -1740,6 +1703,7 @@ export class PlaywrightExecutor {
       connected: status.connected,
       pageUrl: status.pageUrl,
       pagesCount: status.pagesCount,
+      execution: { ...this.executionState },
     }
   }
 }
@@ -1763,8 +1727,6 @@ export class ExecutorManager {
     sessionMetadata?: SessionMetadata
     /** Override cdpConfig for this session (e.g. direct CDP connection) */
     cdpConfig?: CdpConfig
-    /** Cloud session info (set when connecting to a Browser Use VM) */
-    cloudSession?: CloudSessionInfo
   }): PlaywrightExecutor {
     const { sessionId, cwd, sessionMetadata } = options
     let executor = this.executors.get(sessionId)
@@ -1785,7 +1747,6 @@ export class ExecutorManager {
         sessionMetadata,
         logger: this.logger,
         cwd,
-        cloudSession: options.cloudSession,
       })
       this.executors.set(sessionId, executor)
     }

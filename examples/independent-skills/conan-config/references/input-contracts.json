@@ -1,0 +1,756 @@
+{
+  "name": "conan-config",
+  "origins": ["https://conan.zhenguanyu.com", "https://ytkconan.zhenguanyu.com"],
+  "input": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string"
+      }
+    },
+    "required": ["action"]
+  },
+  "requiresConfirmation": true,
+  "operations": {
+    "search": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "query": {
+            "type": "string"
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "includeRawTree": {
+            "type": "boolean"
+          },
+          "detailLevel": {
+            "type": "string",
+            "enum": ["compact", "full"],
+            "description": "默认 compact；仅在需要完整分维度结果时使用 full。"
+          }
+        },
+        "required": ["action", "query"]
+      },
+      "requiresConfirmation": false
+    },
+    "get": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "grouping": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "includeRawValue": {
+            "type": "boolean"
+          },
+          "saveArtifacts": {
+            "type": "boolean"
+          }
+        },
+        "required": ["action"]
+      },
+      "requiresConfirmation": false
+    },
+    "list-spaces": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          }
+        },
+        "required": ["action"]
+      },
+      "requiresConfirmation": false
+    },
+    "history": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "historyIds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": ["action"]
+      },
+      "requiresConfirmation": false
+    },
+    "get-schema": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          }
+        },
+        "required": ["action"]
+      },
+      "requiresConfirmation": false
+    },
+    "search-schemas": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境。"
+          },
+          "id": {
+            "type": "number"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "bizKey": {
+            "type": "string",
+            "enum": ["config"]
+          },
+          "page": {
+            "type": "number"
+          },
+          "pageSize": {
+            "type": "number"
+          },
+          "includeSchemaJson": {
+            "type": "boolean"
+          }
+        },
+        "required": ["action"]
+      },
+      "requiresConfirmation": false
+    },
+    "prepare-create-schema": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "bizKey": {
+            "type": "string",
+            "enum": ["config"]
+          },
+          "type": {
+            "type": "number",
+            "enum": [1, 2]
+          },
+          "schemaJson": {
+            "type": ["object", "string"]
+          }
+        },
+        "required": ["action", "name", "desc", "schemaJson", "type"]
+      },
+      "requiresConfirmation": false
+    },
+    "create-schema": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "bizKey": {
+            "type": "string",
+            "enum": ["config"]
+          },
+          "type": {
+            "type": "number",
+            "enum": [1, 2]
+          },
+          "schemaJson": {
+            "type": ["object", "string"]
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": ["action", "name", "desc", "schemaJson", "type", "validationReport"]
+      },
+      "requiresConfirmation": true
+    },
+    "prepare-publish-draft": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": ["action"]
+      },
+      "requiresConfirmation": false
+    },
+    "prepare-create": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          }
+        },
+        "required": ["action", "groupingId", "key", "name", "desc", "schemaId"]
+      },
+      "requiresConfirmation": false
+    },
+    "prepare-copy": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "sourceUrl": {
+            "type": "string"
+          },
+          "sourceNamespace": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          }
+        },
+        "required": ["action", "groupingId", "targetKey"]
+      },
+      "requiresConfirmation": false
+    },
+    "prepare-rollback": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "historyId": {
+            "type": "number"
+          }
+        },
+        "required": ["action", "historyId"]
+      },
+      "requiresConfirmation": false
+    },
+    "prepare-change": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "changeSummary": {
+            "type": "string"
+          }
+        },
+        "required": ["action"]
+      },
+      "requiresConfirmation": false
+    },
+    "apply-change": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "changeSummary": {
+            "type": "string"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": ["action", "value", "changeSummary", "validationReport"]
+      },
+      "requiresConfirmation": true
+    },
+    "save-draft": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "changeSummary": {
+            "type": "string"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": ["action", "value", "changeSummary", "validationReport"]
+      },
+      "requiresConfirmation": true
+    },
+    "publish-draft": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": ["action", "validationReport"]
+      },
+      "requiresConfirmation": true
+    },
+    "discard-draft": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "configDraftId": {
+            "type": "number"
+          },
+          "draftSha256": {
+            "type": "string"
+          }
+        },
+        "required": ["action", "configDraftId", "draftSha256"]
+      },
+      "requiresConfirmation": true
+    },
+    "create": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          },
+          "schemaId": {
+            "type": "number"
+          },
+          "preparationReport": {
+            "type": "object"
+          }
+        },
+        "required": ["action", "groupingId", "key", "name", "desc", "schemaId", "preparationReport"]
+      },
+      "requiresConfirmation": true
+    },
+    "copy": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "sourceUrl": {
+            "type": "string"
+          },
+          "sourceNamespace": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "groupingId": {
+            "type": "number"
+          },
+          "targetKey": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "targetDesc": {
+            "type": "string"
+          },
+          "preparationReport": {
+            "type": "object"
+          }
+        },
+        "required": ["action", "groupingId", "targetKey", "preparationReport"]
+      },
+      "requiresConfirmation": true
+    },
+    "rollback": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["cn-prod", "cn-test"],
+            "description": "国内正式或国内测试环境；配置后台 URL 可自动推断。"
+          },
+          "url": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "rootGroupingKey": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "historyId": {
+            "type": "number"
+          },
+          "validationReport": {
+            "type": "object"
+          }
+        },
+        "required": ["action", "historyId", "validationReport"]
+      },
+      "requiresConfirmation": true
+    }
+  }
+}

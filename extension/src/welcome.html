@@ -151,236 +151,115 @@
         color: var(--color-muted);
         font-size: 0.875rem;
       }
-
-      /* Tomorrow (light) token colors */
-      code[class*='language-'],
-      pre[class*='language-'] {
-        color: #8959a8;
-        text-shadow: none;
-      }
-      .token.comment,
-      .token.block-comment,
-      .token.prolog,
-      .token.doctype,
-      .token.cdata {
-        color: #8e908c;
-      }
-      .token.punctuation {
-        color: #8959a8;
-      }
-      .token.tag,
-      .token.attr-name,
-      .token.namespace,
-      .token.deleted {
-        color: #c82829;
-      }
-      .token.function-name {
-        color: #4271ae;
-      }
-      .token.boolean,
-      .token.number,
-      .token.function {
-        color: #f5871f;
-      }
-      .token.property,
-      .token.class-name,
-      .token.constant,
-      .token.symbol {
-        color: #eab700;
-      }
-      .token.selector,
-      .token.important,
-      .token.atrule,
-      .token.keyword,
-      .token.builtin {
-        color: #8959a8;
-      }
-      .token.string,
-      .token.char,
-      .token.attr-value,
-      .token.regex,
-      .token.variable {
-        color: #718c00;
-      }
-      .token.operator,
-      .token.entity,
-      .token.url {
-        color: #3e999f;
-      }
-      .token.inserted {
-        color: #718c00;
-      }
-
-      /* Tomorrow Night (dark) token colors */
-      @media (prefers-color-scheme: dark) {
-        code[class*='language-'],
-        pre[class*='language-'] {
-          color: #b294bb;
-        }
-        .token.comment,
-        .token.block-comment,
-        .token.prolog,
-        .token.doctype,
-        .token.cdata {
-          color: #969896;
-        }
-        .token.punctuation {
-          color: #b294bb;
-        }
-        .token.tag,
-        .token.attr-name,
-        .token.namespace,
-        .token.deleted {
-          color: #cc6666;
-        }
-        .token.function-name {
-          color: #81a2be;
-        }
-        .token.boolean,
-        .token.number,
-        .token.function {
-          color: #de935f;
-        }
-        .token.property,
-        .token.class-name,
-        .token.constant,
-        .token.symbol {
-          color: #f0c674;
-        }
-        .token.selector,
-        .token.important,
-        .token.atrule,
-        .token.keyword,
-        .token.builtin {
-          color: #b294bb;
-        }
-        .token.string,
-        .token.char,
-        .token.attr-value,
-        .token.regex,
-        .token.variable {
-          color: #b5bd68;
-        }
-        .token.operator,
-        .token.entity,
-        .token.url {
-          color: #8abeb7;
-        }
-        .token.inserted {
-          color: #b5bd68;
-        }
-      }
     </style>
   </head>
   <body>
     <main>
       <section>
-        <h2>Getting Started with Tabwright</h2>
+        <h2>Give your agent the browser's debugging tools</h2>
+        <p>
+          Tabwright builds on Playwriter to let your agent inspect and interact with your Chrome: page state, Network,
+          running code, breakpoints, screenshots, and real browser actions. The agent chooses the tools that help answer
+          your question.
+        </p>
 
-        <p>Control your browser via Playwright API. Uses extension + CLI. No context bloat.</p>
-
-        <h3>Installation</h3>
+        <h3>Get connected</h3>
 
         <div class="step">
           <span class="step-number">1</span>
           <div class="step-content">
-            <strong>Pin the extension</strong>
-            <p>Click the puzzle icon in Chrome's toolbar, then pin Tabwright so it's always visible.</p>
+            <strong>Install the CLI</strong>
+            <pre><code class="language-bash">npm install -g tabwright@latest</code></pre>
+            <p>
+              This also installs the compact agent skill. Open a new agent task to discover it. If installation scripts
+              were disabled, run <code>tabwright skill install</code>.
+            </p>
           </div>
         </div>
 
         <div class="step">
           <span class="step-number">2</span>
           <div class="step-content">
-            <strong>Enable a tab</strong>
-            <p>Click the extension icon on a tab. It turns green when connected.</p>
+            <strong>Connect the page you want to use</strong>
+            <p>
+              Pin Tabwright using Chrome's puzzle icon, then click it on your target page. The icon turns green when the
+              tab is connected.
+            </p>
+            <pre><code class="language-bash">tabwright doctor
+tabwright session new</code></pre>
           </div>
         </div>
 
         <div class="step">
           <span class="step-number">3</span>
           <div class="step-content">
-            <strong>Install the CLI and run a command</strong>
-            <pre><code class="language-bash"># install the CLI globally
-npm i -g tabwright
-# navigate to a URL in the active tab
-tabwright -s 1 -e "await page.goto('https://example.com')"</code></pre>
+            <strong>Give your agent a goal and a page</strong>
+            <p>
+              For example: “Use Tabwright on my open dashboard. Find out why the chart is empty using whichever page
+              state, requests, or running code helps explain it.”
+            </p>
           </div>
         </div>
 
-        <div class="step">
-          <span class="step-number">4</span>
-          <div class="step-content">
-            <strong>Add the skill to your agent</strong>
-            <p>Install the Tabwright skill with your agent's official Agent Skills-compatible manager. The CLI provides the runtime; your agent manages skill discovery and updates.</p>
-          </div>
-        </div>
-
-        <h3>CLI Examples</h3>
-
-        <pre><code class="language-bash"># create a stateful sandbox, outputs session id (e.g. 1)
-tabwright session new
-# navigate to a URL
-tabwright -s 1 -e "await page.goto('https://example.com')"
-# get the accessibility tree of the page
-tabwright -s 1 -e "console.log(await snapshot({ page }))"
-# click an element by its accessibility reference
-tabwright -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
-      </section>
-
-      <section>
-        <h2>How It Works</h2>
-
-        <ul>
-          <li><strong>No new Chrome instances:</strong> Works with your current browser session</li>
-          <li><strong>No CDP mode required:</strong> No need to restart Chrome with special flags</li>
-          <li><strong>Full CDP access:</strong> Complete Chrome DevTools Protocol capabilities</li>
-          <li><strong>Visual feedback:</strong> Extension icon changes color to indicate connection status</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Icon States</h2>
-
-        <ul>
-          <li><strong>Gray:</strong> Not connected to any tab</li>
-          <li><strong>Green:</strong> Successfully connected and ready</li>
-          <li><strong>Orange badge (...):</strong> Connecting to relay server</li>
-          <li><strong>Red badge (!):</strong> Error occurred</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Privacy &amp; Security</h2>
-
+        <h3>Using the CLI directly</h3>
         <p>
-          Tabwright MCP runs locally in your browser and does not send any data to external servers. All browser
-          control happens through the standard Chrome DevTools Protocol on your machine.
+          Replace <code>2</code> with the session ID printed above. List available pages and retain the one matching
+          your request in <code>state.page</code>. For work that needs its own page, create one instead:
+        </p>
+        <pre><code class="language-bash">tabwright -s 2 -e 'console.log(context.pages().map((page) => { return page.url() }))'
+# Create a page only when the task should use a separate tab.
+tabwright -s 2 -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+tabwright -s 2 -e 'console.log(await snapshot({ page: state.page }))'
+tabwright -s 2 -e 'console.log(await getLatestLogs({ page: state.page, search: /error|fail/i }))'</code></pre>
+        <p>
+          A new page shares profile login state, but not another page's unsaved or in-memory state. Use
+          <code>createEditor</code>, <code>createDebugger</code>, and <code>createNetwork</code>
+          when code or Network evidence is more useful.
         </p>
       </section>
 
       <section>
-        <h2>MCP Setup (Optional)</h2>
-
-        <p>The CLI is the recommended way to use Tabwright. If you need MCP server setup, add <code>npx -y tabwright@latest</code> as an MCP server command.</p>
-
+        <h2>Control and data</h2>
         <p>
-          For full MCP instructions, see
+          The default relay runs locally. Connected tabs and profile login state are shared with the user and other
+          agent sessions. The agent can create additional tabs in that profile. Chrome shows debugging indicators on
+          controlled tabs.
+        </p>
+        <p>
+          Websites receive requests made in their pages. Page content returned by Tabwright goes to your agent and may
+          be processed by its model provider. Local logs and saved source can contain page data.
+        </p>
+        <p>
+          The agent is responsible for your authorized scope, required approvals, and checking the result of its
+          actions. Raw browser access does not isolate accounts or enforce application-level read/write permissions.
+        </p>
+      </section>
+
+      <section>
+        <h2>Connection status</h2>
+        <ul>
+          <li><strong>Gray:</strong> Tab is not connected</li>
+          <li><strong>Green:</strong> Tab is connected</li>
+          <li><strong>Orange badge (...):</strong> Connecting to the relay</li>
+          <li><strong>Red badge (!):</strong> Connection error</li>
+        </ul>
+        <p>
+          Run <code>tabwright doctor</code> for the current connection state and a suggested next action. Close only
+          task-created pages and use <code>tabwright session delete 2</code>
+          when the session is no longer needed.
+        </p>
+      </section>
+
+      <section>
+        <h2>References</h2>
+        <p>
+          Run <code>tabwright docs</code> to list local API references, or read the
+          <a href="https://github.com/Yuyang-Hou/tabwright" target="_blank" rel="noopener noreferrer"
+            >project documentation</a
+          >. For a tool-based client, see
           <a href="https://github.com/Yuyang-Hou/tabwright/blob/main/MCP.md" target="_blank" rel="noopener noreferrer"
-            >MCP.md</a
+            >MCP setup</a
           >.
-        </p>
-      </section>
-
-      <section>
-        <h2>Need Help?</h2>
-
-        <p>
-          For issues, feature requests, or contributions, visit the
-          <a href="https://github.com/Yuyang-Hou/tabwright" target="_blank" rel="noopener noreferrer">
-            GitHub repository
-          </a>
-          .
         </p>
       </section>
 
@@ -388,7 +267,5 @@ tabwright -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
         <p>Tabwright &copy; 2026 Yuyang Hou &middot; Licensed under Apache-2.0</p>
       </footer>
     </main>
-    <script src="prism.min.js"></script>
-    <script src="prism-bash.min.js"></script>
   </body>
 </html>

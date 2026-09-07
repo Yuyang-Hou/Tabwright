@@ -1,5 +1,8 @@
 packages:
-  - ./*
+  - ./extension
+  - ./playwright
+  - ./tabwright
+  - ./website
   - playwright/packages/playwright-core
 
 preferWorkspacePackages: true

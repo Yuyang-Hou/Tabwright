@@ -10,3 +10,176 @@
   scrollbar-color: gray transparent;
   scrollbar-gutter: stable;
 }
+
+.tw-hero {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  align-items: center;
+  gap: 3rem;
+  width: min(1160px, calc(100vw - 3rem));
+  margin: 2rem 0 4rem;
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: left;
+}
+.tw-eyebrow,
+.tw-layer,
+.tw-example {
+  font:
+    500 0.75rem/1.6 ui-monospace,
+    monospace;
+  letter-spacing: 0.06em;
+}
+.tw-eyebrow {
+  color: var(--primary);
+  margin-bottom: 1.5rem;
+}
+.tw-hero h1 {
+  font-size: clamp(2.2rem, 4.3vw, 3.6rem);
+  line-height: 1.25;
+  letter-spacing: -0.055em;
+  font-weight: 650;
+}
+.tw-hero h1 span {
+  opacity: 0.52;
+}
+.tw-lead {
+  font-size: 1.05rem;
+  line-height: 1.85;
+  max-width: 33rem;
+  margin: 1.6rem 0;
+  opacity: 0.8;
+}
+.tw-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+  margin-top: 2rem;
+  font-size: 0.9rem;
+}
+.tw-actions a {
+  text-decoration: none;
+  font-weight: 600;
+}
+.tw-primary {
+  color: white;
+  background: #bd4400;
+  padding: 0.8rem 1.1rem;
+  border-radius: 0.45rem;
+}
+.tw-primary:hover {
+  background: #983800;
+}
+.tw-secondary:hover {
+  text-decoration: underline;
+}
+.tw-hero a:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 5px;
+}
+.tw-caption {
+  margin-top: 1.1rem;
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+.tw-evidence {
+  min-width: 0;
+  border: 1px solid #34353c;
+  border-radius: 0.9rem;
+  background: #17181c;
+  color: #f3f3f5;
+  box-shadow: 0 20px 50px #00000012;
+}
+.tw-evidence-bar {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid #34353c;
+  font-size: 0.875rem;
+}
+.tw-example {
+  color: #adb0bd;
+}
+.tw-question {
+  font-size: 1.15rem;
+  font-weight: 550;
+  margin: 1.6rem 1.25rem;
+}
+.tw-evidence-list {
+  list-style: none;
+  padding: 0 1.25rem;
+  margin: 0;
+}
+.tw-evidence-list li {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.8rem;
+  padding: 1rem 0;
+  border-top: 1px solid #34353c;
+}
+.tw-evidence-list .tw-layer {
+  color: #ffae70;
+  padding-top: 0.1rem;
+}
+.tw-evidence-list strong {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.tw-evidence-list code {
+  display: block;
+  color: #acb3c2;
+  font:
+    400 0.8rem/1.8 ui-monospace,
+    monospace;
+  overflow-wrap: anywhere;
+  margin-top: 0.45rem;
+}
+.tw-evidence-note {
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: #adb0bd;
+  margin: 1.25rem;
+}
+.tw-tools {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  margin: 2rem 0 3rem;
+}
+.tw-tools > div {
+  border-top: 2px solid var(--primary);
+  padding-top: 1rem;
+}
+.tw-tools h3 {
+  margin: 0.7rem 0;
+  font-size: 1.1rem;
+}
+.tw-tools p {
+  font-size: 1rem;
+  line-height: 1.8;
+  opacity: 0.8;
+}
+.tw-tools .tw-layer {
+  opacity: 0.6;
+}
+@media (max-width: 900px) {
+  .tw-hero {
+    grid-template-columns: 1fr;
+    max-width: 42rem;
+    gap: 2rem;
+  }
+  .tw-hero h1 {
+    font-size: clamp(2.2rem, 7vw, 3.2rem);
+  }
+  .tw-tools {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 420px) {
+  .tw-evidence-list li {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+}

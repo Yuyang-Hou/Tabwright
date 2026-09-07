@@ -6,7 +6,7 @@
  * fire-and-forget via a per-page queue so it does not block action completion.
  */
 
-import type { BrowserContext, Page } from '@xmorse/playwright-core'
+import type { Page } from '@xmorse/playwright-core'
 import {
   applyGhostCursorMouseAction,
   disableGhostCursor,
@@ -18,11 +18,6 @@ interface GhostCursorLogger {
   error: (...args: unknown[]) => void
 }
 
-interface RecordingTargetOptions {
-  page?: Page
-  sessionId?: string
-}
-
 export class GhostCursorController {
   private readonly previousMouseActionByPage = new WeakMap<Page, Page['onMouseAction']>()
   private readonly cursorApplyQueueByPage = new WeakMap<Page, Promise<void>>()
@@ -31,30 +26,6 @@ export class GhostCursorController {
 
   constructor(options: { logger: GhostCursorLogger }) {
     this.logger = options.logger
-  }
-
-  resolveRecordingTargetPage(options: {
-    context: BrowserContext
-    defaultPage: Page
-    target?: RecordingTargetOptions
-  }): Page {
-    const { context, defaultPage, target } = options
-
-    if (target?.page) {
-      return target.page
-    }
-
-    if (target?.sessionId) {
-      const pageForSession = context.pages().find((candidatePage) => {
-        return candidatePage.sessionId() === target.sessionId
-      })
-
-      if (pageForSession) {
-        return pageForSession
-      }
-    }
-
-    return defaultPage
   }
 
   /** Wire onMouseAction. Idempotent. */

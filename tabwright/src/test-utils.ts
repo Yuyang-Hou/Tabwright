@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import { startTabwrightCDPRelayServer, type RelayServer } from './cdp-relay.js'
 import { createFileLogger } from './create-logger.js'
+import { createCdpLogger } from './cdp-log.js'
 import { killPortProcess } from './kill-port.js'
 
 const execAsync = promisify(exec)
@@ -92,9 +93,10 @@ async function launchTestBrowser({
   return await chromium.launchPersistentContext(userDataDir, {
     ...(chromeExecutable ? { executablePath: chromeExecutable } : { channel: 'chromium' }),
     headless: !process.env.HEADFUL,
-    colorScheme: 'dark',
+    // Establish a browser default, not a CDP override that another client can clear.
+    colorScheme: null,
     ignoreDefaultArgs: ['--disable-extensions'],
-    args,
+    args: ['--force-dark-mode', ...args],
   })
 }
 
@@ -204,6 +206,7 @@ export interface TestContext {
   browserContext: BrowserContext
   userDataDir: string
   relayServer: RelayServer
+  cdpLogFilePath: string
 }
 
 export async function setupTestContext({
@@ -230,7 +233,12 @@ export async function setupTestContext({
 
   const localLogPath = path.join(process.cwd(), 'relay-server.log')
   const logger = createFileLogger({ logFilePath: localLogPath })
-  const relayServer = await startTabwrightCDPRelayServer({ port, logger })
+  const cdpLogFilePath =
+    process.env.TABWRIGHT_CDP_LOG_FILE_PATH ||
+    process.env.PLAYWRITER_CDP_LOG_FILE_PATH ||
+    path.join(process.cwd(), 'tmp', `cdp-${port}.jsonl`)
+  const cdpLogger = createCdpLogger({ logFilePath: cdpLogFilePath })
+  const relayServer = await startTabwrightCDPRelayServer({ port, logger, cdpLogger })
 
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), tempDirPrefix))
   const extensionPath = path.resolve('../extension', distDir)
@@ -250,7 +258,7 @@ export async function setupTestContext({
         })
       }
 
-      return { browserContext, userDataDir, relayServer }
+      return { browserContext, userDataDir, relayServer, cdpLogFilePath }
     } catch (error) {
       await browserContext.close().catch((closeError: unknown) => {
         console.error('Failed to close browser after test setup error:', closeError)

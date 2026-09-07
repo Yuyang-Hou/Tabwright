@@ -256,7 +256,7 @@ describe('Relay Navigation Tests', () => {
           promise: (async () => {
             for (let attempt = 0; attempt < 40; attempt += 1) {
               const frame = cdpPage!.frames().find((candidate) => {
-                return candidate.url() === loginUrl || candidate.url() === canvasUrl
+                return candidate.url() === canvasUrl
               })
               if (frame) {
                 return frame
@@ -270,7 +270,8 @@ describe('Relay Navigation Tests', () => {
         })
 
         await withTimeout({
-          promise: pluginFrame.locator('button').first().waitFor({ state: 'attached' }),
+          // The login document is replaced after 150 ms; assert the final document, not its transient button.
+          promise: pluginFrame.getByRole('button', { name: 'Canvas' }).waitFor({ state: 'attached' }),
           timeoutMs: 5000,
           errorMessage: 'Timed out waiting for button locator in empty-src iframe test',
         })

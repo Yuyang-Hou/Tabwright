@@ -1,5 +1,4 @@
-import { compareVersions, supportsRelayFeatures, type ExtensionStatus } from './relay-client.js'
-import { RELAY_REVIEW_FEATURES } from './protocol.js'
+import { compareVersions, type ExtensionStatus } from './relay-client.js'
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail' | 'info'
 
@@ -14,7 +13,7 @@ export interface DoctorSession {
 }
 
 export interface DoctorCheck {
-  id: 'relay' | 'extension' | 'session' | 'skills'
+  id: 'relay' | 'extension' | 'session'
   status: DoctorCheckStatus
   message: string
   detail?: string
@@ -43,7 +42,6 @@ export function buildDoctorReport(options: {
   relayError?: string | null
   extensions: ExtensionStatus[]
   sessions: DoctorSession[]
-  skillCount: number
 }): DoctorReport {
   const usableSessions = options.sessions.filter((session) => {
     if (session.connected === false) {
@@ -62,9 +60,6 @@ export function buildDoctorReport(options: {
   const newerExtension = options.extensions.find((extension) => {
     return extension.playwriterVersion && compareVersions(extension.playwriterVersion, options.version) > 0
   })
-  const relayFeatureMismatch =
-    options.relayFeatures !== undefined &&
-    !supportsRelayFeatures({ features: options.relayFeatures, requiredFeatures: RELAY_REVIEW_FEATURES })
   const relayCheck: DoctorCheck = (() => {
     if (!options.relayVersion) {
       return {
@@ -86,14 +81,6 @@ export function buildDoctorReport(options: {
         detail: 'Restart Tabwright so the CLI can replace the older relay.',
       }
     }
-    if (relayFeatureMismatch) {
-      return {
-        id: 'relay',
-        status: 'warn',
-        message: `Relay ${options.relayVersion} is reachable, but current saved-data features are missing.`,
-        detail: 'Core browser control may still work. Restart Tabwright before using recordings or installed Skills.',
-      }
-    }
     return {
       id: 'relay',
       status: 'pass',
@@ -107,8 +94,7 @@ export function buildDoctorReport(options: {
         id: 'extension',
         status: usableSessions.length > 0 ? 'info' : 'fail',
         message: 'No Chrome extension connection was found.',
-        detail:
-          'User-Chrome workflows and replay recording require the extension; direct, headless, and cloud sessions do not.',
+        detail: 'User-Chrome workflows require the extension; direct and headless sessions do not.',
       }
     }
 
@@ -191,20 +177,6 @@ export function buildDoctorReport(options: {
               : 'Create one before running Playwright code.',
         }
 
-  const skillCheck: DoctorCheck =
-    options.skillCount > 0
-      ? {
-          id: 'skills',
-          status: 'pass',
-          message: `${options.skillCount} Tabwright ${options.skillCount === 1 ? 'Skill is' : 'Skills are'} discoverable from this directory.`,
-        }
-      : {
-          id: 'skills',
-          status: 'info',
-          message: 'No installed Tabwright Skills are discoverable from this directory.',
-          detail: 'This does not block one-off browser work.',
-        }
-
   const next: DoctorNextStep = (() => {
     if (!options.relayVersion) {
       return {
@@ -212,13 +184,6 @@ export function buildDoctorReport(options: {
           ? 'Check the remote relay host, token, and network path, then run doctor again.'
           : 'Read the relay log, fix the startup error, then run doctor again.',
         ...(options.remote ? {} : { command: 'tabwright logfile' }),
-      }
-    }
-
-    if (relayFeatureMismatch) {
-      return {
-        title: 'Restart the local service so recordings and installed Skills become available.',
-        command: 'tabwright session list',
       }
     }
 
@@ -257,7 +222,7 @@ export function buildDoctorReport(options: {
     ready: relayCheck.status !== 'fail' && extensionCheck.status !== 'fail' && sessionCheck.status === 'pass',
     version: options.version,
     cwd: options.cwd,
-    checks: [relayCheck, extensionCheck, sessionCheck, skillCheck],
+    checks: [relayCheck, extensionCheck, sessionCheck],
     next,
   }
 }

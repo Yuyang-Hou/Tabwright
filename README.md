@@ -1,357 +1,219 @@
-<div align='center'>
-    <br/>
-    <img src="website/public/logo-square.svg" alt="Tabwright" width="112" height="112" />
-    <h1>Tabwright</h1>
-    <br/>
-    <p>Give any web app a CLI.</p>
-    <br/>
+---
+title: Tabwright
+description: Browser debugging and automation tools for AI agents.
+prompt: |
+  基于 Playwriter，Agent 像前端工程师调试理解网页，不只是 AX 点击；
+  工具提供强原语和低成本证据，由 AI 自由选择方法，不增加强制流程。
+  Reconcile @tabwright/src/skill.md, @skills/tabwright/SKILL.md, @MCP.md,
+  @tabwright/src/editor-examples.ts and @tabwright/src/debugger-examples.ts.
+  Keep setup, browser ownership, data boundaries and compatibility accurate.
+---
+
+<div align="center">
+  <img src="website/public/logo-square.svg" alt="Tabwright" width="112" height="112" />
+  <h1>Tabwright</h1>
+  <p>Give your agent the browser's debugging tools.</p>
 </div>
 
-Many important workflows only exist in a website: no public API, protected by SSO, dynamic signatures, or risk controls. Attach Tabwright to a signed-in tab and work normally. An Agent can select the relevant part of your recent activity and turn it into a reusable CLI workflow and Agent Skill with structured inputs, safety rules, and explicit human checkpoints.
+Tabwright builds on Playwriter's extension and stateful Playwright environment.
+It lets GPT and other agents work in your Chrome: inspect the page, follow network
+requests, read running code, set breakpoints, test a change, and interact with the
+site using your existing login.
 
-Each Skill records how it actually runs: direct request, request inside the browser, real UI interaction, or a hybrid flow that uses the UI to trigger a protected request and the network response as structured output. Users never need to identify the website's verification mechanism themselves.
+The agent chooses the useful tools for the question. A screenshot can explain a
+layout problem; a response body or call stack can explain an empty dashboard.
+Tabwright supplies those tools through a CLI or MCP, with filtered text, source
+excerpts, and local artifacts to keep evidence manageable.
 
-## Installation
+## Get started
 
-1. [**Install Extension**](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep) from Chrome Web Store
-
-2. Click extension icon on a tab → turns green when connected
-
-3. Install the CLI and start automating the browser:
-
-   ```bash
-   npm i -g tabwright
-   tabwright doctor
-   tabwright session new  # copy the new session ID printed by this command
-   SESSION_ID=2            # replace 2 with that ID
-   tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
-   ```
-
-The CLI installs its matching Tabwright skill into the shared `~/.agents/skills/tabwright` directory during `postinstall`, so a new Agent task can discover the browser protocol immediately. If lifecycle scripts were disabled, run `tabwright skill install`; use `--target codex` or `--target claude` for an agent-specific directory. Automatic upgrades replace only the copy previously installed by Tabwright and preserve user-modified files.
-
-## Quick Start
+1. Install the [Chrome extension](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep).
+2. Install the CLI, open the page you want the agent to use, and click the extension icon.
+3. Check the connection and create a session:
 
 ```bash
-tabwright browser start  # starts Chrome for Testing/Chromium with bundled Tabwright extension
-tabwright doctor  # checks relay, extension, enabled tabs, sessions, and installed Skills
-tabwright session new  # creates stateful sandbox, outputs session id (e.g. 1)
-SESSION_ID=2  # replace 2 with the ID printed above; never reuse another task's session
-tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
-tabwright -s "$SESSION_ID" -e 'console.log(await snapshot({ page: state.page }))'
-# Copy a locator from the snapshot instead of guessing a fixed aria-ref.
-tabwright -s "$SESSION_ID" -e 'await state.page.getByRole("link", { name: "Learn more" }).click()'
+npm install -g tabwright@latest
+tabwright doctor
+tabwright session new
 ```
 
-`session new` stays automatic with one connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one profile has enabled tabs; otherwise it prints the available browser keys so you can retry with `--browser <key>`. If the CLI restarts an older relay, it waits for the current or a newer compatible package version before continuing.
+The global CLI installs its matching agent skill into
+`~/.agents/skills/tabwright`. Open a new agent task after installation so it can
+discover the instructions. If lifecycle scripts were disabled, run
+`tabwright skill install`; `tabwright skill status` reports the installed copy.
+Use `--target codex` or `--target claude` for an agent-specific directory.
+Updates preserve user-modified skill files.
 
-> **Tip:** Always use single quotes for `-e` to prevent bash from interpreting `$`, backticks, and `\` in your JS code. Use double quotes for strings inside the JS.
+Tell your agent the goal and the page, for example:
 
-## Recent Activity to CLI Workflow
+> Use Tabwright on my open dashboard. Find out why the chart is empty by
+> inspecting whichever page state, requests, or running code helps explain it.
 
-Attaching a tab keeps a rolling local activity stream. Nothing needs to be saved in advance. When the Agent needs to understand something you just did, it can inspect the recent timeline and copy only the relevant event range into a replay:
+For manual CLI use, set the ID printed by `session new` below. The examples use
+Bash/Zsh; in other shells, pass that ID directly to `-s`.
 
 ```bash
-tabwright activity list --json
-tabwright activity inspect --last 5m --json
-tabwright activity save --from <timestamp> --to <timestamp> --json
+SESSION_ID=2 # replace 2 with the new session ID
+tabwright -s "$SESSION_ID" -e 'console.log(context.pages().map((page) => { return page.url() }))'
 ```
 
-Saving creates a replay copy; observation continues without interruption. With multiple attached tabs, pass the `sessionId` returned by `activity list` using `--session`.
-
-Then inspect the saved evidence. If the user wants a reusable workflow, let the agent create an independent Skill directly:
+Choose the page matching the user's request. This example requires one exact
+match from the URLs above:
 
 ```bash
-tabwright replay list --limit 10 --json
-tabwright replay index <replay-id> --json
-```
-
-`replay index --json` omits bulky page text and interactive-element arrays while preserving actions, fields, annotations, warnings, and selector hints. Add `--full` only when an AI needs the complete evidence. Replay evidence is not durable automation by itself.
-
-## Build Reusable Skills
-
-Create and maintain reusable automation as a standard Agent Skill with the agent's official Skill tooling:
-
-```text
-my-skill/
-├── SKILL.md
-└── runtime/
-    ├── capability.json
-    └── script.js
-```
-
-`SKILL.md` owns discovery, workflow, and result-display semantics. `runtime/capability.json` owns schemas, permissions, side effects, authentication, and confirmation; `runtime/script.js` owns executable behavior. Validate and run the Skill in place:
-
-```bash
-tabwright skill runtime validate "/absolute/path/to/my-skill" --json
-tabwright skill runtime run "/absolute/path/to/my-skill" --input-json '{"value":"test3"}' --json
-```
-
-The runtime is never copied into Tabwright storage. Tabwright stores only device-local authentication, quarantine state, run history, and artifacts under `~/.tabwright/skill-runtime-state/<id>/`.
-
-Cookie-authenticated Skill runtimes refresh their declared browser authentication automatically when a run needs it. Cookie values stay in device-local state and are never shown in the extension Options page. The read-only **Tabwright Skills** view discovers compatible skills installed by Codex, Claude, and other Agent Skills managers, uses each installed `SKILL.md` for its user-facing purpose, deduplicates the same runtime across managers, and shows only safe local summaries such as readiness, recent runs, and artifact counts. Set `TABWRIGHT_SKILL_DIRS` with platform-delimited extra skill roots when a manager uses a custom directory.
-
-Authentication origins declared through `auth.browserUrls` are allowed as part of cookie refresh and login redirects. A contract failure quarantines only the failing operation for the current runtime fingerprint. Other operations remain available, and a repaired operation can be validated with an explicit `--force` run instead of reinstalling the Skill. Write and dangerous operations are never retried automatically.
-
-
-## CLI Usage
-
-Each session has **isolated state**. Browser tabs are **shared** across sessions.
-
-```bash
-# Browser management
-tabwright browser start             # auto-finds Chrome for Testing or Chromium
-tabwright browser start /path/to/browser-binary
-
-# Session management
-tabwright session new              # creates stateful sandbox, outputs id (e.g. 1)
-tabwright session list             # show sessions + state keys
-tabwright session reset <id>       # fix connection issues
-
-# Execute (always use -s)
-tabwright -s 1 -e 'await page.goto("https://example.com")'
-tabwright -s 1 -e 'await page.click("button")'
-tabwright -s 1 -e 'console.log(await page.title())'
-```
-
-Create your own page to avoid interference from other agents:
-
-```bash
-tabwright -s 1 -e 'state.myPage = await context.newPage(); await state.myPage.goto("https://example.com")'
-```
-
-Multiline:
-
-```bash
-tabwright -s 1 -e $'
-const title = await page.title();
-console.log({ title, url: page.url() });
+tabwright -s "$SESSION_ID" -e '
+const matches = context.pages().filter((page) => { return page.url() === "https://example.com/dashboard" })
+if (matches.length !== 1) throw new Error("Select one enabled tab by its exact URL")
+state.page = matches[0]
+console.log(await snapshot({ page: state.page }))
 '
 ```
 
-## Examples
-
-Variables in scope: `page`, `context`, `state` (persists between calls), `require`, and Node.js globals.
-
-**Persist data in state:**
+For work that should have its own tab, create one instead. It shares the browser
+profile's login state, but not the existing page's unsaved or in-memory state:
 
 ```bash
-tabwright -s 1 -e "state.users = await page.$$eval('.user', els => els.map(e => e.textContent))"
-tabwright -s 1 -e "console.log(state.users)"
+tabwright -s "$SESSION_ID" -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
 ```
 
-**Intercept network requests:**
+Each session retains its own `state`, while connected tabs are shared. Other
+agents or the user can change those tabs. Keep a reference to the intended page;
+close only tabs you created or were asked to close. Use
+`tabwright session delete "$SESSION_ID"` when your session is no longer needed.
+
+## Tools the agent can combine
+
+| What helps answer the question         | Available tools                                                            |
+| -------------------------------------- | -------------------------------------------------------------------------- |
+| Page content and structure             | `snapshot`, scoped DOM queries, `getCleanHTML`, `getPageMarkdown`          |
+| Layout and interaction                 | Screenshots, accessibility labels, Playwright locators, mouse and keyboard |
+| Failed requests and application errors | `createNetwork`, Playwright request/response events, `getLatestLogs`       |
+| Running application code               | `createEditor`, source search, public Source Maps, `createDebugger`        |
+| Testing a hypothesis                   | In-memory script/CSS edits, page evaluation, browser interaction           |
+| Larger evidence                        | Exact script files cached by content hash, optional local Wakaru analysis  |
+
+These are independent tools, not a prescribed sequence. Filter or scope evidence
+when the full page or bundle would add noise. Verify the relevant result after
+an action; a click completing does not establish that the business operation
+succeeded.
+
+### Page and request evidence
 
 ```bash
-tabwright -s 1 -e "state.requests = []; page.on('response', r => { if (r.url().includes('/api/')) state.requests.push(r.url()) })"
-tabwright -s 1 -e "await Promise.all([page.waitForResponse(r => r.url().includes('/api/')), page.click('button')])"
-tabwright -s 1 -e "console.log(state.requests)"
+tabwright -s "$SESSION_ID" -e 'console.log(await snapshot({ page: state.page, search: /chart|error|loading/i }))'
+tabwright -s "$SESSION_ID" -e 'console.log(await getLatestLogs({ page: state.page, search: /error|fail/i, count: 20 }))'
 ```
 
-**Set breakpoints and debug:**
+For request evidence, enable a Network inspector before reproducing the issue,
+then filter its summaries:
 
 ```bash
-tabwright -s 1 -e "state.cdp = await getCDPSession({ page }); state.dbg = createDebugger({ cdp: state.cdp }); await state.dbg.enable()"
-tabwright -s 1 -e "state.scripts = await state.dbg.listScripts({ search: 'app' }); console.log(state.scripts.map(s => s.url))"
-tabwright -s 1 -e "await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42 })"
+tabwright -s "$SESSION_ID" -e 'state.cdp = await getCDPSession({ page: state.page }); state.network = createNetwork({ cdp: state.cdp }); await state.network.enable()'
+tabwright -s "$SESSION_ID" -e 'console.log(state.network.list({ search: "/api/chart", limit: 10 }))'
 ```
 
-**Live edit page code:**
+Use a `requestId` from the list to inspect its initiator or a bounded response
+excerpt. Bodies can contain sensitive application data; request only useful
+content:
+
+```js
+console.log(state.network.inspect({ requestId: observedRequestId }))
+console.log(await state.network.responseBody({ requestId: observedRequestId, limit: 2000 }))
+```
+
+Dispose the inspector when finished; it removes its own listeners:
 
 ```bash
-tabwright -s 1 -e "state.cdp = await getCDPSession({ page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable()"
-tabwright -s 1 -e "await state.editor.edit({ url: 'https://example.com/app.js', oldString: 'const DEBUG = false', newString: 'const DEBUG = true' })"
+tabwright -s "$SESSION_ID" -e 'state.network.dispose()'
 ```
 
-**Screenshot with labels:**
+### Running code and breakpoints
 
 ```bash
-tabwright -s 1 -e "await screenshotWithAccessibilityLabels({ page })"
+tabwright -s "$SESSION_ID" -e 'state.cdp = await getCDPSession({ page: state.page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable(); console.log(await state.editor.grep({ regex: /chart|loadData/, pattern: /app/ }))'
 ```
 
-## MCP Setup
+Using a script URL found in that output, read a bounded excerpt or save its exact
+content for local search:
 
-Using the CLI with the skill (step 4 above) is the recommended approach. For direct MCP server configuration, see [MCP.md](./MCP.md).
-
-## Visual Labels
-
-Vimium-style labels for AI agents to identify elements:
-
-```javascript
-await screenshotWithAccessibilityLabels({ page })
-// Returns screenshot + accessibility snapshot with aria-ref selectors
-await page.locator('aria-ref=e5').click()
+```js
+console.log(await state.editor.read({ url: scriptUrl, offset: 100, limit: 40 }))
+console.log(await state.editor.saveRaw({ url: scriptUrl }))
+state.debugger = createDebugger({ cdp: state.cdp })
+await state.debugger.enable()
+await state.debugger.setBreakpoint({ file: scriptUrl, line: observedLine })
 ```
 
-Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=sliders, salmon=menus, amber=tabs.
-
-## Comparison
-
-### vs Playwright MCP
-
-|                         | Playwright MCP                         | Tabwright                                      |
-| ----------------------- | -------------------------------------- | ---------------------------------------------- |
-| Existing signed-in tabs | Supported with its browser extension   | Supported with per-tab extension control       |
-| Product boundary        | Browser tools for the current task     | Browser runtime plus reusable Agent Skills      |
-| Workflow contract       | Agent prompt or external code          | Inputs, outputs, safety, auth, execution method |
-| Protected requests      | Operate the page                       | UI trigger + structured network result          |
-| Human verification      | Calling agent handles it               | Explicit resumable `needs_human` checkpoint     |
-| Distribution            | MCP configuration                      | Portable Agent Skill                            |
-
-|                    | Playwright CLI                 | Tabwright                                  |
-| ------------------ | ------------------------------ | ------------------------------------------ |
-| Primary use         | Browser tests and one-off commands | Reusable tools for agent workflows     |
-| Existing browser    | Depends on connection mode     | Per-tab signed-in Chrome control           |
-| Durable contract    | Test or script                  | Skill intent, schemas, safety, auth, execution |
-| Human checkpoints  | Implement in the caller         | Standard `needs_human` result              |
-| Agent distribution | Share scripts/configuration     | Export a portable Agent Skill              |
-| Raw CDP helpers     | Not the main CLI surface        | Built-in debugging and inspection helpers |
-
-### vs BrowserMCP
-
-|               | BrowserMCP          | Tabwright               |
-| ------------- | ------------------- | ------------------------ |
-| Tools         | 12+ dedicated tools | 1 `execute` tool         |
-| API           | Limited actions     | Full Playwright          |
-| Context usage | High (tool schemas) | Low                      |
-| LLM knowledge | Must learn tools    | Already knows Playwright |
-
-### vs Antigravity (Jetski)
-
-|          | Jetski                       | Tabwright       |
-| -------- | ---------------------------- | ---------------- |
-| Tools    | 17+ tools                    | 1 tool           |
-| Subagent | Spawns for each browser task | Direct execution |
-| Latency  | High (agent overhead)        | Low              |
-
-### vs Claude Browser Extension
-
-|                      | Claude Extension     | Tabwright              |
-| -------------------- | -------------------- | ----------------------- |
-| Agent support        | Claude only          | Any MCP client          |
-| Windows WSL          | No                   | Yes                     |
-| Context method       | Screenshots (100KB+) | A11y snapshots (5-20KB) |
-| Playwright API       | No                   | Full                    |
-| Debugger/breakpoints | No                   | Yes                     |
-| Live code editing    | No                   | Yes                     |
-| Network interception | Limited              | Full                    |
-| Raw CDP access       | No                   | Yes                     |
-
-### vs Built-in Chrome CDP (`--remote-debugging-port`)
-
-|                       | Built-in CDP                          | Tabwright                   |
-| --------------------- | ------------------------------------- | ---------------------------- |
-| Setup                 | Restart Chrome with special flags     | Click extension icon         |
-| Confirmation dialog   | Shows automation infobar agents can't dismiss | No blocking dialog   |
-| Autonomous agents     | Interrupted by debug banners          | Fully autonomous             |
-| User disruption       | Banners appear mid-workflow           | Silent — no interruption     |
-| Existing session      | Must relaunch Chrome (lose state)     | Uses your running browser    |
-
-> Chrome's `--remote-debugging-port` flag shows a persistent "controlled by automated software" banner that agents cannot dismiss. It pops up in the middle of your workflow whenever you're using the browser. Tabwright runs silently — agents work autonomously without any confirmation dialogs, so you're never interrupted.
-
-## Architecture
-
-```
-+---------------------+     +-------------------+     +-----------------+
-|   BROWSER           |     |   LOCALHOST       |     |   MCP CLIENT    |
-|                     |     |                   |     |                 |
-|  +---------------+  |     | WebSocket Server  |     |  +-----------+  |
-|  |   Extension   |<--------->  :19988         |     |  | AI Agent  |  |
-|  +-------+-------+  | WS  |                   |     |  +-----------+  |
-|          |          |     |  /extension       |     |        |        |
-|    chrome.debugger  |     |       |           |     |        v        |
-|          v          |     |       v           |     |  +-----------+  |
-|  +---------------+  |     |  /cdp/:id <--------------> |  execute  |  |
-|  | Tab 1 (green) |  |     +-------------------+  WS |  +-----------+  |
-|  | Tab 2 (green) |  |                               |        |        |
-|  | Tab 3 (gray)  |  |     Tab 3 not controlled      |  Playwright API |
-+---------------------+     (no extension click)      +-----------------+
-```
-
-## Remote Access
-
-Control Chrome on a remote machine over the internet using [traforo](https://traforo.dev) tunnels:
-
-**On host:**
+The debugger can inspect paused variables and step through calls. The editor can
+also make in-memory script or CSS changes; those changes normally disappear on
+reload. Look up a relevant API locally without connecting to a browser:
 
 ```bash
-npx -y traforo -p 19988 -t my-machine -- npx -y tabwright serve --token <secret>
+tabwright docs
+tabwright docs network --limit 80
+tabwright docs editor --limit 80
+tabwright docs debugger --limit 80
 ```
 
-**From remote:**
+References also cover `browser`, `styles`, and `performance`. Use `--offset` and
+`--limit` for a bounded section, or `--json` for structured output.
 
-```bash
-export TABWRIGHT_HOST=https://my-machine-tunnel.traforo.dev
-export TABWRIGHT_TOKEN=<secret>
-tabwright -s 1 -e 'await page.goto("https://example.com")'
+## Browser requests and permissions
+
+For authenticated work, use the intended account and environment. Observed
+Network traffic, deployed code, and runtime values can establish how a request
+works. Use the site's request client or page-context `fetch` when its login,
+CSRF, or signatures are needed; keep credentials out of agent output.
+
+Raw Playwright and CDP are powerful execution tools. The calling agent remains
+responsible for staying within the user's request and obtaining required
+approval for consequential actions. They do not provide account isolation or
+enforce application-level read/write permissions. After a possibly submitted
+write, check the result before deciding what to do next; do not blindly retry an
+unknown outcome.
+
+## How it connects
+
+```text
+Agent CLI / MCP → local relay (:19988) → Chrome extension → chrome.debugger
+                                                     → connected tabs
 ```
 
-Also works on a LAN without traforo (`TABWRIGHT_HOST=192.168.1.10`). Full guide with use cases (remote Mac mini, user support, multi-machine control): [docs/remote-access.md](./docs/remote-access.md)
+The default relay runs locally. The agent can use tabs attached through the
+extension and create additional tabs in that browser profile. Chrome displays
+debugging indicators on controlled tabs. Extension, relay, and CLI negotiate
+supported features so older installed extensions can keep using core control.
 
-## Security
+Websites still receive the requests made in their pages. Content returned by
+Tabwright is passed to the calling agent and may be processed by its model
+provider. Logs and saved source can
+contain page data; handle those artifacts according to the task's needs.
 
-- **Local only**: WebSocket server on `localhost:19988`
-- **Origin validation**: Only our extension IDs allowed (browsers can't spoof Origin)
-- **Explicit consent**: Only tabs where you clicked the extension icon
-- **Visible automation**: Chrome shows automation banner on controlled tabs
-- **No remote access**: Malicious websites cannot connect
+## Other entry points
 
-## Playwright API
+- [MCP configuration](./MCP.md) for clients that use tools instead of the CLI.
+- `tabwright browser start` for a separate Chrome for Testing / Chromium instance.
+- `tabwright session new --direct <cdp-url>` for an existing CDP endpoint.
+- [Remote access](./docs/remote-access.md) for an explicitly configured remote relay.
 
-Connect programmatically (without CLI):
+## Independent Skills
 
-```typescript
-import { chromium } from 'playwright-core'
-import { startTabwrightCDPRelayServer, getCdpUrl } from 'tabwright'
+The user and agent own their business Skills. An instruction file may be enough;
+repeatable work can use ordinary JavaScript via `tabwright -s <id> -f <file>`,
+or use Node/Python and an official API without Tabwright.
 
-const server = await startTabwrightCDPRelayServer()
-const browser = await chromium.connectOverCDP(getCdpUrl())
-const page = browser.contexts()[0].pages()[0]
-
-await page.goto('https://example.com')
-await page.screenshot({ path: 'screenshot.png' })
-// Don't call browser.close() - it closes the user's Chrome
-server.close()
-```
-
-Or connect to a running server:
-
-```bash
-npx -y tabwright serve --host 127.0.0.1
-```
-
-```typescript
-const browser = await chromium.connectOverCDP('http://127.0.0.1:19988')
-```
+Tabwright supplies browser/debugging primitives, not a Skill registry, business
+runtime, credential vault, or recording system. Keep validation and concrete
+approval with the business script. See the [independent script guide](./docs/independent-scripts.md)
+and [migration notes](./docs/browser-core-migration.md).
 
 ## Troubleshooting
 
-Start with the readiness check. It reports relay, extension, enabled-tab, session, and installed-Skill status, then prints the single best next step:
+`tabwright doctor --json` reports relay, browser, and session
+status with a suggested next action. `tabwright logfile` prints the relay log
+location. For connection errors, `tabwright session reset <id>` reconnects that
+session; check the intended page again afterward.
 
-```bash
-tabwright doctor
-tabwright doctor --json  # machine-readable output for agents and support tools
-```
-
-View relay server logs to debug issues:
-
-```bash
-tabwright logfile  # prints the log file path
-# typically: ~/.tabwright/relay-server.log
-```
-
-The relay log contains extension, MCP and WebSocket server logs. A separate CDP JSONL log is also created alongside it (see `tabwright logfile`). Both are recreated on each server start.
-
-Example: summarize CDP traffic counts by direction + method:
-
-```bash
-jq -r '.direction + "\t" + (.message.method // "response")' ~/.tabwright/cdp.jsonl | uniq -c
-```
-
-## Support
-
-If Tabwright is useful to you, consider [sponsoring the project](https://github.com/sponsors/remorses).
-
-## Known Issues
-
-- If all pages return `about:blank`, restart Chrome (Chrome bug in `chrome.debugger` API)
-- Browser may switch to light mode on connect ([Playwright issue](https://github.com/microsoft/playwright/issues/37627))
+Known browser limitations include pages appearing as `about:blank` after some
+Chrome debugger failures and browser color-scheme changes on connection. Report
+reproducible issues in the [repository](https://github.com/Yuyang-Hou/Tabwright/issues).

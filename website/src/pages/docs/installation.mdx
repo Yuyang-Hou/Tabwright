@@ -1,89 +1,107 @@
 ---
 title: Installation
-description: Install the Chrome extension, CLI, and agent skill in under a minute.
+description: Connect your agent to Chrome with the Tabwright extension and CLI.
 icon: lucide:download
+prompt: |
+  基于 Playwriter，Agent 像前端工程师调试理解网页，不只是 AX 点击。
+  Use @README.md, @MCP.md and @tabwright/src/skill.md for setup.
+  Explain session creation and existing-page versus task-page selection.
 ---
 
-## Install the extension
+## Install the extension and CLI
 
-Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep), then click the extension icon on any tab. The icon turns **green** when connected.
-
-The extension works with Chrome, Chromium, Brave, Arc, Edge, and any Chromium-based browser.
-
-<Aside>
-<Note>
-Only tabs where you click the extension icon are controllable. Other tabs stay private.
-</Note>
-</Aside>
-
-## Install the CLI
+Install the [Chrome extension](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep),
+then install the CLI with Node.js 18 or newer:
 
 ```bash
-npm i -g tabwright
+npm install -g tabwright@latest
 ```
 
-The CLI's `postinstall` step also installs the matching Tabwright skill into the shared `~/.agents/skills/tabwright` directory. Open a new Agent task after installation so it can discover the skill.
+The CLI's `postinstall` step installs the matching compact agent skill into
+`~/.agents/skills/tabwright`. Open a new agent task after installation so it can
+discover the instructions.
 
-Or use without installing:
-
-```bash
-npx tabwright@latest session new
-```
-
-**Requirements:** Node.js 18+.
-
-## Verify the skill
-
-The **skill** teaches your AI agent how to use Tabwright: which selectors to use, how to read snapshots, how to avoid common mistakes, and all available utilities. Check the installed copy with:
+Check the installed copy, or install it explicitly if npm lifecycle scripts were
+disabled:
 
 ```bash
 tabwright skill status
-```
-
-If npm lifecycle scripts were disabled with `--ignore-scripts`, install it explicitly:
-
-```bash
 tabwright skill install
 ```
 
-The default shared directory follows the cross-agent `~/.agents/skills` convention. Use `tabwright skill install --target codex` or `tabwright skill install --target claude` when your agent only scans its private directory. CLI upgrades safely update Tabwright-managed copies and preserve user-modified files; replacing a modified copy requires explicit `--force`.
+Use `--target codex` or `--target claude` when an agent only scans its private
+directory. Updates preserve user-modified copies; `--force` explicitly replaces
+one. Existing domain Skills remain managed by the agent's Skill tools.
 
-The extension's read-only **Tabwright Skills** page can still show compatible capability-specific skills installed by Codex, Claude, and other Agent Skills managers alongside their safe local runtime status. Tabwright never displays saved Cookie, Token, or secret values.
+## Connect Chrome
 
-## Quick start
-
-```bash
-tabwright session new                    # creates sandbox, outputs id (e.g. 1)
-tabwright -s 1 -e 'await page.goto("https://example.com")'
-tabwright -s 1 -e 'console.log(await snapshot({ page }))'
-tabwright -s 1 -e 'await page.locator("aria-ref=e5").click()'
-```
-
-## Start Chrome for Testing
-
-If you don't have Chrome running or want a clean instance with the extension pre-loaded:
+Open the page you want the agent to use and click the Tabwright extension icon.
+Run the connection check and create a session:
 
 ```bash
-tabwright browser start
-```
-
-This auto-finds **Chrome for Testing** or Chromium on your system, launches it with recording flags enabled, and loads the bundled Tabwright extension. You can also pass a specific browser binary:
-
-```bash
-tabwright browser start /path/to/chrome
-```
-
-## Verify it works
-
-After installing the extension and CLI:
-
-1. Open any website in Chrome
-2. Click the Tabwright extension icon (turns green)
-3. Run:
-
-```bash
+tabwright doctor
 tabwright session new
-tabwright -s 1 -e 'console.log(await page.title())'
 ```
 
-If you see the page title printed, everything is working.
+The icon turns green when its tab is connected. If the check reports a problem,
+follow its suggested next action. With multiple browser profiles, use a browser
+key reported by `tabwright browser list` with
+`tabwright session new --browser <key>`.
+
+The extension can expose enabled pages and create additional pages in that
+profile. A new connection may create an empty task tab automatically. This is
+different from selecting the user's already-open page.
+
+## Choose the intended page
+
+Replace `2` below with the new session ID. List the available URLs:
+
+```bash
+tabwright -s 2 -e 'console.log(context.pages().map((page) => { return page.url() }))'
+```
+
+For the existing page named by the user, select one exact match and keep it in
+`state.page`:
+
+```bash
+tabwright -s 2 -e '
+const matches = context.pages().filter((page) => { return page.url() === "https://example.com/dashboard" })
+if (matches.length !== 1) throw new Error("Select one enabled tab by its exact URL")
+state.page = matches[0]
+console.log({ url: state.page.url(), title: await state.page.title() })
+'
+```
+
+If the task calls for a separate page, create one instead:
+
+```bash
+tabwright -s 2 -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+```
+
+A new page shares profile login state but does not inherit another page's
+unsaved form or JavaScript state. Session variables are separate; browser tabs
+are shared with the user and other agents.
+
+## Start investigating
+
+Tell the agent what you need to understand or accomplish. It can choose between
+page inspection, screenshots, Network, source search, Debugger, and interaction.
+
+```bash
+tabwright -s 2 -e 'console.log(await snapshot({ page: state.page }))'
+tabwright -s 2 -e 'console.log(await getLatestLogs({ page: state.page, search: /error|fail/i }))'
+```
+
+See the [Agent Reference](./skill.mdx) for specific APIs. Keep the session ID for
+subsequent calls. When finished, close only pages created for the task and use
+`tabwright session delete 2`.
+
+## Other connections
+
+`tabwright browser start` launches a separate Chrome for Testing / Chromium
+instance with the extension bundled. It does not inherit your personal browser's
+login state. You can pass a browser binary path if automatic discovery fails.
+
+Use [MCP setup](./mcp-setup.mdx) for tool-based clients or an existing direct CDP
+endpoint. The local extension workflow does not require a Tabwright cloud
+account.

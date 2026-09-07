@@ -13,7 +13,8 @@
     "release:check-cli-version": "tsx scripts/check-extension-cli-version.ts",
     "release": "pnpm release:check-cli-version && pnpm --filter tabwright build && cd extension && PRODUCTION=true TABWRIGHT_EXTENSION_DIST=dist-release pnpm build && cd dist-release && zip -r ../../tabwright-$(node -p \"require('../manifest.json').version\").zip . && cd ../.. && realpath tabwright-*.zip | pbcopy && open 'https://chrome.google.com/webstore/devconsole/a5596e3d-faf2-406c-b1a8-fa0bf36f535f/dkfhphbajbkplddmchbdgdddioonngep/edit/package'",
     "bootstrap": "git submodule update --init && pnpm install && node playwright/utils/generate_injected.js && node playwright/packages/playwright-core/build.mjs",
-    "playwright:build": "node playwright/packages/playwright-core/build.mjs"
+    "playwright:build": "node playwright/packages/playwright-core/build.mjs",
+    "test:skills": "node --test examples/independent-skills/migration.test.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
@@ -33,7 +34,9 @@
     "mcp-extension": "workspace:^"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["workerd"],
+    "onlyBuiltDependencies": [
+      "workerd"
+    ],
     "overrides": {
       "spiceflow": "1.26.0-rsc.5"
     }

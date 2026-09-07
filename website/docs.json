@@ -1,7 +1,7 @@
 {
   "$schema": "https://holocron.so/docs.json",
   "name": "Tabwright",
-  "description": "Docs for Tabwright, the CLI and MCP that lets agents control your real Chrome browser.",
+  "description": "Browser debugging and automation tools for AI agents, built on Playwriter.",
   "logo": {
     "light": "/logo-square.svg",
     "dark": "/logo-square.svg",
@@ -16,7 +16,6 @@
     "light": "#FF9500",
     "dark": "#FF9500"
   },
-  "knownPaths": ["/README", "/api/*", "/login", "/dashboard", "/device"],
   "navigation": {
     "tabs": [
       {
@@ -26,40 +25,37 @@
           {
             "group": "Getting Started",
             "icon": "lucide:rocket",
-            "pages": ["index", "docs/installation", "docs/cli", "docs/mcp-setup"]
+            "pages": [
+              "index",
+              "docs/installation",
+              "docs/cli",
+              "docs/mcp-setup"
+            ]
           },
           {
             "group": "Guides",
             "icon": "lucide:book-open",
-            "pages": ["docs/remote-access", "docs/troubleshooting"]
-          },
-          {
-            "group": "Comparison",
-            "icon": "lucide:git-compare",
             "pages": [
-              "docs/vs-chrome-cdp",
-              "docs/vs-playwright-mcp",
-              "docs/vs-playwright-cli",
-              "docs/vs-browser-mcp",
-              "docs/vs-claude-extension"
+              "docs/independent-scripts",
+              "docs/remote-access",
+              "docs/troubleshooting"
             ]
           },
           {
             "group": "Use Cases",
             "icon": "lucide:lightbulb",
-            "pages": ["docs/use-cases"]
+            "pages": [
+              "docs/use-cases"
+            ]
           },
           {
             "group": "Reference",
             "icon": "lucide:book-text",
-            "pages": ["docs/skill"]
+            "pages": [
+              "docs/skill"
+            ]
           }
         ]
-      },
-      {
-        "tab": "Cloud Browsers",
-        "icon": "lucide:dollar-sign",
-        "pages": ["docs/cloud-browsers"]
       }
     ],
     "global": {
@@ -81,8 +77,8 @@
   },
   "navbar": {
     "primary": {
-      "label": "Cloud Login",
-      "href": "/dashboard"
+      "label": "Get started",
+      "href": "/docs/installation"
     }
   },
   "footer": {
@@ -90,8 +86,14 @@
       {
         "header": "platform",
         "items": [
-          { "label": "Rent Cloud Browsers", "href": "/dashboard" },
-          { "label": "GitHub", "href": "https://github.com/Yuyang-Hou/tabwright" },
+          {
+            "label": "Installation",
+            "href": "/docs/installation"
+          },
+          {
+            "label": "GitHub",
+            "href": "https://github.com/Yuyang-Hou/tabwright"
+          },
           {
             "label": "Chrome Extension",
             "href": "https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep"
@@ -102,5 +104,8 @@
     "socials": {
       "github": "https://github.com/Yuyang-Hou/tabwright"
     }
+  },
+  "assistant": {
+    "enabled": false
   }
 }

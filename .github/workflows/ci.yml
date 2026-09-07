@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+  pull_request:
 
 jobs:
   ci:
@@ -20,6 +21,9 @@ jobs:
         with:
           version: 10.18.1
           run_install: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
       - name: Get pnpm store directory
         shell: bash
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -29,6 +33,13 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
-      # scripts
-      # - run: pnpm build
-      # - run: pnpm test
+      - run: node playwright/utils/generate_injected.js
+      - run: pnpm playwright:build
+      - run: pnpm --dir tabwright typecheck
+      - run: pnpm --dir tabwright build
+      - run: pnpm --dir tabwright test:unit
+      - run: pnpm test:skills
+      - run: pnpm --dir tabwright exec playwright-core install chromium --with-deps
+      - run: pnpm --dir tabwright test:acceptance
+      - run: pnpm --dir website typecheck
+      - run: pnpm --dir website build

@@ -6,7 +6,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { createRequire } from 'node:module'
+import { documentationTopics } from './documentation.js'
+import { getInstalledTabwrightPackageDir } from './package-paths.js'
 
 // Prevent Buffers from dumping hex bytes in util.inspect output.
 // Without this, returning a screenshot Buffer would log ~400+ chars of useless hex.
@@ -23,7 +24,6 @@ import crypto from 'node:crypto'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const require = createRequire(import.meta.url)
 
 // Single executor instance for MCP (created lazily)
 let executor: PlaywrightExecutor | null = null
@@ -184,7 +184,7 @@ async function checkRemoteServer({ host, port }: { host: string; port: number })
 
 const server = new McpServer({
   name: 'tabwright',
-  title: 'The better playwright MCP: works as a browser extension. No context bloat. More capable.',
+  title: 'Understand and debug the live browser through Playwright, Network, source, and runtime evidence.',
   version: VERSION,
 })
 
@@ -192,47 +192,13 @@ const promptContent =
   fs.readFileSync(path.join(__dirname, '..', 'dist', 'prompt.md'), 'utf-8') +
   `\n\nfor debugging internal Tabwright errors, check Tabwright relay server logs at: ${LOG_FILE_PATH}`
 
-server.resource(
-  'debugger-api',
-  'https://playwriter.dev/resources/debugger-api.md',
-  { mimeType: 'text/plain' },
-  async () => {
-    const packageJsonPath = require.resolve('tabwright/package.json')
-    const packageDir = path.dirname(packageJsonPath)
-    const content = fs.readFileSync(path.join(packageDir, 'dist', 'debugger-api.md'), 'utf-8')
-    return {
-      contents: [{ uri: 'https://playwriter.dev/resources/debugger-api.md', text: content, mimeType: 'text/plain' }],
-    }
-  },
-)
-
-server.resource(
-  'editor-api',
-  'https://playwriter.dev/resources/editor-api.md',
-  { mimeType: 'text/plain' },
-  async () => {
-    const packageJsonPath = require.resolve('tabwright/package.json')
-    const packageDir = path.dirname(packageJsonPath)
-    const content = fs.readFileSync(path.join(packageDir, 'dist', 'editor-api.md'), 'utf-8')
-    return {
-      contents: [{ uri: 'https://playwriter.dev/resources/editor-api.md', text: content, mimeType: 'text/plain' }],
-    }
-  },
-)
-
-server.resource(
-  'styles-api',
-  'https://playwriter.dev/resources/styles-api.md',
-  { mimeType: 'text/plain' },
-  async () => {
-    const packageJsonPath = require.resolve('tabwright/package.json')
-    const packageDir = path.dirname(packageJsonPath)
-    const content = fs.readFileSync(path.join(packageDir, 'dist', 'styles-api.md'), 'utf-8')
-    return {
-      contents: [{ uri: 'https://playwriter.dev/resources/styles-api.md', text: content, mimeType: 'text/plain' }],
-    }
-  },
-)
+documentationTopics.filter(({ topic }) => { return topic !== 'browser' }).map(({ file }) => {
+  const uri = new URL(file, 'https://playwriter.dev/resources/').toString()
+  return server.resource(file.replace(/\.md$/, ''), uri, { mimeType: 'text/plain' }, async () => {
+    const content = fs.readFileSync(path.join(getInstalledTabwrightPackageDir(), 'dist', file), 'utf-8')
+    return { contents: [{ uri, text: content, mimeType: 'text/plain' }] }
+  })
+})
 
 
 function executeResultToMcpContent(options: {
@@ -266,9 +232,9 @@ server.tool(
     code: z
       .string()
       .describe(
-        'js playwright code, has {page, state, context} in scope. Should be one line, using ; to execute multiple statements. you MUST call execute multiple times instead of writing complex scripts in a single tool call.',
+        'JavaScript with page, context, persistent state, and browser debugging helpers in scope. Compose the work you need and return selective evidence. Await work that must finish in this call; deliberately detached promises and listeners remain caller-owned.',
       ),
-    timeout: z.number().default(10000).describe('Timeout in milliseconds for code execution (default: 10000ms)'),
+    timeout: z.number().positive().default(10000).describe('Response deadline in milliseconds (default: 10000). A timeout does not cancel browser work or prove that an action failed.'),
   },
   async ({ code, timeout }) => {
     try {
@@ -336,7 +302,7 @@ server.tool(
 server.tool(
   'reset',
   dedent`
-    Recreates the CDP connection and resets the browser/page/context. Use this when the MCP stops responding, you get connection errors, if there are no pages in context, assertion failures, page closed, or other issues.
+    Reconnects after a lost browser connection and clears the execution context. This is not a way to cancel timed-out work: reset is rejected while the previous awaited execution is still running. Inspect action results before retrying mutations.
 
     After calling this tool, the page and context variables are automatically updated in the execution environment.
 

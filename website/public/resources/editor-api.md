@@ -66,20 +66,20 @@ export declare class Editor {
     private cdp;
     private cwd?;
     private enabled;
-    private scripts;
-    private stylesheets;
+    private resources;
     private sourceCache;
+    private sourceCacheRevision;
     constructor({ cdp, cwd }: {
         cdp: ICDPSession;
         cwd?: string;
     });
-    private setupEventListeners;
     /**
      * Enables the editor. Must be called before other methods.
-     * Scripts are collected from Debugger.scriptParsed events.
-     * Reload the page after enabling to capture all scripts.
+     * Uses the session's shared resource metadata without resetting its domains.
      */
     enable(): Promise<void>;
+    private getScript;
+    private getUrls;
     private getIdByUrl;
     /**
      * Lists available script and stylesheet URLs. Use pattern to filter by regex.

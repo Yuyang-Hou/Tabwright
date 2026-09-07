@@ -1,8 +1,9 @@
 import { createMCPClient } from './mcp-client.js'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { chromium } from '@xmorse/playwright-core'
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { getCDPSessionForPage } from './cdp-session.js'
-import { getCdpUrl, LOG_CDP_FILE_PATH } from './utils.js'
+import { getCdpUrl } from './utils.js'
 import fs from 'node:fs'
 import {
   setupTestContext,
@@ -18,6 +19,17 @@ import {
 import './test-declarations.js'
 
 const TEST_PORT = 19987
+
+function getToolText(result: unknown): string {
+  return CallToolResultSchema.parse(result).content
+    .filter((item) => {
+      return item.type === 'text'
+    })
+    .map((item) => {
+      return item.text
+    })
+    .join('\n')
+}
 
 describe('Relay Core Tests', () => {
   let client: Awaited<ReturnType<typeof createMCPClient>>['client']
@@ -127,7 +139,10 @@ describe('Relay Core Tests', () => {
   it('should emit download events for both Browser and Page domains in extension mode', async () => {
     const browserContext = getBrowserContext()
     const serviceWorker = await getExtensionServiceWorker(browserContext)
-    const logFilePath = LOG_CDP_FILE_PATH
+    if (!testCtx) {
+      throw new Error('Test context not initialized')
+    }
+    const logFilePath = testCtx.cdpLogFilePath
     const logLineCountBefore = fs.existsSync(logFilePath)
       ? fs
           .readFileSync(logFilePath, 'utf-8')
@@ -587,11 +602,18 @@ describe('Relay Core Tests', () => {
     })
   }, 30000)
 
-  const snapshotTestCases = [
+  const liveSnapshotTestCases: Array<{
+    name: string
+    url: string
+    expectedContent: string[]
+    fullOnlyContent: string
+    waitForCode: string
+  }> = [
     {
       name: 'hacker-news',
       url: 'https://news.ycombinator.com/item?id=1',
-      expectedContent: ['role=link', 'Hacker News'],
+      expectedContent: ['role=link[name="Hacker News"]', 'role=link[name="Y Combinator"]'],
+      fullOnlyContent: '- text: "Search:"',
       waitForCode: js`
         await state.page.locator('a[href="news"]').first().waitFor({ timeout: 10000 });
         await state.page.locator('a.hnuser').first().waitFor({ timeout: 10000 });
@@ -600,16 +622,24 @@ describe('Relay Core Tests', () => {
     {
       name: 'shadcn-ui',
       url: 'https://ui.shadcn.com/',
-      expectedContent: ['shadcn'],
+      expectedContent: [
+        'role=link[name="Docs"]',
+        'role=link[name="Components"]',
+        'role=button[name="Search documentation..."]',
+      ],
+      fullOnlyContent: '- heading "',
       waitForCode: js`
-        await state.page.getByRole('heading', { name: 'The Foundation for your Design System' }).waitFor({ timeout: 10000 });
+        await state.page.getByRole('link', { name: 'Docs', exact: true }).first().waitFor({ timeout: 10000 });
+        await state.page.getByRole('button', { name: 'Search documentation...', exact: true }).waitFor({ timeout: 10000 });
+        await state.page.locator('main').getByRole('heading').first().waitFor({ timeout: 10000 });
       `,
     },
   ]
 
-  for (const testCase of snapshotTestCases) {
-    it(`should get accessibility snapshot of ${testCase.name}`, async () => {
-      await client.callTool({
+  // Live sites can add widgets or change content; exact tree/string fixtures live in aria-snapshot.unit.test.ts.
+  for (const testCase of liveSnapshotTestCases) {
+    it(`should expose stable accessibility semantics of ${testCase.name}`, async () => {
+      const createdPage = await client.callTool({
         name: 'execute',
         arguments: {
           code: js`
@@ -620,8 +650,9 @@ describe('Relay Core Tests', () => {
             `,
         },
       })
+      expect(createdPage.isError, getToolText(createdPage)).toBeFalsy()
 
-      // Capture interactiveOnly=true snapshot (default)
+      // Capture interactiveOnly=true snapshot.
       const interactiveResult = await client.callTool({
         name: 'execute',
         arguments: {
@@ -637,15 +668,12 @@ describe('Relay Core Tests', () => {
         },
       })
 
-      const interactiveData =
-        typeof interactiveResult === 'object' && interactiveResult.content?.[0]?.text
-          ? tryJsonParse(interactiveResult.content[0].text)
-          : interactiveResult
-      await expect(interactiveData).toMatchFileSnapshot(`snapshots/${testCase.name}-accessibility-interactive.md`)
-      expect(interactiveResult.content).toBeDefined()
+      const interactiveData = getToolText(interactiveResult)
+      expect(interactiveResult.isError, interactiveData).toBeFalsy()
       for (const expected of testCase.expectedContent) {
         expect(interactiveData).toContain(expected)
       }
+      expect(interactiveData).not.toContain(testCase.fullOnlyContent)
 
       // Capture interactiveOnly=false snapshot (full tree)
       const fullResult = await client.callTool({
@@ -658,15 +686,12 @@ describe('Relay Core Tests', () => {
         },
       })
 
-      const fullData =
-        typeof fullResult === 'object' && fullResult.content?.[0]?.text
-          ? tryJsonParse(fullResult.content[0].text)
-          : fullResult
-      await expect(fullData).toMatchFileSnapshot(`snapshots/${testCase.name}-accessibility-full.md`)
-      expect(fullResult.content).toBeDefined()
+      const fullData = getToolText(fullResult)
+      expect(fullResult.isError, fullData).toBeFalsy()
       for (const expected of testCase.expectedContent) {
         expect(fullData).toContain(expected)
       }
+      expect(fullData).toContain(testCase.fullOnlyContent)
     }, 60000)
   }
 
@@ -1110,35 +1135,126 @@ describe('Relay Core Tests', () => {
     }
   }, 60000)
 
+  it('should expose bundled browser debugging references through MCP resources', async () => {
+    const resources = await client.listResources()
+    expect(resources.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'network-api', uri: 'https://playwriter.dev/resources/network-api.md' }),
+        expect.objectContaining({ name: 'editor-api' }),
+        expect.objectContaining({ name: 'debugger-api' }),
+        expect.objectContaining({ name: 'styles-api' }),
+        expect.objectContaining({ name: 'performance-profiling' }),
+      ]),
+    )
+
+    const resource = await client.readResource({ uri: 'https://playwriter.dev/resources/network-api.md' })
+    expect(resource.contents).toEqual([
+      {
+        uri: 'https://playwriter.dev/resources/network-api.md',
+        mimeType: 'text/plain',
+        text: fs.readFileSync(new URL('../dist/network-api.md', import.meta.url), 'utf8'),
+      },
+    ])
+  })
+
+  it('should inject createNetwork into MCP execute and capture a local response', async () => {
+    await ensureConnectedTabForExecute()
+    const server = await createSimpleServer({
+      routes: {
+        '/network-helper-test': '<!doctype html><html><body>Network helper fixture</body></html>',
+        '/network-helper-data': '{"ok":true,"source":"local-fixture"}',
+      },
+    })
+    const fixtureUrl = new URL('/network-helper-test', server.baseUrl).toString()
+    const responseUrl = new URL('/network-helper-data', server.baseUrl).toString()
+    try {
+      const result = await client.callTool({
+        name: 'execute',
+        arguments: {
+          code: js`
+            const testPage = await context.newPage();
+            const cdp = await getCDPSession({ page: testPage });
+            const network = createNetwork({ cdp, maxEntries: 10 });
+            try {
+              await network.enable();
+              await testPage.goto('${fixtureUrl}');
+              const responsePromise = testPage.waitForResponse('${responseUrl}');
+              await testPage.evaluate(async () => {
+                await (await fetch('/network-helper-data')).text();
+              });
+              const response = await responsePromise;
+              await response.finished();
+              const request = network.list({ search: '/network-helper-data' })[0];
+              if (!request) throw new Error('Fixture request was not captured');
+              const body = await network.responseBody({ requestId: request.requestId });
+              if (!body.available) throw new Error(body.reason);
+              return JSON.stringify({
+                url: request.url,
+                status: request.status,
+                state: request.state,
+                body: JSON.parse(body.body),
+              });
+            } finally {
+              network.dispose();
+              await testPage.close();
+            }
+          `,
+        },
+      })
+      expect(result.isError).toBeFalsy()
+      expect(JSON.parse(getToolText(result).replace('[return value] ', ''))).toEqual({
+        url: responseUrl,
+        status: 200,
+        state: 'complete',
+        body: { ok: true, source: 'local-fixture' },
+      })
+    } finally {
+      await server.close()
+    }
+  }, 30000)
+
   it(
     'should preserve system color scheme instead of forcing light mode',
     async () => {
       const browserContext = getBrowserContext()
       const serviceWorker = await getExtensionServiceWorker(browserContext)
 
+      const server = await createSimpleServer({
+        routes: { '/relay-color-scheme': '<!doctype html><html><body>Color scheme fixture</body></html>' },
+      })
+      const fixtureUrl = new URL('/relay-color-scheme', server.baseUrl).toString()
       const page = await browserContext.newPage()
-      await page.goto('https://example.com')
-      await page.bringToFront()
+      try {
+        await page.goto(fixtureUrl)
+        await page.bringToFront()
 
-      // test-utils launches with colorScheme: 'dark', so before MCP connection
-      // the browser should report dark mode
-      const colorSchemeBefore = await page.evaluate(() => {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-      })
-      expect(colorSchemeBefore).toBe('dark')
+        // Chrome's dark default comes from a launch flag, not another CDP client's color emulation.
+        const colorSchemeBefore = await page.evaluate(() => {
+          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        })
+        expect(colorSchemeBefore).toBe('dark')
 
-      await serviceWorker.evaluate(async () => {
-        await globalThis.toggleExtensionForActiveTab()
-      })
-      await new Promise((r) => setTimeout(r, 500))
+        await serviceWorker.evaluate(async () => {
+          await globalThis.toggleExtensionForActiveTab()
+        })
 
-      const result = await client.callTool({
-        name: 'execute',
-        arguments: {
-          code: js`
+        await expect
+          .poll(async () => {
+            const result = await client.callTool({
+              name: 'execute',
+              arguments: { code: js`return context.pages().map((candidate) => { return candidate.url(); });` },
+            })
+            return getToolText(result)
+          }, { timeout: 5000 })
+          .toContain(fixtureUrl)
+
+        const result = await client.callTool({
+          name: 'execute',
+          arguments: {
+            code: js`
                     const pages = context.pages();
                     const urls = pages.map(p => p.url());
-                    const targetPage = pages.find(p => p.url().includes('example.com'));
+                    const targetPage = pages.find(p => p.url() === '${fixtureUrl}');
                     if (!targetPage) {
                         return { error: 'Page not found', urls };
                     }
@@ -1146,24 +1262,22 @@ describe('Relay Core Tests', () => {
                     const isLight = await targetPage.evaluate(() => window.matchMedia('(prefers-color-scheme: light)').matches);
                     return { matchesDark: isDark, matchesLight: isLight };
                 `,
-        },
-      })
-
-      console.log('Color scheme after MCP connection:', result.content)
-
-      // After MCP connection, color scheme should NOT be forced to light.
-      // The page.ts default is now 'no-override', so the browser's actual
-      // color scheme (dark, from test-utils launch config) should be preserved.
-      expect(result.content).toMatchInlineSnapshot(`
-        [
-          {
-            "text": "[return value] { matchesDark: true, matchesLight: false }",
-            "type": "text",
           },
-        ]
-      `)
+        })
+        const colorSchemeAfter = await page.evaluate(() => {
+          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        })
 
-      await page.close()
+        expect(result.isError).toBeFalsy()
+        expect({ colorSchemeBefore, colorSchemeAfter, mcp: getToolText(result) }).toEqual({
+          colorSchemeBefore: 'dark',
+          colorSchemeAfter: 'dark',
+          mcp: '[return value] { matchesDark: true, matchesLight: false }',
+        })
+      } finally {
+        await page.close()
+        await server.close()
+      }
     },
     60000,
   )
@@ -1464,31 +1578,13 @@ describe('Relay Core Tests', () => {
         `,
       },
     })
-    expect(result).toMatchInlineSnapshot(`
-      {
-        "content": [
-          {
-            "text": "
-      Error executing code: page.click: Timeout 100ms exceeded. Element is not visible — it may be hidden by CSS, inside a collapsed <details>, inactive tab, or closed accordion. Try: interact with the page to reveal it first, or use { force: true } to skip visibility checks
-      Call log:
-      [2m  - waiting for locator('#hidden-btn')[22m
-      [2m    - locator resolved to <button id="hidden-btn">Hidden Button</button>[22m
-      [2m  - attempting click action[22m
-      [2m    2 × waiting for element to be visible, enabled and stable[22m
-      [2m      - element is not visible[22m
-      [2m    - retrying click action[22m
-      [2m    - waiting 20ms[22m
-      [2m    - waiting for element to be visible, enabled and stable[22m
-      [2m    - element is not visible[22m
-      [2m  - retrying click action[22m
-      [2m    - waiting 100ms[22m
-      ",
-            "type": "text",
-          },
-        ],
-        "isError": true,
-      }
-    `)
+    expect(result.isError).toBe(true)
+    const text = getToolText(result).trimStart()
+    expect(text.split('\n')[0]).toBe(
+      'Error executing code: page.click: Timeout 100ms exceeded. Element is not visible — it may be hidden by CSS, inside a collapsed <details>, inactive tab, or closed accordion. Try: interact with the page to reveal it first, or use { force: true } to skip visibility checks',
+    )
+    expect(text).toContain("locator('#hidden-btn')")
+    expect(text).toContain('<button id="hidden-btn">Hidden Button</button>')
     // Cleanup
     await client.callTool({ name: 'execute', arguments: { code: js`await state.errorTestPage.close(); delete state.errorTestPage;` } })
   }, 30000)
@@ -1518,37 +1614,13 @@ describe('Relay Core Tests', () => {
         `,
       },
     })
-    expect(result).toMatchInlineSnapshot(`
-      {
-        "content": [
-          {
-            "text": "
-      Error executing code: page.click: Timeout 100ms exceeded. <div id="overlay">Overlay</div> intercepts pointer events
-      Call log:
-      [2m  - waiting for locator('#covered-btn')[22m
-      [2m    - locator resolved to <button id="covered-btn">Covered</button>[22m
-      [2m  - attempting click action[22m
-      [2m    2 × waiting for element to be visible, enabled and stable[22m
-      [2m      - element is visible, enabled and stable[22m
-      [2m      - scrolling into view if needed[22m
-      [2m      - done scrolling[22m
-      [2m      - <div id="overlay">Overlay</div> intercepts pointer events[22m
-      [2m    - retrying click action[22m
-      [2m    - waiting 20ms[22m
-      [2m    - waiting for element to be visible, enabled and stable[22m
-      [2m    - element is visible, enabled and stable[22m
-      [2m    - scrolling into view if needed[22m
-      [2m    - done scrolling[22m
-      [2m    - <div id="overlay">Overlay</div> intercepts pointer events[22m
-      [2m  - retrying click action[22m
-      [2m    - waiting 100ms[22m
-      ",
-            "type": "text",
-          },
-        ],
-        "isError": true,
-      }
-    `)
+    expect(result.isError).toBe(true)
+    const text = getToolText(result).trimStart()
+    expect(text.split('\n')[0]).toBe(
+      'Error executing code: page.click: Timeout 100ms exceeded. <div id="overlay">Overlay</div> intercepts pointer events',
+    )
+    expect(text).toContain("locator('#covered-btn')")
+    expect(text).toContain('<div id="overlay">Overlay</div>')
     await client.callTool({ name: 'execute', arguments: { code: js`await state.errorTestPage.close(); delete state.errorTestPage;` } })
   }, 30000)
 
@@ -1572,31 +1644,13 @@ describe('Relay Core Tests', () => {
         `,
       },
     })
-    expect(result).toMatchInlineSnapshot(`
-      {
-        "content": [
-          {
-            "text": "
-      Error executing code: page.click: Timeout 100ms exceeded. Element is not visible — it may be hidden by CSS, inside a collapsed <details>, inactive tab, or closed accordion. Try: interact with the page to reveal it first, or use { force: true } to skip visibility checks
-      Call log:
-      [2m  - waiting for locator('#invisible')[22m
-      [2m    - locator resolved to <button id="invisible">Invisible</button>[22m
-      [2m  - attempting click action[22m
-      [2m    2 × waiting for element to be visible, enabled and stable[22m
-      [2m      - element is not visible[22m
-      [2m    - retrying click action[22m
-      [2m    - waiting 20ms[22m
-      [2m    - waiting for element to be visible, enabled and stable[22m
-      [2m    - element is not visible[22m
-      [2m  - retrying click action[22m
-      [2m    - waiting 100ms[22m
-      ",
-            "type": "text",
-          },
-        ],
-        "isError": true,
-      }
-    `)
+    expect(result.isError).toBe(true)
+    const text = getToolText(result).trimStart()
+    expect(text.split('\n')[0]).toBe(
+      'Error executing code: page.click: Timeout 100ms exceeded. Element is not visible — it may be hidden by CSS, inside a collapsed <details>, inactive tab, or closed accordion. Try: interact with the page to reveal it first, or use { force: true } to skip visibility checks',
+    )
+    expect(text).toContain("locator('#invisible')")
+    expect(text).toContain('<button id="invisible">Invisible</button>')
     await client.callTool({ name: 'execute', arguments: { code: js`await state.errorTestPage.close(); delete state.errorTestPage;` } })
   }, 30000)
 

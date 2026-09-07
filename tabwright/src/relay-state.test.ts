@@ -8,6 +8,9 @@ import type WebSocket from 'ws'
 import type { Protocol } from './cdp-types.js'
 import * as relayState from './relay-state.js'
 import { CURRENT_EXTENSION_FEATURES } from './protocol.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createCdpLogger } from './cdp-log.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,11 +98,9 @@ describe('getExtensionNegotiationStatus', () => {
       connectionHealth: 'legacy',
       missingFeatures: [],
     })
-    expect(
-      relayState.getExtensionNegotiationStatus({ browser: 'Chrome', features: ['heartbeat-v1'] }),
-    ).toMatchObject({
+    expect(relayState.getExtensionNegotiationStatus({ browser: 'Chrome', features: ['heartbeat-v1'] })).toMatchObject({
       connectionHealth: 'limited',
-      missingFeatures: expect.arrayContaining(['rrweb-recording-v1']),
+      missingFeatures: expect.arrayContaining(['create-initial-tab-v1']),
     })
     expect(
       relayState.getExtensionNegotiationStatus({
@@ -164,8 +165,18 @@ describe('addExtension', () => {
 
   test('allows multiple extensions with different stableKeys', () => {
     let state = emptyState()
-    state = relayState.addExtension(state, { id: 'ext-1', info: { browser: 'Chrome' }, stableKey: 'profile:a', ws: fakeWs() })
-    state = relayState.addExtension(state, { id: 'ext-2', info: { browser: 'Firefox' }, stableKey: 'profile:b', ws: fakeWs() })
+    state = relayState.addExtension(state, {
+      id: 'ext-1',
+      info: { browser: 'Chrome' },
+      stableKey: 'profile:a',
+      ws: fakeWs(),
+    })
+    state = relayState.addExtension(state, {
+      id: 'ext-2',
+      info: { browser: 'Firefox' },
+      stableKey: 'profile:b',
+      ws: fakeWs(),
+    })
 
     expect(state.extensions.size).toBe(2)
   })
@@ -587,8 +598,6 @@ describe('updateTargetUrl', () => {
   })
 })
 
-
-
 // ---------------------------------------------------------------------------
 // Derivation helpers
 // ---------------------------------------------------------------------------
@@ -635,7 +644,12 @@ describe('store.setState with transitions', () => {
     const store = relayState.createRelayStore()
 
     store.setState((s) => {
-      return relayState.addExtension(s, { id: 'ext-1', info: { browser: 'Chrome' }, stableKey: 'profile:1', ws: fakeWs() })
+      return relayState.addExtension(s, {
+        id: 'ext-1',
+        info: { browser: 'Chrome' },
+        stableKey: 'profile:1',
+        ws: fakeWs(),
+      })
     })
 
     expect(store.getState().extensions.size).toBe(1)
@@ -670,7 +684,15 @@ describe('store.setState with transitions', () => {
 
 import http from 'node:http'
 
-function httpGet({ port, path, host }: { port: number; path: string; host: string }): Promise<{ status: number; body: string }> {
+function httpGet({
+  port,
+  path,
+  host,
+}: {
+  port: number
+  path: string
+  host: string
+}): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request({ hostname: '127.0.0.1', port, path, method: 'GET', headers: { Host: host } }, (res) => {
       let body = ''
@@ -689,15 +711,20 @@ function httpGet({ port, path, host }: { port: number; path: string; host: strin
 describe('Host header validation (DNS rebinding protection)', () => {
   let server: { close(): void } | null = null
   const TEST_PORT = 19996
+  const logFilePath = path.resolve('tmp', 'host-header-test-cdp.jsonl')
 
   beforeAll(async () => {
     const { startTabwrightCDPRelayServer } = await import('./cdp-relay.js')
-    server = await startTabwrightCDPRelayServer({ port: TEST_PORT })
+    server = await startTabwrightCDPRelayServer({
+      port: TEST_PORT,
+      cdpLogger: createCdpLogger({ logFilePath }),
+    })
   })
 
   afterAll(async () => {
     server?.close()
     server = null
+    fs.rmSync(logFilePath, { force: true })
   })
 
   test('rejects requests with non-localhost Host header', async () => {

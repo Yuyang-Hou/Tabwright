@@ -43,13 +43,9 @@ describe('extension feature negotiation', () => {
         feature: EXTENSION_FEATURE.heartbeat,
       }),
     ).toBe(true)
-    expect(CURRENT_EXTENSION_FEATURES).toContain(EXTENSION_FEATURE.rrwebRecording)
-    expect(requiredExtensionFeatureForMethod('startRrwebRecording')).toBe(
-      EXTENSION_FEATURE.rrwebRecording,
-    )
-    expect(requiredExtensionFeatureForMethod('flushRrwebRecording')).toBe(
-      EXTENSION_FEATURE.activityObservation,
-    )
+    expect(CURRENT_EXTENSION_FEATURES).not.toContain('rrweb-recording-v1')
+    expect(CURRENT_EXTENSION_FEATURES).not.toContain('activity-observation-v1')
+    expect(requiredExtensionFeatureForMethod('createInitialTab')).toBe(EXTENSION_FEATURE.createInitialTab)
     expect(requiredExtensionFeatureForMethod('forwardCDPCommand')).toBeUndefined()
   })
 })

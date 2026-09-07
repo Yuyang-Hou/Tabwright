@@ -71,6 +71,7 @@ describe('ExecutorManager.listSessions', () => {
           connected: false,
           pageUrl: null,
           pagesCount: 0,
+          execution: { status: 'idle', startedAt: null },
         },
       ])
     } finally {

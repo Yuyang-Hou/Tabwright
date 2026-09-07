@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_app_title__",
-  "version": "0.0.162",
+  "version": "0.0.165",
   "default_locale": "en",
   "description": "__MSG_extension_description__",
   "permissions": [
@@ -20,15 +20,6 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["rrweb-recorder.js"],
-      "run_at": "document_start",
-      "all_frames": true
-    }
-  ],
-  "options_page": "src/options.html",
   "action": {
     "default_title": "__MSG_action_default_title__",
     "default_icon": {

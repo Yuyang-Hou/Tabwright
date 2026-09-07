@@ -70,7 +70,11 @@ describe('Snapshot & Screenshot Tests', () => {
 
     expect(cdpPage).toBeDefined()
 
-    const viewportSize = cdpPage!.viewportSize()
+    const viewportSize =
+      cdpPage!.viewportSize() ||
+      (await cdpPage!.evaluate(() => {
+        return { width: window.innerWidth, height: window.innerHeight }
+      }))
     console.log('Viewport size:', viewportSize)
 
     const viewportScreenshot = await cdpPage!.screenshot()
@@ -80,10 +84,30 @@ describe('Snapshot & Screenshot Tests', () => {
     console.log('Viewport screenshot dimensions:', viewportDimensions)
     expect(viewportDimensions.width).toBeGreaterThan(0)
     expect(viewportDimensions.height).toBeGreaterThan(0)
-    if (viewportSize) {
-      expect(viewportDimensions.width).toBe(viewportSize.width)
-      expect(viewportDimensions.height).toBe(viewportSize.height)
-    }
+    expect(viewportDimensions.width).toBe(viewportSize.width)
+    expect(viewportDimensions.height).toBe(viewportSize.height)
+
+    const fullPageSize = await cdpPage!.evaluate(() => {
+      const { body, documentElement } = document
+      return {
+        width: Math.max(
+          body.scrollWidth,
+          documentElement.scrollWidth,
+          body.offsetWidth,
+          documentElement.offsetWidth,
+          body.clientWidth,
+          documentElement.clientWidth,
+        ),
+        height: Math.max(
+          body.scrollHeight,
+          documentElement.scrollHeight,
+          body.offsetHeight,
+          documentElement.offsetHeight,
+          body.clientHeight,
+          documentElement.clientHeight,
+        ),
+      }
+    })
 
     const fullPageScreenshot = await cdpPage!.screenshot({ fullPage: true })
     expect(fullPageScreenshot).toBeDefined()
@@ -93,6 +117,8 @@ describe('Snapshot & Screenshot Tests', () => {
     expect(fullPageDimensions.width).toBeGreaterThan(0)
     expect(fullPageDimensions.height).toBeGreaterThan(0)
     expect(fullPageDimensions.width).toBeGreaterThanOrEqual(viewportDimensions.width!)
+    expect(fullPageDimensions.width).toBe(fullPageSize.width)
+    expect(fullPageDimensions.height).toBe(fullPageSize.height)
 
     testCtx!.relayServer.off('cdp:command', commandHandler)
 
@@ -102,38 +128,24 @@ describe('Snapshot & Screenshot Tests', () => {
         method: c.method,
         params: c.params,
       })),
-    ).toMatchInlineSnapshot(`
-          [
-            {
-              "method": "Page.captureScreenshot",
-              "params": {
-                "captureBeyondViewport": false,
-                "clip": {
-                  "height": 720,
-                  "scale": 1,
-                  "width": 1280,
-                  "x": 0,
-                  "y": 0,
-                },
-                "format": "png",
-              },
-            },
-            {
-              "method": "Page.captureScreenshot",
-              "params": {
-                "captureBeyondViewport": false,
-                "clip": {
-                  "height": 581,
-                  "scale": 1,
-                  "width": 1280,
-                  "x": 0,
-                  "y": 0,
-                },
-                "format": "png",
-              },
-            },
-          ]
-        `)
+    ).toEqual([
+      {
+        method: 'Page.captureScreenshot',
+        params: {
+          captureBeyondViewport: false,
+          clip: { ...viewportSize, scale: 1, x: 0, y: 0 },
+          format: 'png',
+        },
+      },
+      {
+        method: 'Page.captureScreenshot',
+        params: {
+          captureBeyondViewport: false,
+          clip: { ...fullPageSize, scale: 1, x: 0, y: 0 },
+          format: 'png',
+        },
+      },
+    ])
 
     const screenshotPath = path.join(os.tmpdir(), 'tabwright-test-screenshot.png')
     fs.writeFileSync(screenshotPath, viewportScreenshot)
@@ -536,6 +548,31 @@ describe('Snapshot & Screenshot Tests', () => {
     const cdpSession = await getCDPSessionForPage({ page: cdpPage! })
 
     const layoutMetrics = await cdpSession.send('Page.getLayoutMetrics')
+    const windowMetrics = await cdpPage!.evaluate(() => {
+      const visualViewport = window.visualViewport
+      if (!visualViewport) {
+        throw new Error('Visual viewport is unavailable')
+      }
+      return {
+        layoutViewport: {
+          clientHeight: document.documentElement.clientHeight,
+          clientWidth: document.documentElement.clientWidth,
+          pageX: window.scrollX,
+          pageY: window.scrollY,
+        },
+        visualViewport: {
+          clientHeight: visualViewport.height,
+          clientWidth: visualViewport.width,
+          offsetX: visualViewport.offsetLeft,
+          offsetY: visualViewport.offsetTop,
+          pageX: visualViewport.pageLeft,
+          pageY: visualViewport.pageTop,
+          scale: visualViewport.scale,
+          zoom: 1,
+        },
+        devicePixelRatio: window.devicePixelRatio,
+      }
+    })
 
     const normalized = {
       cssLayoutViewport: layoutMetrics.cssLayoutViewport,
@@ -548,47 +585,14 @@ describe('Snapshot & Screenshot Tests', () => {
           : 1,
     }
 
-    expect(normalized).toMatchInlineSnapshot(`
-          {
-            "cssLayoutViewport": {
-              "clientHeight": 720,
-              "clientWidth": 1280,
-              "pageX": 0,
-              "pageY": 0,
-            },
-            "cssVisualViewport": {
-              "clientHeight": 720,
-              "clientWidth": 1280,
-              "offsetX": 0,
-              "offsetY": 0,
-              "pageX": 0,
-              "pageY": 0,
-              "scale": 1,
-              "zoom": 1,
-            },
-            "devicePixelRatio": 1,
-            "layoutViewport": {
-              "clientHeight": 720,
-              "clientWidth": 1280,
-              "pageX": 0,
-              "pageY": 0,
-            },
-            "visualViewport": {
-              "clientHeight": 720,
-              "clientWidth": 1280,
-              "offsetX": 0,
-              "offsetY": 0,
-              "pageX": 0,
-              "pageY": 0,
-              "scale": 1,
-              "zoom": 1,
-            },
-          }
-        `)
-
-    const windowDpr = await cdpPage!.evaluate(() => (globalThis as any).devicePixelRatio)
-    console.log('window.devicePixelRatio:', windowDpr)
-    expect(windowDpr).toBe(1)
+    expect(windowMetrics.devicePixelRatio).toBe(1)
+    expect(normalized).toEqual({
+      cssLayoutViewport: windowMetrics.layoutViewport,
+      cssVisualViewport: windowMetrics.visualViewport,
+      layoutViewport: windowMetrics.layoutViewport,
+      visualViewport: windowMetrics.visualViewport,
+      devicePixelRatio: windowMetrics.devicePixelRatio,
+    })
 
     await cdpSession.detach()
     await browser.close()

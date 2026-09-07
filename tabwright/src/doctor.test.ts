@@ -38,7 +38,6 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [extension()],
       sessions: [session()],
-      skillCount: 2,
     })
 
     expect(report.ready).toBe(true)
@@ -61,7 +60,6 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [extension()],
       sessions: [],
-      skillCount: 0,
     })
 
     expect(report.ready).toBe(false)
@@ -76,7 +74,6 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [extension({ activeTargets: 0 })],
       sessions: [session()],
-      skillCount: 0,
     })
 
     expect(report.next.command).toBeUndefined()
@@ -102,7 +99,6 @@ describe('buildDoctorReport', () => {
       relayVersion: '0.4.0',
       extensions: [],
       sessions: [session({ extensionId: null, connected: true, browser: 'Chromium (headless)' })],
-      skillCount: 0,
     })
 
     expect(report.ready).toBe(true)
@@ -119,7 +115,6 @@ describe('buildDoctorReport', () => {
       relayError: 'Failed to start relay. Check logs at ~/.tabwright/relay-server.log',
       extensions: [extension({ playwriterVersion: '0.5.0' })],
       sessions: [],
-      skillCount: 0,
     })
 
     expect(report.checks).toEqual(
@@ -147,7 +142,6 @@ describe('buildDoctorReport', () => {
         }),
       ],
       sessions: [session()],
-      skillCount: 0,
     })
 
     expect(report.ready).toBe(true)
@@ -162,28 +156,15 @@ describe('buildDoctorReport', () => {
     )
   })
 
-  test('reports a same-version relay that is missing saved-data features', () => {
+  test('does not require retired saved-data features for browser readiness', () => {
     const report = buildDoctorReport({
-      version: '0.4.0',
-      cwd: '/project',
-      remote: false,
-      relayVersion: '0.4.0',
-      relayFeatures: null,
-      extensions: [extension()],
-      sessions: [session()],
-      skillCount: 2,
+      version: '0.4.0', cwd: '/project', remote: false,
+      relayVersion: '0.4.0', relayFeatures: null,
+      extensions: [extension()], sessions: [session()],
     })
-
-    expect(report.checks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'relay',
-          status: 'warn',
-          message: expect.stringContaining('saved-data features are missing'),
-        }),
-      ]),
-    )
-    expect(report.next.command).toBe('tabwright session list')
+    expect(report.ready).toBe(true)
+    expect(report.checks.map((check) => { return check.id })).toEqual(['relay', 'extension', 'session'])
+    expect(report.next.command).toBeUndefined()
   })
 
   test('keeps remote connection failures diagnostic and non-destructive', () => {
@@ -194,7 +175,6 @@ describe('buildDoctorReport', () => {
       relayVersion: null,
       extensions: [],
       sessions: [],
-      skillCount: 0,
     })
 
     expect(report.ready).toBe(false)
