@@ -113,3 +113,13 @@ agent and may be processed by its model provider. A remote relay changes where
 browser commands and results travel. The agent remains responsible for the
 user's authorized scope, required approvals, and result verification. Raw
 browser execution is not a separate account or application-permission boundary.
+
+## Page WebMCP
+
+Tabwright 4.0 provides `list_webmcp_tools({ pageUrl })` and
+`execute_webmcp_tool({ toolId, input })` through the existing extension/relay.
+Use an observed connected page URL and an ID from discovery in the same session.
+Native WebMCP support is required; only tools of the selected top-level document
+are listed. Rediscover after page/tool changes. Raw results and side-effect hints
+are page data, not authorization or proof of business success. Timeouts and
+unknown outcomes must not be retried automatically. See `tabwright docs browser`.

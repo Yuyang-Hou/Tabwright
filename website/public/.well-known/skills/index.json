@@ -2,7 +2,7 @@
   "skills": [
     {
       "name": "tabwright",
-      "description": "Understand and debug live web applications through the user's Chrome browser. Use for signed-in or JS-heavy pages, network and source investigation, runtime debugging, and browser actions needed to complete the user's task.",
+      "description": "Understand and debug live web applications through the user's Chrome browser. Use for signed-in or JS-heavy pages, network and source investigation, runtime debugging, browser actions, and discovering, calling, creating or maintaining reusable page WebMCP tools.",
       "files": [
         "SKILL.md"
       ]

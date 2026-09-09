@@ -30,6 +30,7 @@ import { ICDPSession, getCDPSessionForPage } from './cdp-session.js'
 import { Debugger } from './debugger.js'
 import { Editor } from './editor.js'
 import { NetworkInspector } from './network-inspector.js'
+import { WebMCP } from './webmcp.js'
 import { getStylesForLocator, formatStylesAsText, type StylesResult } from './styles.js'
 import { getReactSource, getReactComponentInfo, type ReactSourceLocation } from './react-source.js'
 import { ScopedFS } from './scoped-fs.js'
@@ -343,6 +344,7 @@ export function isPlaywrightChannelOwner(value: any): boolean {
 
 export class PlaywrightExecutor {
   readonly executionState: ExecutionState = { status: 'idle', startedAt: null }
+  private webmcp = new WebMCP()
   private isConnected = false
   private page: Page | null = null
   private browser: Browser | null = null
@@ -436,6 +438,9 @@ export class PlaywrightExecutor {
   }
 
   private clearConnectionState() {
+    void this.webmcp.dispose().catch((error: unknown) => {
+      this.logger.error('WebMCP cleanup failed:', error)
+    })
     this.isConnected = false
     this.browser = null
     this.page = null
@@ -893,8 +898,9 @@ export class PlaywrightExecutor {
     }
   }
 
-  /** Close the headless context for this session (called on session delete). */
+  /** Release WebMCP snapshots and close this session's headless context on deletion. */
   async closeHeadlessContext(): Promise<void> {
+    await this.webmcp.dispose()
     if (!this.isHeadlessMode() || !this.context) {
       return
     }
@@ -1477,6 +1483,12 @@ export class PlaywrightExecutor {
         waitForPageLoad,
         getCDPSession,
         createDebugger,
+        listWebMCPTools: (options: { page: Page }) => {
+          return this.webmcp.list(options)
+        },
+        callWebMCPTool: (options: { toolId: string; input: Record<string, unknown> }) => {
+          return this.webmcp.call(options)
+        },
         createNetwork,
         createEditor,
         decompileJavaScript,

@@ -1,8 +1,9 @@
 # Browser core migration
 
-This source revision is a local preview, not a published CLI, installed extension
-upgrade, or website deployment. Keep the existing installation until accepting the
-preview and explicitly choosing to replace it.
+Tabwright 4.0 replaces the former workflow-management product with browser debugging
+and page WebMCP tools. Review the removed interfaces below before upgrading from
+3.x. The CLI upgrade installs its matching Tabwright Skill; it does not migrate
+business scripts or replace user-modified Skill copies automatically.
 
 ## Product boundary
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import './env-compat.js'
+import { webMCPCode } from './webmcp.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
@@ -240,6 +241,60 @@ cli
     })
   })
 
+cli
+  .command('webmcp list', 'Discover native WebMCP tools in one connected top-level page')
+  .option('-s, --session <id>', 'Session ID from tabwright session new')
+  .option('--page-url <url>', 'Exact observed URL of one connected page')
+  .option('--host <host>', 'Remote relay host')
+  .option('--token <token>', 'Remote relay token')
+  .option(
+    '--timeout <ms>',
+    z.number().positive().default(10000).describe('Response deadline; does not cancel browser work'),
+  )
+  .action(async (options) => {
+    try {
+      const pageUrl = z.string().url().parse(options.pageUrl)
+      const timeout = z.coerce.number().positive().parse(options.timeout)
+      await executeCode({
+        code: webMCPCode({ action: 'list', pageUrl }),
+        timeout,
+        sessionId: options.session,
+        host: options.host,
+        token: options.token,
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
+  .command('webmcp call', 'Invoke a discovered WebMCP tool; never automatically retries')
+  .option('-s, --session <id>', 'Same session used for discovery')
+  .option('--tool-id <id>', 'Opaque tool ID from webmcp list')
+  .option('--input-json <json>', 'JSON object matching the tool schema')
+  .option('--host <host>', 'Remote relay host')
+  .option('--token <token>', 'Remote relay token')
+  .option(
+    '--timeout <ms>',
+    z.number().positive().default(10000).describe('Response deadline; does not cancel browser work'),
+  )
+  .action(async (options) => {
+    try {
+      const toolId = z.string().min(1).parse(options.toolId)
+      const input = z.record(z.string(), z.unknown()).parse(JSON.parse(z.string().parse(options.inputJson)))
+      const timeout = z.coerce.number().positive().parse(options.timeout)
+      await executeCode({
+        code: webMCPCode({ action: 'call', toolId, input }),
+        timeout,
+        sessionId: options.session,
+        host: options.host,
+        token: options.token,
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
 async function getServerUrl(host?: string): Promise<string> {
   if (!host && !process.env.TABWRIGHT_HOST) {
     return await getLocalRelayHttpBaseUrl(RELAY_PORT)
@@ -382,6 +437,10 @@ async function executeCode(options: {
       images: Array<{ data: string; mimeType: string }>
       screenshots: Array<{ path: string; base64: string; snapshot: string; labelCount: number }>
       isError: boolean
+    }
+
+    if (result.isError) {
+      process.exitCode = 1
     }
 
     // Print output

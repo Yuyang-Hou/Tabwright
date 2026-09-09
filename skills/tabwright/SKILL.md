@@ -1,6 +1,6 @@
 ---
 name: tabwright
-description: Understand and debug live web applications through the user's Chrome browser. Use for signed-in or JS-heavy pages, network and source investigation, runtime debugging, and browser actions needed to complete the user's task.
+description: Understand and debug live web applications through the user's Chrome browser. Use for signed-in or JS-heavy pages, network and source investigation, runtime debugging, browser actions, and discovering, calling, creating or maintaining reusable page WebMCP tools.
 ---
 
 # Tabwright
@@ -36,6 +36,7 @@ full manual is required. `tabwright skill` remains the full usage reference.
 
 | Need | Capability | Local reference |
 | --- | --- | --- |
+| Use page WebMCP tools | `listWebMCPTools`, `callWebMCPTool`; MCP `list_webmcp_tools` / `execute_webmcp_tool`; CLI `webmcp list/call` | `tabwright docs browser` |
 | Understand rendered content | `snapshot`, `getCleanHTML`, `getPageMarkdown`, `page.evaluate` | `tabwright docs browser` |
 | Trace data and failures to code | `createNetwork`, request initiators, response excerpts | `tabwright docs network` |
 | Search or save deployed scripts | `createEditor`, `grep`, `read`, `saveRaw` | `tabwright docs editor` |
@@ -62,6 +63,83 @@ Source search, response data, evaluation, UI actions, and visual inspection are
 all valid approaches. Prefer bounded excerpts over dumping pages or responses.
 `editor.saveRaw({ url })` caches exact deployed source by hash; Wakaru is optional
 when packed code actually prevents understanding.
+
+## WebMCP: use, create and maintain
+
+This Skill includes the complete WebMCP workflow; no separate Web Code or per-site
+Skill installation is required. Tabwright connects and calls tools. The user's
+chosen script manager (such as ScriptCat) persists userscripts; Tabwright does not
+install or manage those scripts itself.
+
+### Discover and use
+
+For a task involving page tools, first discover what the selected page exposes.
+Reuse a current tool list if the client already returned it. With MCP use
+`list_webmcp_tools({ pageUrl })`, then `execute_webmcp_tool({ toolId, input })`.
+Use an observed page URL and the same MCP session. CLI equivalents:
+
+```sh
+tabwright webmcp list -s <id> --page-url 'https://example.com/dashboard'
+tabwright webmcp call -s <id> --tool-id '<discovered-id>' --input-json '{"query":"example"}'
+```
+
+For duplicate page URLs, select the intended Page explicitly with
+`listWebMCPTools({ page: state.page })`; use `callWebMCPTool({ toolId, input })` to
+invoke it. IDs expire after navigation, tool changes, repeat discovery or reset.
+Rediscover instead of substituting a tool with the same name. Only the selected
+top-level document is currently supported; native WebMCP API availability is
+required. Unsupported API and an empty tool list are different outcomes.
+
+Read tool descriptions, input schemas and side effects before invoking. Reuse
+suitable tools and verify their business results; do not re-read bundles or
+regenerate code unnecessarily. If no tool fits, use normal browser/debugging
+capabilities or existing code. A one-off task need not produce a persistent script.
+`returned` means the native string was returned, not business success. Null,
+rejection and timeout may leave the outcome unknown; never automatically retry.
+
+### Create and save
+
+When the user wants reusable capability, start with the requested business action;
+use a read-only scope if the intended effects are unclear. Ground requests in
+current page behavior, observed Network traffic, deployed source or API documents.
+Do not guess endpoints or require recording or whole-site reverse engineering.
+
+Deliver a site-and-capability-named `.user.js` with a narrow page match, version,
+meaningful tool descriptions, input/output contracts and explicit side effects.
+Register native tools through `document.modelContext.registerTool`; check support
+first and do not inject a polyfill. The script must execute in the page's world,
+using the selected manager's documented mechanism. Limit origin, path, route and
+relevant account/tenant scope again at execution time. Reuse the site's request
+client or page-context fetch; keep credentials in the browser.
+
+Validate inputs inside the script, bound requests/results and use timeouts. Tool
+registration must not perform business actions. Own registrations with an
+AbortController, avoid duplicate registration, unregister on route exit and restore
+on return; account for actual SPA/microfrontend lifecycle rather than hashchange
+alone. Remove only the script's own tools. Return explicit business/error results,
+including login/permission failures, rather than turning failures into empty data.
+Detailed native API and lifecycle guidance is bundled in `tabwright docs browser`.
+
+Save and enable through the user's chosen script manager's supported interface.
+Only request a manager when persistence is needed; existing native site tools need
+none. If user interaction is required, provide the complete script and shortest
+steps. Temporary injection is not installation. After saving, refresh, rediscover
+and make one bounded authorized call; report which steps actually succeeded.
+
+### Check and repair
+
+Ordinary reuse calls the saved tool without regenerating it. Diagnose login,
+permissions, rate limits, network/service errors and contract changes separately.
+An empty result or changed bundle hash alone does not prove breakage. For a health
+check use known safe read-only input; do not run writes or scan the whole site.
+
+Within authorized maintenance scope, reproduce the failure and inspect current
+evidence. Patch the original script minimally, preserve its public semantics and
+user edits, add a check reproducing the change, and verify a bounded read-only call.
+Keep a recoverable previous version, bump the script version, update the same
+manager entry, then refresh and rediscover. If updating the manager is blocked,
+deliver a candidate and say it is not active. Do not guess repeatedly or weaken
+validation to hide a failure. Maintenance does not authorize business writes.
 
 ## Evidence and effects
 

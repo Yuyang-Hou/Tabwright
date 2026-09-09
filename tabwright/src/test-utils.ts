@@ -41,10 +41,7 @@ export function getLegacyExtensionLaunchArgs({ extensionPaths }: { extensionPath
   })
   const legacyExtensionPaths = resolvedExtensionPaths.join(',')
 
-  return [
-    `--disable-extensions-except=${legacyExtensionPaths}`,
-    `--load-extension=${legacyExtensionPaths}`,
-  ]
+  return [`--disable-extensions-except=${legacyExtensionPaths}`, `--load-extension=${legacyExtensionPaths}`]
 }
 
 export function isExtensionLoadUnavailableError(error: unknown): boolean {
@@ -103,15 +100,17 @@ async function launchTestBrowser({
 export async function launchPersistentContextWithExtensions({
   userDataDir,
   extensionPaths,
+  browserArgs = [],
 }: {
   userDataDir: string
   extensionPaths: string[]
+  browserArgs?: string[]
 }): Promise<BrowserContext> {
   const browserContext = await launchTestBrowser({
     userDataDir,
     // Chrome 137+ ignores --load-extension for branded builds. Its supported
     // Extensions.loadUnpacked replacement requires this opt-in switch.
-    args: ['--enable-unsafe-extension-debugging'],
+    args: ['--enable-unsafe-extension-debugging', ...browserArgs],
   })
 
   try {
@@ -127,7 +126,7 @@ export async function launchPersistentContextWithExtensions({
     // the same isolated profile with the legacy flags it still supports.
     return await launchTestBrowser({
       userDataDir,
-      args: getLegacyExtensionLaunchArgs({ extensionPaths }),
+      args: [...getLegacyExtensionLaunchArgs({ extensionPaths }), ...browserArgs],
     })
   }
 }
@@ -161,10 +160,9 @@ export async function getExtensionServiceWorker(context: BrowserContext) {
         timeout: EXTENSION_SERVICE_WORKER_TIMEOUT_MS,
       })
       .catch((error: unknown) => {
-        throw new Error(
-          `No extension service worker appeared within ${EXTENSION_SERVICE_WORKER_TIMEOUT_MS}ms`,
-          { cause: error },
-        )
+        throw new Error(`No extension service worker appeared within ${EXTENSION_SERVICE_WORKER_TIMEOUT_MS}ms`, {
+          cause: error,
+        })
       })
   }
 
@@ -214,6 +212,7 @@ export async function setupTestContext({
   tempDirPrefix,
   toggleExtension = false,
   additionalExtensions = [],
+  browserArgs = [],
 }: {
   port: number
   tempDirPrefix: string
@@ -221,6 +220,7 @@ export async function setupTestContext({
   toggleExtension?: boolean
   /** Additional extension paths to load alongside the main Tabwright extension */
   additionalExtensions?: string[]
+  browserArgs?: string[]
 }): Promise<TestContext> {
   await killPortProcess({ port }).catch(() => {})
 
@@ -246,6 +246,7 @@ export async function setupTestContext({
     const browserContext = await launchPersistentContextWithExtensions({
       userDataDir,
       extensionPaths: [extensionPath, ...additionalExtensions],
+      browserArgs,
     })
 
     try {

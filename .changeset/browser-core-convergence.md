@@ -1,5 +1,5 @@
 ---
-"tabwright": minor
+"tabwright": major
 ---
 
 Focus Tabwright on live browser understanding, debugging and ordinary scripts.

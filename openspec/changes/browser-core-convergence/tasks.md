@@ -41,3 +41,10 @@ against official browser CDP access. Product development, homepage positioning a
 release are paused. Preserve the current implementation and pending Changesets;
 do not treat this checkpoint as release approval or an all-green regression.
 No side-by-side comparison with the official extension has been completed.
+
+## Release resumed — 2026-09-09
+
+The user accepted the refactor and authorized releasing it together with WebMCP
+and the consolidated Tabwright Skill. Target versions are CLI 4.0.0 (removed
+public APIs require a major release) and extension 0.0.165. The historical paused
+checkpoint above is superseded; release verification is recorded separately.

@@ -27,6 +27,10 @@ excerpts, and local artifacts to keep evidence manageable.
 
 ## Get started
 
+The bundled Tabwright Skill also guides discovery, use, creation and maintenance
+of page WebMCP tools. No separate Web Code Skill is required. For userscript
+persistence and setup, see the [WebMCP guide](./docs/web-code-preview.md).
+
 1. Install the [Chrome extension](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep).
 2. Install the CLI, open the page you want the agent to use, and click the extension icon.
 3. Check the connection and create a session:

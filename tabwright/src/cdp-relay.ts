@@ -2141,8 +2141,7 @@ export async function startTabwrightCDPRelayServer({
       const manager = await getExecutorManager()
       const executor = manager.getSession(sessionId)
 
-      // Close headless context before deleting to prevent context/page leaks
-      // on the shared headless browser. Only affects headless sessions.
+      // Release session-owned resources before deletion; only headless sessions close a context.
       if (executor) {
         await executor.closeHeadlessContext()
       }
