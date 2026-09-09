@@ -15,7 +15,7 @@ jobs:
       - run: git submodule update --init playwright
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           registry-url: https://registry.npmjs.org/
       - uses: pnpm/action-setup@v4
         with:
@@ -37,7 +37,7 @@ jobs:
       - run: pnpm playwright:build
       - run: pnpm --dir tabwright typecheck
       - run: pnpm --dir tabwright build
-      - run: pnpm --dir tabwright test:unit
+      - run: pnpm --dir tabwright test:unit --no-file-parallelism
       - run: pnpm test:skills
       - run: pnpm --dir tabwright exec playwright-core install-deps chromium
       - name: Install current Chrome for native WebMCP acceptance
