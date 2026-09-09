@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.0.0
+
+### Major Changes
+
+- 3c70dfa: Focus Tabwright on live browser understanding, debugging and ordinary scripts.
+  Remove recording/replay, managed business Skill runtimes and cloud provisioning.
+  Keep core CDP and extension negotiation compatible, and reject retired commands
+  before execution with migration guidance. User-owned Skills can use plain `-f`
+  scripts or standalone APIs; installed Skills and old data are not changed.
+
+  Migration is required for callers of removed recording exports and managed-runtime
+  commands. See the browser core migration guide before replacing an installation.
+
+### Minor Changes
+
+- 3c70dfa: Add an opt-in Network inspector for request summaries, initiator code locations,
+  redirects, failures, and bounded response excerpts. Expose bundled API references
+  through `tabwright docs` and focus the installed Skill on freely composable browser,
+  source, and runtime debugging.
+- a166ec0: Discover and call native page WebMCP tools through the existing Tabwright extension with dedicated MCP tools and CLI commands. Tool IDs are session-bound and expire when pages or tools change; uncertain results are never automatically retried.
+
+  CLI execution errors now also produce a nonzero exit status so callers can distinguish a failed command from a successful result.
+
+  Include the complete WebMCP discovery, authoring, userscript persistence and maintenance workflow in the bundled Tabwright Skill, without requiring a separate Web Code Skill installation.
+
+### Patch Changes
+
+- 3c70dfa: Keep source inspection and runtime debugging on shared CDP resource metadata so
+  opening another helper does not clear existing breakpoints or resume paused code.
+- 3c70dfa: Prevent overlapping executions while timed-out awaited code is still running and
+  report that its outcome is unknown rather than claiming cancellation. Redact known
+  credential fields before writing CDP diagnostic logs.
+
 ## 3.5.0
 
 ### Minor Changes
