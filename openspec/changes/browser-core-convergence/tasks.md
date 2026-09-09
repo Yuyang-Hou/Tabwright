@@ -32,7 +32,10 @@ The timed-out case passed its unchanged isolated recheck and the entire screensh
 file then passed 10/10; the full result remains
 non-green, not silently converted into a pass. See @../../../docs/browser-core-acceptance.md.
 
-- [ ] Reproduce and stabilize the intermittent live-page label check before claiming an all-green release regression.
+- [x] Complete a fixed-version full release regression: 2026-09-09, 39 files passed,
+  337 tests passed and two existing skips on Node 22.22.0. The unchanged screenshot
+  file passed 10/10; the earlier live-page timeout did not reproduce. This is a new
+  green run, not a reclassification of the earlier failure or proof of its cause.
 
 ## Paused checkpoint
 
@@ -48,3 +51,5 @@ The user accepted the refactor and authorized releasing it together with WebMCP
 and the consolidated Tabwright Skill. Target versions are CLI 4.0.0 (removed
 public APIs require a major release) and extension 0.0.165. The historical paused
 checkpoint above is superseded; release verification is recorded separately.
+
+Release acceptance: @../../../docs/release-4-0-acceptance.md.
