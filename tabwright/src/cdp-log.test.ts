@@ -30,6 +30,40 @@ function readIds(logFile: string): number[] {
 }
 
 describe('CDP log rotation', () => {
+  it('redacts credential fields and cookie responses before truncating, without changing source data', async () => {
+    const tmpDir = makeTmpDir()
+    const logFile = path.join(tmpDir, 'cdp.jsonl')
+    const logger = createCdpLogger({ logFilePath: logFile, maxStringLength: 200 })
+    const message = {
+      id: 1,
+      result: { cookies: [{ name: 'session', value: 'cookie-secret', domain: 'example.com' }] },
+      params: {
+        request: {
+          url: 'https://example.com/api',
+          method: 'POST',
+          headers: { Cookie: 'cookie-header-secret', Authorization: 'Bearer auth-secret', 'Content-Type': 'application/json' },
+          headersText: 'HTTP/1.1 200 OK\r\nSet-Cookie: raw-cookie-secret\r\nX-Api-Key: raw-key-secret\r\nContent-Type: application/json',
+        },
+        headers: [{ name: 'Proxy-Authorization', value: 'proxy-secret' }, { name: 'Accept', value: 'application/json' }],
+        payload: { access_token: 'token-secret', clientSecret: 'client-secret', password: 'password-secret', message: 'x'.repeat(250) },
+      },
+    }
+    try {
+      logger.log({ ...makeEntry(1), message })
+      await logger.flush()
+      const text = fs.readFileSync(logFile, 'utf-8')
+      expect(text).not.toContain('secret')
+      expect(text).toContain('[REDACTED]')
+      expect(text).toContain('https://example.com/api')
+      expect(text).toContain('application/json')
+      expect(text).toContain('[truncated 50 chars]')
+      expect(message.result.cookies[0]?.value).toBe('cookie-secret')
+      expect(message.params.request.headers.Authorization).toBe('Bearer auth-secret')
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true })
+    }
+  })
+
   it('rotates when lineCount exceeds maxEntries, keeping last half', async () => {
     const tmpDir = makeTmpDir()
     const logFile = path.join(tmpDir, 'cdp.jsonl')

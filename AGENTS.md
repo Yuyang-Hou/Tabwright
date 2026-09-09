@@ -129,7 +129,7 @@ pnpm test:watch        # watch mode
 
 tests run against a real Chrome instance with the extension loaded.
 
-the test script passes `-u` to update inline snapshots automatically.
+tests do not update snapshots automatically. Review expected semantics before making any focused snapshot update.
 
 #### test setup
 
@@ -206,23 +206,17 @@ curl -sL https://raw.githubusercontent.com/ChromeDevTools/devtools-protocol/mast
 
 you can list other files in that folder on github to read more if you need to control things like DOM, performance, etc
 
-## Browser Use Cloud API docs
+## Product boundary
 
-cloud browser sessions use the Browser Use hosted Chromium API. before editing cloud browser code (`cloud-client.ts`, `cloud-api.ts`, `browser-use.ts`, or cloud-related CLI commands), read the relevant docs:
+Keep browser, Playwright/CDP, Network, source and Debugger tools composable.
+Recording, Options, managed business Skills, Cookie caches, cloud provisioning,
+accounts and billing are not product features. Business Skill examples live in
+examples/independent-skills and are not discovered, installed or bundled by the
+product. Never change installed user Skills or credentials during a code migration.
 
-- LLM-optimized full docs: https://docs.browser-use.com/cloud/llms-full.txt
-- OpenAPI spec: https://docs.browser-use.com/openapi/v3.json
-
-our typed client lives in `website/src/lib/browser-use.ts` and only uses the `/browsers` endpoints (create, get, stop, list). we do not use the agent/sessions endpoints; we connect via CDP directly.
-
-## D1 query optimization
-
-D1 queries are slow, especially writes. minimize the number of D1 round trips in every code path. use `db.batch()` to combine multiple reads or writes into a single round trip wherever possible. never add a separate D1 write when you can piggyback it onto an existing batch call.
-
-when reviewing or writing cloud-api, scheduled, or any website code that touches D1:
-- count the number of D1 round trips per request and document them in comments
-- prefer batching N statements into 1 `db.batch()` call over N individual queries
-- if adding a new column/field that needs updating, find an existing write to batch it with instead of adding a new one
+Website is a local-buildable landing page and documentation site. It has no
+product database, account or billing bindings. Deployment requires explicit user
+authorization and a user-owned target; do not reinstate upstream domains.
 
 ## changesets
 

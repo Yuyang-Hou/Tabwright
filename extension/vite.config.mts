@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import url from 'node:url'
-import * as esbuild from 'esbuild'
 import { defineConfig, type Plugin } from 'vite'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 
@@ -27,49 +26,6 @@ if (process.env.TESTING) {
 
 // Allow tests to build per-port extension outputs to avoid parallel run conflicts.
 const outDir = process.env.TABWRIGHT_EXTENSION_DIST || process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
-
-function escapeNonAscii(value: string): string {
-  return value.replace(/[^\x00-\x7F]/g, (character) => {
-    const codePoint = character.codePointAt(0)
-    if (codePoint === undefined) {
-      return character
-    }
-    if (codePoint <= 0xffff) {
-      return `\\u${codePoint.toString(16).padStart(4, '0')}`
-    }
-    const shifted = codePoint - 0x10000
-    const high = 0xd800 + (shifted >> 10)
-    const low = 0xdc00 + (shifted & 0x3ff)
-    return `\\u${high.toString(16).padStart(4, '0')}\\u${low.toString(16).padStart(4, '0')}`
-  })
-}
-
-function buildRrwebRecorderContentScript(): Plugin {
-  return {
-    name: 'build-rrweb-recorder-content-script',
-    async closeBundle() {
-      const outfile = path.resolve(__dirname, outDir, 'rrweb-recorder.js')
-      const result = await esbuild.build({
-        entryPoints: [path.resolve(__dirname, 'src/rrweb-recorder.ts')],
-        bundle: true,
-        charset: 'ascii',
-        format: 'iife',
-        globalName: 'TabwrightRrwebRecorder',
-        outfile,
-        platform: 'browser',
-        target: 'chrome110',
-        write: false,
-      })
-      const outputFile = result.outputFiles[0]
-      if (!outputFile) {
-        throw new Error('Failed to build rrweb recorder content script')
-      }
-      // Chrome content scripts cannot depend on ESM chunk imports, so recorder is emitted as one IIFE file.
-      fs.mkdirSync(path.dirname(outfile), { recursive: true })
-      fs.writeFileSync(outfile, escapeNonAscii(outputFile.text))
-    },
-  }
-}
 
 function copyLocales(): Plugin {
   return {
@@ -119,17 +75,15 @@ export default defineConfig({
       ],
     }),
     copyLocales(),
-    buildRrwebRecorderContentScript(),
   ],
 
   build: {
     outDir,
-    emptyOutDir: false,
+    emptyOutDir: true,
     minify: false,
     rollupOptions: {
       input: {
         background: path.resolve(__dirname, 'src/background.ts'),
-        options: path.resolve(__dirname, 'src/options.html'),
         welcome: path.resolve(__dirname, 'src/welcome.html'),
       },
       output: {

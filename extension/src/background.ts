@@ -9,38 +9,23 @@ declare const __PLAYWRITER_OPEN_WELCOME_PAGE__: boolean
 import dedent from 'string-dedent'
 const js = dedent
 import { createStore } from 'zustand/vanilla'
-import type { ExtensionState, ConnectionState, RelayReviewState, TabState, TabInfo } from './types'
-import { initTabwrightToolbar, initTabwrightToolbarBridge } from './toolbar/toolbar'
+import type { ExtensionState, ConnectionState, TabState, TabInfo } from './types'
+import { initTabwrightToolbar } from './toolbar/toolbar'
 import type { CDPEvent, Protocol } from 'tabwright/src/cdp-types'
 import {
   CURRENT_EXTENSION_FEATURES,
   VERSION as EXTENSION_PROTOCOL_VERSION,
   type ExtensionCommandMessage,
   type ExtensionResponseMessage,
-  type ToolbarRecordingAction,
-  type ToolbarRecordingResponseMessage,
-  type ToolbarRecordingResult,
 } from 'tabwright/src/protocol'
 import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'tabwright/src/ghost-browser'
-import { getRelayReviewIssue, RelayConnectionProblemError, relayIssueText, relayReviewIssueText } from './relay-warning'
+import { RelayConnectionProblemError, relayIssueText } from './relay-warning'
 import { ConnectionOwnership } from './connection-ownership'
 // Inlined at build time via vite ?raw. Source: tabwright/src/ghost-cursor-client.ts
 import ghostCursorBundleCode from '../../tabwright/dist/ghost-cursor-client.js?raw'
 // Bippy: React fiber introspection library, used for "Copy React Source Path" context menu.
 // Built by tabwright/scripts/build-client-bundles.ts, exposes globalThis.__bippy
 import bippyBundleCode from '../../tabwright/dist/bippy.js?raw'
-import {
-  handleStartRrwebRecording,
-  handleStopRrwebRecording,
-  handleFlushRrwebRecording,
-  handleIsRrwebRecording,
-  handleCancelRrwebRecording,
-  cleanupRrwebRecordingForTab,
-  resumeRrwebRecordingForNavigation,
-  isRrwebEventBatchMessage,
-  isRrwebCancelledMessage,
-} from './rrweb-recording'
-
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.TABWRIGHT_PORT || process.env.PLAYWRITER_PORT) || 19988
 
@@ -131,30 +116,6 @@ async function checkRelayCompatibility(): Promise<void> {
   const versionResponse = await fetchRelayHead({ pathname: '/version' })
   if (!versionResponse.ok) {
     throw new RelayConnectionProblemError({ issue: 'unavailable' })
-  }
-}
-
-async function probeRelayReviewState(): Promise<RelayReviewState> {
-  try {
-    const responses = await Promise.all(
-      ['/capabilities', '/rrweb-recordings?limit=1'].map((pathname) => {
-        return fetchRelayHead({ pathname })
-      }),
-    )
-    const issue = getRelayReviewIssue({
-      statuses: responses.map((response) => {
-        return response.status
-      }),
-    })
-    if (!issue) {
-      return { status: 'ready' }
-    }
-    return { status: 'degraded', issue, errorText: relayReviewIssueText({ issue }) }
-  } catch (cause: unknown) {
-    const issue = 'unavailable'
-    const errorText = relayReviewIssueText({ issue })
-    logger.debug('Relay review endpoints are unavailable:', cause)
-    return { status: 'degraded', issue, errorText }
   }
 }
 
@@ -296,197 +257,12 @@ let tabGroupQueue: Promise<void> = Promise.resolve()
 // This ensures Playwright can build the iframe frame tree when connecting over CDP.
 let autoAttachParams: Protocol.Target.SetAutoAttachRequest | null = null
 
-type ToolbarRecordingMessage = {
-  action: 'playwriterToolbarRecordingStatus' | 'playwriterToolbarToggleRecording'
-}
-
-type ToolbarRecordingPortMessage = ToolbarRecordingMessage & {
-  requestId: string
-}
-
-type ToolbarRecordingPortResponse = {
-  requestId: string
-  result: ToolbarRecordingResult
-}
-
-type ToolbarRecordingPendingRequest = {
-  resolve: (result: ToolbarRecordingResult) => void
-  reject: (error: Error) => void
-  timeoutId: ReturnType<typeof setTimeout>
-}
-
-const toolbarRecordingPendingRequests = new Map<string, ToolbarRecordingPendingRequest>()
-let nextToolbarRecordingRequestId = 1
-
-function isToolbarRecordingMessage(message: unknown): message is ToolbarRecordingMessage {
-  if (!message || typeof message !== 'object') return false
-  const candidate = message as { action?: unknown }
-  return (
-    candidate.action === 'playwriterToolbarRecordingStatus' || candidate.action === 'playwriterToolbarToggleRecording'
-  )
-}
-
-function isToolbarRecordingPortMessage(message: unknown): message is ToolbarRecordingPortMessage {
-  if (!isToolbarRecordingMessage(message)) return false
-  const candidate = message as { requestId?: unknown }
-  return typeof candidate.requestId === 'string'
-}
-
-function getToolbarTabSessionId(sender: chrome.runtime.MessageSender): string | undefined {
-  const tabId = sender.tab?.id
-  if (!tabId) return undefined
-  return store.getState().tabs.get(tabId)?.sessionId
-}
-
-function handleToolbarRecordingResponse(message: ToolbarRecordingResponseMessage): void {
-  logger.debug('Toolbar recording response received:', message.params.requestId, message.params.result)
-  const pending = toolbarRecordingPendingRequests.get(message.params.requestId)
-  if (!pending) {
-    logger.debug('Toolbar recording response has no pending request:', message.params.requestId)
-    return
-  }
-  clearTimeout(pending.timeoutId)
-  toolbarRecordingPendingRequests.delete(message.params.requestId)
-  pending.resolve(message.params.result)
-}
-
-function requestToolbarRecording(options: {
-  sender: chrome.runtime.MessageSender
-  action: ToolbarRecordingAction
-}): Promise<ToolbarRecordingResult> {
-  const sessionId = getToolbarTabSessionId(options.sender)
-  if (!sessionId) {
-    return Promise.resolve({ success: false, isRecording: false, error: 'Tabwright tab is not connected' })
-  }
-
-  if (connectionManager.ws?.readyState !== WebSocket.OPEN) {
-    return Promise.resolve({ success: false, isRecording: false, error: 'Tabwright relay is not connected' })
-  }
-
-  const requestId = `toolbar-recording-${Date.now()}-${nextToolbarRecordingRequestId++}`
-  logger.debug('Toolbar recording request:', requestId, options.action, 'sessionId:', sessionId)
-
-  return new Promise<ToolbarRecordingResult>((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      toolbarRecordingPendingRequests.delete(requestId)
-      logger.debug('Toolbar recording request timed out:', requestId, options.action)
-      reject(new Error('Timed out waiting for relay recording response'))
-    }, 120000)
-
-    toolbarRecordingPendingRequests.set(requestId, { resolve, reject, timeoutId })
-    sendMessage({
-      method: 'toolbarRecordingRequest',
-      params: {
-        requestId,
-        action: options.action,
-        sessionId,
-      },
-    })
-  })
-}
-
-async function getToolbarRecordingStatus(sender: chrome.runtime.MessageSender): Promise<ToolbarRecordingResult> {
-  return requestToolbarRecording({ sender, action: 'status' })
-}
-
-async function toggleToolbarRecording(sender: chrome.runtime.MessageSender): Promise<ToolbarRecordingResult> {
-  return requestToolbarRecording({ sender, action: 'toggle' })
-}
-
-function postToolbarRecordingPortResponse(options: {
-  port: chrome.runtime.Port
-  response: ToolbarRecordingPortResponse
-}): void {
-  try {
-    options.port.postMessage(options.response)
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error)
-    logger.debug('Toolbar recording port response failed:', message)
-  }
-}
-
-function handleToolbarRecordingPortMessage(options: {
-  port: chrome.runtime.Port
-  message: ToolbarRecordingPortMessage
-}): void {
-  const sender = options.port.sender
-  if (!sender) {
-    postToolbarRecordingPortResponse({
-      port: options.port,
-      response: {
-        requestId: options.message.requestId,
-        result: { success: false, isRecording: false, error: 'Tabwright toolbar port has no sender' },
-      },
-    })
-    return
-  }
-
-  logger.debug('Toolbar port message received:', options.message.action, 'tabId:', sender.tab?.id)
-  const handler =
-    options.message.action === 'playwriterToolbarToggleRecording'
-      ? toggleToolbarRecording(sender)
-      : getToolbarRecordingStatus(sender)
-  handler
-    .then((result) => {
-      logger.debug('Toolbar port message response:', options.message.action, result)
-      postToolbarRecordingPortResponse({
-        port: options.port,
-        response: { requestId: options.message.requestId, result },
-      })
-    })
-    .catch((error: unknown) => {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      logger.debug('Toolbar port message failed:', options.message.action, errorMessage)
-      postToolbarRecordingPortResponse({
-        port: options.port,
-        response: {
-          requestId: options.message.requestId,
-          result: { success: false, isRecording: false, error: errorMessage },
-        },
-      })
-    })
-}
-
-function rejectToolbarRecordingRequests(error: Error): void {
-  for (const [requestId, pending] of toolbarRecordingPendingRequests) {
-    clearTimeout(pending.timeoutId)
-    pending.reject(error)
-    toolbarRecordingPendingRequests.delete(requestId)
-  }
-}
-
-function isToolbarRecordingResponseMessage(message: unknown): message is ToolbarRecordingResponseMessage {
-  if (!message || typeof message !== 'object') return false
-  const candidate = message as {
-    method?: unknown
-    params?: {
-      requestId?: unknown
-      result?: unknown
-    }
-  }
-  return (
-    candidate.method === 'toolbarRecordingResponse' &&
-    typeof candidate.params?.requestId === 'string' &&
-    Boolean(candidate.params.result)
-  )
-}
-
 function injectToolbar(tabId: number): void {
   void chrome.scripting
     .executeScript({
       target: { tabId, allFrames: false },
-      world: 'ISOLATED',
-      func: initTabwrightToolbarBridge,
-    })
-    .catch((err: Error) => {
-      logger.debug('Could not inject toolbar bridge (restricted page):', err.message)
-    })
-    .then(() => {
-      return chrome.scripting.executeScript({
-        target: { tabId, allFrames: false },
-        world: 'MAIN',
-        func: initTabwrightToolbar,
-      })
+      world: 'MAIN',
+      func: initTabwrightToolbar,
     })
     .catch((err: Error) => {
       logger.debug('Could not inject toolbar (restricted page):', err.message)
@@ -496,20 +272,10 @@ function injectToolbar(tabId: number): void {
 class ConnectionManager {
   private readonly connectionOwnership = new ConnectionOwnership<WebSocket>()
   private connectionPromise: Promise<void> | null = null
-  private lastRelayReviewProbeAt = 0
   preserveTabsOnDetach = false
 
   get ws(): WebSocket | null {
     return this.connectionOwnership.current
-  }
-
-  private async refreshRelayReviewState(options: { socket: WebSocket }): Promise<void> {
-    this.lastRelayReviewProbeAt = Date.now()
-    const relayReviewState = await probeRelayReviewState()
-    if (!this.connectionOwnership.isCurrentConnection(options.socket)) {
-      return
-    }
-    store.setState({ relayReviewState })
   }
 
   async ensureConnection(): Promise<void> {
@@ -695,11 +461,6 @@ class ConnectionManager {
         return
       }
 
-      if (isToolbarRecordingResponseMessage(message)) {
-        handleToolbarRecordingResponse(message)
-        return
-      }
-
       // Handle createInitialTab - create a new tab when Playwright connects and no tabs exist
       // We use skipAttachedEvent: true because the relay's Target.setAutoAttach handler will send
       // Target.attachedToTarget for all targets in connectedTargets. If we also sent it here,
@@ -738,82 +499,26 @@ class ConnectionManager {
         return
       }
 
-      if (
-        message.method === 'startRecording' ||
-        message.method === 'stopRecording' ||
-        message.method === 'cancelRecording'
-      ) {
-        sendCurrentSocketMessage({
-          id: message.id,
-          result: {
-            success: false,
-            error: 'Legacy video recording has been removed. Use rrweb replay recording instead.',
-          },
-        })
-        return
-      }
-
-      if (message.method === 'isRecording') {
+      // Retired commands still receive correlated replies for older relay builds.
+      if (message.method === 'isRecording' || message.method === 'isRrwebRecording') {
         sendCurrentSocketMessage({ id: message.id, result: { isRecording: false } })
         return
       }
-
-      if (message.method === 'startRrwebRecording') {
-        try {
-          const result = await handleStartRrwebRecording(message.params)
-          sendCurrentSocketMessage({ id: message.id, result })
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          logger.error('Failed to start rrweb recording:', error)
-          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
-        }
-        return
-      }
-
-      if (message.method === 'stopRrwebRecording') {
-        try {
-          const result = await handleStopRrwebRecording(message.params)
-          sendCurrentSocketMessage({ id: message.id, result })
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          logger.error('Failed to stop rrweb recording:', error)
-          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
-        }
-        return
-      }
-
-      if (message.method === 'flushRrwebRecording') {
-        try {
-          const result = await handleFlushRrwebRecording(message.params)
-          sendCurrentSocketMessage({ id: message.id, result })
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          logger.error('Failed to flush rrweb recording:', error)
-          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
-        }
-        return
-      }
-
-      if (message.method === 'isRrwebRecording') {
-        try {
-          const result = await handleIsRrwebRecording(message.params)
-          sendCurrentSocketMessage({ id: message.id, result })
-        } catch (error: unknown) {
-          logger.error('Failed to check rrweb recording status:', error)
-          sendCurrentSocketMessage({ id: message.id, result: { isRecording: false } })
-        }
-        return
-      }
-
-      if (message.method === 'cancelRrwebRecording') {
-        try {
-          const result = await handleCancelRrwebRecording(message.params)
-          sendCurrentSocketMessage({ id: message.id, result })
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          logger.error('Failed to cancel rrweb recording:', error)
-          sendCurrentSocketMessage({ id: message.id, result: { success: false, error: errorMessage } })
-        }
+      if (
+        [
+          'startRecording',
+          'stopRecording',
+          'cancelRecording',
+          'startRrwebRecording',
+          'stopRrwebRecording',
+          'cancelRrwebRecording',
+          'flushRrwebRecording',
+        ].includes(message.method)
+      ) {
+        sendCurrentSocketMessage({
+          id: message.id,
+          result: { success: false, error: 'Recording is no longer supported by Tabwright.' },
+        })
         return
       }
 
@@ -868,7 +573,6 @@ class ConnectionManager {
     chrome.debugger.onEvent.addListener(onDebuggerEvent)
     chrome.debugger.onDetach.addListener(onDebuggerDetach)
 
-    void this.refreshRelayReviewState({ socket })
     logger.debug('Connection established')
   }
 
@@ -878,7 +582,6 @@ class ConnectionManager {
     }
 
     const { reason, code } = options
-    rejectToolbarRecordingRequests(new Error(`Tabwright relay disconnected: ${reason || code}`))
 
     // Log memory at disconnect time to help diagnose memory-related terminations
     try {
@@ -947,9 +650,6 @@ class ConnectionManager {
     while (true) {
       const openSocket = this.ws
       if (openSocket?.readyState === WebSocket.OPEN) {
-        if (Date.now() - this.lastRelayReviewProbeAt >= 30_000) {
-          void this.refreshRelayReviewState({ socket: openSocket })
-        }
         await sleep(1000)
         continue
       }
@@ -1063,7 +763,6 @@ export const connectionManager = new ConnectionManager()
 export const store = createStore<ExtensionState>(() => ({
   tabs: new Map(),
   connectionState: 'idle',
-  relayReviewState: { status: 'unknown' },
   currentTabId: undefined,
   preferredWindowId: undefined,
   errorText: undefined,
@@ -1827,8 +1526,6 @@ function detachTab(tabId: number, shouldDetachDebugger: boolean): void {
     return
   }
 
-  cleanupRrwebRecordingForTab(tabId)
-
   // Destroy the in-page toolbar (best-effort: tab may already be closing or navigating)
   void chrome.scripting
     .executeScript({
@@ -1899,8 +1596,7 @@ async function connectTab(tabId: number): Promise<void> {
     // Tab errors: show 'error' state (e.g., restricted page, debugger attach failed)
     // Extension in use: set global 'extension-replaced' state to enter polling mode
     const isExtensionInUse =
-      errorMessage === 'Extension Already In Use' ||
-      errorMessage === 'Another Tabwright extension is already connected'
+      errorMessage === 'Extension Already In Use' || errorMessage === 'Another Tabwright extension is already connected'
 
     const isWsError = errorMessage === 'Connection timeout' || errorMessage.startsWith('WebSocket')
 
@@ -2121,17 +1817,6 @@ const icons = {
     badgeText: '!',
     badgeColor: [245, 158, 11, 255] as [number, number, number, number],
   },
-  relayReviewDegraded: {
-    path: {
-      '16': '/icons/icon-green-16.png',
-      '32': '/icons/icon-green-32.png',
-      '48': '/icons/icon-green-48.png',
-      '128': '/icons/icon-green-128.png',
-    },
-    title: relayReviewIssueText({ issue: 'unavailable' }),
-    badgeText: '!',
-    badgeColor: [245, 158, 11, 255] as [number, number, number, number],
-  },
   tabError: {
     path: {
       '16': '/icons/icon-gray-16.png',
@@ -2147,7 +1832,7 @@ const icons = {
 
 async function updateIcons(): Promise<void> {
   const state = store.getState()
-  const { connectionState, relayReviewState, tabs, errorText } = state
+  const { connectionState, tabs, errorText } = state
 
   const connectedCount = Array.from(tabs.values()).filter((t) => t.state === 'connected').length
 
@@ -2162,9 +1847,6 @@ async function updateIcons(): Promise<void> {
     const iconConfig = (() => {
       if (connectionState === 'extension-replaced') return icons.extensionReplaced
       if (connectionState === 'relay-warning') return icons.relayWarning
-      if (connectionState === 'connected' && relayReviewState.status === 'degraded') {
-        return icons.relayReviewDegraded
-      }
       if (tabId !== undefined && isRestrictedUrl(tabUrl)) return icons.restricted
       if (tabInfo?.state === 'error') return icons.tabError
       if (tabInfo?.state === 'connecting') return icons.connecting
@@ -2175,9 +1857,6 @@ async function updateIcons(): Promise<void> {
     const title = (() => {
       if (connectionState === 'extension-replaced' && errorText) return errorText
       if (connectionState === 'relay-warning' && errorText) return errorText
-      if (connectionState === 'connected' && relayReviewState.status === 'degraded') {
-        return relayReviewState.errorText
-      }
       if (tabInfo?.errorText) return tabInfo.errorText
       return iconConfig.title
     })()
@@ -2736,76 +2415,6 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
 // Sync icons on first load
 void updateIcons()
 
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'playwriter-toolbar-recording') return
-  port.onMessage.addListener((message: unknown) => {
-    if (!isToolbarRecordingPortMessage(message)) {
-      logger.debug('Ignoring invalid toolbar recording port message')
-      return
-    }
-    handleToolbarRecordingPortMessage({ port, message })
-  })
-})
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (isToolbarRecordingMessage(message)) {
-    logger.debug('Toolbar runtime message received:', message.action, 'tabId:', sender.tab?.id)
-    const handler =
-      message.action === 'playwriterToolbarToggleRecording'
-        ? toggleToolbarRecording(sender)
-        : getToolbarRecordingStatus(sender)
-    handler
-      .then((result) => {
-        logger.debug('Toolbar runtime message response:', message.action, result)
-        sendResponse(result)
-      })
-      .catch((error: unknown) => {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        logger.debug('Toolbar runtime message failed:', message.action, errorMessage)
-        sendResponse({ success: false, error: errorMessage, isRecording: false })
-      })
-    return true
-  }
-
-  if (isRrwebEventBatchMessage(message)) {
-    const tabId = sender.tab?.id
-    if (!tabId) {
-      logger.debug('Ignoring rrweb event batch without sender tab')
-      return false
-    }
-    if (connectionManager.ws?.readyState === WebSocket.OPEN) {
-      sendMessage({
-        method: 'rrwebRecordingData',
-        params: {
-          tabId,
-          events: message.events,
-          final: message.final,
-        },
-      })
-    } else {
-      logger.debug(`Dropping rrweb event batch for tab ${tabId} because WebSocket is not ready`)
-    }
-    return false
-  }
-
-  if (isRrwebCancelledMessage(message)) {
-    const tabId = sender.tab?.id
-    if (!tabId) {
-      logger.debug('Ignoring rrweb cancellation without sender tab')
-      return false
-    }
-    if (connectionManager.ws?.readyState === WebSocket.OPEN) {
-      sendMessage({
-        method: 'rrwebRecordingCancelled',
-        params: { tabId },
-      })
-    }
-    return false
-  }
-
-  return false
-})
-
 // Re-inject the toolbar after hard navigations in connected tabs.
 // The MAIN-world script is destroyed on every full page load, so we re-run
 // initTabwrightToolbar once the new document's DOM is ready.
@@ -2821,5 +2430,4 @@ chrome.webNavigation.onDOMContentLoaded.addListener((details) => {
   if (details.frameId === 0) {
     injectToolbar(details.tabId)
   }
-  void resumeRrwebRecordingForNavigation(details.tabId)
 })

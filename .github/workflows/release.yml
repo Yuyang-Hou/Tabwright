@@ -46,7 +46,7 @@ jobs:
       - run: node playwright/utils/generate_injected.js
       - run: pnpm playwright:build
       - run: pnpm --dir tabwright typecheck
-      - run: pnpm --dir tabwright exec vitest run src/cli-help.test.ts src/skill-stub.test.ts
+      - run: pnpm --dir tabwright exec vitest run src/cli-help.test.ts src/skill-stub.test.ts --no-file-parallelism
       - name: Read release metadata
         id: package
         shell: bash

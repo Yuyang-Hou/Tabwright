@@ -1,13 +1,12 @@
 ---
 title: MCP Setup
-description: Configure Tabwright as an MCP server for AI assistants that don't support skills.
+description: Connect a tool-based agent to the same Tabwright browser tools.
 icon: lucide:plug
+prompt: |
+  基于 Playwriter，工具提供强原语和低成本证据，由 AI 自由选择方法。
+  Render @MCP.md as the MCP transport reference for the website.
 ---
 
 import McpDoc from '../../../../MCP.md'
-
-<Note>
-The **CLI with the skill** is the recommended way to use Tabwright. It gives agents comprehensive instructions and the full Playwright API through a single `execute` command. Use the MCP setup below only if your client doesn't support skills or you specifically need the MCP protocol.
-</Note>
 
 <McpDoc />

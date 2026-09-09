@@ -289,7 +289,7 @@ describe('ensureRelayServer', () => {
   test('restarts a same-version relay that is missing current features', async () => {
     let spawnedCurrentRelay = false
     const staleRelayFeatures = RELAY_FEATURES.filter((feature) => {
-      return feature !== RELAY_FEATURE.capabilityAuthAutoTab
+      return feature !== RELAY_FEATURE.multiExtension
     })
     spawnMock.mockImplementation(() => {
       spawnedCurrentRelay = true

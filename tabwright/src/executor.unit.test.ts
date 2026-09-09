@@ -1,5 +1,79 @@
 import { describe, it, expect } from 'vitest'
-import { shouldAutoReturn, wrapCode, isPlaywrightChannelOwner } from './executor.js'
+import vm from 'node:vm'
+import timers from 'node:timers/promises'
+import { shouldAutoReturn, wrapCode, isPlaywrightChannelOwner, PlaywrightExecutor, runWithExecutionState, type ExecutionState } from './executor.js'
+
+describe('execution lifecycle', () => {
+  it('keeps timed-out VM work busy until its late side effect and cleanup finish', async () => {
+    const executor = new PlaywrightExecutor({ cdpConfig: {} })
+    const events: string[] = []
+    const result = runWithExecutionState({
+      state: executor.executionState,
+      timeout: 10,
+      execute: async () => {
+        try {
+          await vm.runInNewContext(wrapCode('await delay(60); events.push("write finished")'), { delay: timers.setTimeout, events })
+        } finally {
+          events.push('collector cleaned')
+        }
+      },
+    })
+    await expect(result).rejects.toThrow('Outcome unknown')
+    expect(executor.getSessionInfo({ id: 'test' }).execution.status).toBe('timed-out')
+    expect(events).toEqual([])
+    const blocked = await executor.execute('throw new Error("must not run")')
+    expect(blocked.isError).toBe(true)
+    expect(blocked.text).toContain('No new code was executed')
+    await expect(executor.reset()).rejects.toThrow('reset cannot cancel')
+    await timers.setTimeout(100)
+    expect(events).toEqual(['write finished', 'collector cleaned'])
+    expect(executor.executionState).toEqual({ status: 'idle', startedAt: null })
+    await expect(runWithExecutionState({
+      state: executor.executionState,
+      timeout: 100,
+      execute: async () => {
+        return events.length
+      },
+    })).resolves.toBe(2)
+  })
+
+  it('rejects ordinary overlap and clears the deadline after success or failure', async () => {
+    const state: ExecutionState = { status: 'idle', startedAt: null }
+    const running = runWithExecutionState({
+      state,
+      timeout: 40,
+      execute: async () => {
+        await timers.setTimeout(10)
+        return 42
+      },
+    })
+    await expect(runWithExecutionState({ state, timeout: 40, execute: async () => { return 99 } })).rejects.toThrow('Session is busy')
+    await expect(running).resolves.toBe(42)
+    await expect(runWithExecutionState({
+      state,
+      timeout: 40,
+      execute: async () => {
+        throw new Error('execution failed')
+      },
+    })).rejects.toThrow('execution failed')
+    await timers.setTimeout(60)
+    expect(state).toEqual({ status: 'idle', startedAt: null })
+  })
+
+  it('releases timed-out executions that later reject without an unhandled rejection', async () => {
+    const state: ExecutionState = { status: 'idle', startedAt: null }
+    await expect(runWithExecutionState({
+      state,
+      timeout: 10,
+      execute: async () => {
+        await timers.setTimeout(40)
+        throw new Error('late failure')
+      },
+    })).rejects.toThrow('were not cancelled')
+    await timers.setTimeout(70)
+    expect(state.status).toBe('idle')
+  })
+})
 
 describe('shouldAutoReturn', () => {
   it('returns true for simple expressions', () => {

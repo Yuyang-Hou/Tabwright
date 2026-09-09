@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  getRelayReviewIssue,
   isRelayVersionOutdated,
   RELAY_RECOVERY_COMMAND,
   RelayConnectionProblemError,
   relayIssueText,
-  relayReviewIssueText,
 } from 'mcp-extension/src/relay-warning.js'
 
 describe('extension relay warning copy', () => {
@@ -40,14 +38,5 @@ describe('extension relay warning copy', () => {
     expect(error.cause).toBe(cause)
   })
 
-  it('keeps browser control available while review endpoints are degraded', () => {
-    expect(getRelayReviewIssue({ statuses: [404, 404] })).toBe('outdated')
-    expect(getRelayReviewIssue({ statuses: [200, 503] })).toBe('unavailable')
-    expect(getRelayReviewIssue({ statuses: [200, 204] })).toBeUndefined()
 
-    const text = relayReviewIssueText({ issue: 'outdated' })
-    expect(text).toContain('Browser control is connected')
-    expect(text).toContain('Your files were not deleted')
-    expect(text).toContain(RELAY_RECOVERY_COMMAND)
-  })
 })

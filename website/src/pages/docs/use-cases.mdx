@@ -1,179 +1,83 @@
 ---
 title: Use Cases
-description: Turn authenticated back-office and protected browser workflows into reusable Agent Skills.
+description: Inspect, understand, and act in a real browser with your agent.
 icon: lucide:lightbulb
+prompt: |
+  基于 Playwriter，Agent 像前端工程师调试理解网页，不只是 AX 点击；
+  工具提供强原语和低成本证据，由 AI 自由选择方法，不增加强制流程。
+  Use @README.md and @tabwright/src/skill.md. Keep examples grounded in
+  browser debugging and independent scripts.
 ---
 
-Tabwright turns work that is trapped in a website into a reusable Agent Skill. It is most valuable when
-the task depends on a signed-in browser, an internal admin UI, or a request the website verifies dynamically.
+Tabwright gives the agent access to the page and its running application. These
+examples describe useful evidence, not a fixed order of operations.
 
-## Internal operations without an API
+## Explain a broken page
 
-Demonstrate a task once in an authenticated admin console: look up an order, update a configuration,
-review a coupon, or export a report. Tabwright packages the demonstrated intent, input and output schemas,
-permissions, and confirmation policy into a Skill that a fresh agent session can call directly.
+“The dashboard loaded, but the chart is empty.”
 
-The Skill does not force the user to explain SSO, cookies, or internal request headers. Its execution
-contract states whether it can run as a direct request, needs the signed-in browser, or may pause for a
-human verification checkpoint.
+The agent can inspect the relevant DOM and runtime state, look at console errors,
+follow the chart's request and response, or pause where the application transforms
+the data. A screenshot helps when the failure is visual; a response or call stack
+can be more useful when the page simply displays the wrong result.
 
-## Protected product interactions
-
-Some websites expose a useful request but reject a copied HTTP call because the frontend adds a short-lived
-signature, device proof, or risk-control context. Tabwright treats this as a normal browser workflow, not a
-failed API conversion.
-
-For example, an image-generation Skill can fill the prompt and click the website's real Generate button,
-let the product frontend create the verified request, then observe the matching network response and return
-the generated asset ID and URL. If the site presents a CAPTCHA or SMS check, the Skill returns
-`needs_human`, waits for the user to complete it in Chrome, and can be run again with the same approved input.
-
-## Web development
-
-Let your coding agent **verify its own work** in a real browser. The agent writes code, then uses Tabwright to navigate to the dev server, check the rendered page, take screenshots, and fix issues, all in one loop.
+`createNetwork` provides request summaries and selected request/response details.
+`createDebugger` provides breakpoints and paused-state inspection. The agent can
+look up either API locally:
 
 ```bash
-# Agent writes React component, then verifies
-tabwright -s 1 -e 'await page.goto("http://localhost:3000/new-feature")'
-tabwright -s 1 -e 'console.log(await snapshot({ page }))'
-# Agent sees broken layout, fixes the code, checks again
+tabwright docs network --limit 80
+tabwright docs debugger --limit 80
 ```
 
-<Aside>
-<Note>
-The agent works in **your browser**, so it sees the same thing you do. No headless rendering differences.
-</Note>
-</Aside>
+## Debug without the source repository
 
-Because Tabwright exposes the **full Playwright API**, agents can also set breakpoints with `createDebugger`, inspect CSS with `getStylesForLocator`, live-edit source with `createEditor`, and intercept network requests. All from the same session.
+“Find out what this deployed page sends when I change this filter.”
 
-## QA testing
+Observed requests, running scripts, available public Source Maps, and Debugger
+values can explain the client behavior. `createEditor` searches loaded scripts
+and reads bounded excerpts. `editor.saveRaw` saves an exact script locally by
+content hash; optional Wakaru analysis can help interpret packed code.
 
-Run tests against your **real Chrome profile** with real login state. No need to set up test accounts or mock authentication.
+This evidence describes the client currently running in the browser. It does not
+establish hidden server behavior or permissions beyond the signed-in account.
 
-```bash
-# Test authenticated flows without login setup
-tabwright -s 1 -e 'await page.goto("https://myapp.com/dashboard")'
-tabwright -s 1 -e 'console.log(await snapshot({ page, search: /error|warning/i }))'
+## Verify a frontend change
 
-# Verify forms, buttons, navigation
-tabwright -s 1 -e 'await page.locator("button:has-text(\"Save\")").click()'
-tabwright -s 1 -e 'console.log(await snapshot({ page, search: /success|saved/i }))'
-```
+“Check the layout and behavior of the new settings page.”
 
-Great for manual QA workflows that agents can now automate: fill forms, click through flows, verify results, and report back.
+The agent can inspect a screenshot and computed styles, query relevant DOM or
+React information, use the page's controls, and inspect the resulting state.
+Temporary script/CSS edits can test a hypothesis before changing the source
+repository. In-memory changes normally disappear on reload.
 
-## Task automation
+Use a task-owned page when inspecting a new route. Use the existing user-selected
+page when reproducing an issue depends on its unsaved inputs or current state.
 
-Automate repetitive browser tasks that need your logged-in session.
+## Investigate an authenticated workflow
 
-**Download a YouTube playlist:**
+“The page says saved, but the new value does not appear.”
 
-```bash
-tabwright -s 1 -e $'
-state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
-await state.page.goto("https://www.youtube.com/playlist?list=PLxxxxxx")
-await waitForPageLoad({ page: state.page, timeout: 5000 })
-const videos = await state.page.$$eval("a#video-title", els => els.map(e => ({ title: e.textContent.trim(), href: e.href })))
-console.log(JSON.stringify(videos, null, 2))
-'
-```
+The agent can correlate the action with its network response and resulting state
+in the intended account and environment. When a request needs the site's login,
+CSRF, or signatures, page interaction or the site's in-page client can supply
+that context without copying credentials into agent output.
 
-**Bulk fill forms:**
+Any subsequent modification must stay within the user's authorization. An
+uncertain write result is a reason to inspect current state, not blindly submit
+the action again. If the site needs human verification, the user can complete it
+in the shared browser.
 
-```bash
-# Read CSV data and fill a form for each row
-tabwright -s 1 -f fill-forms.js
-```
+## Read or export page data
 
-**Export data from authenticated dashboards:**
+“Extract the filtered rows from this authenticated report.”
 
-```bash
-tabwright -s 1 -e $'
-state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
-await state.page.goto("https://analytics.example.com/export")
-const [download] = await Promise.all([
-  state.page.waitForEvent("download"),
-  state.page.click("button:has-text(\"Export CSV\")")
-])
-await download.saveAs("/tmp/analytics.csv")
-console.log("Saved to /tmp/analytics.csv")
-'
-```
+The agent can choose rendered DOM, a structured response, or the site's export
+control depending on what accurately represents the requested data. It can save
+large output locally and return a useful summary or artifact path.
 
-## API reverse engineering
+## Repeat a proven task
 
-Use **network interception** to discover undocumented APIs behind JavaScript-rendered pages.
-
-```bash
-# Start intercepting API calls
-tabwright -s 1 -e $'
-state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
-state.responses = []
-state.page.on("response", async res => {
-  if (res.url().includes("/api/")) {
-    try { state.responses.push({ url: res.url(), status: res.status(), body: await res.json() }) } catch {}
-  }
-})
-'
-
-# Navigate and interact — API calls are captured
-tabwright -s 1 -e 'await state.page.click("button.load-more")'
-
-# Inspect captured API schemas
-tabwright -s 1 -e 'state.responses.forEach(r => console.log(r.status, r.url.slice(0, 100)))'
-tabwright -s 1 -e 'console.log(JSON.stringify(state.responses[0].body, null, 2).slice(0, 2000))'
-```
-
-This is much faster than scraping the DOM. The agent captures the real API calls, inspects their schemas, and can replay them with different parameters.
-
-## Remote support
-
-Control a user's browser to **fix issues remotely**. The user starts a tunnel, shares the URL, and you can see exactly what they see.
-
-```bash
-# User runs on their machine
-npx -y traforo -p 19988 -- npx -y tabwright serve --token SHARED_SECRET
-
-# You connect from anywhere
-export TABWRIGHT_HOST=https://user-machine-tunnel.traforo.dev
-export TABWRIGHT_TOKEN=SHARED_SECRET
-tabwright session new
-tabwright -s 1 -e 'console.log(await snapshot({ page }))'
-```
-
-The user sees Chrome's automation banner so they always know when their browser is being controlled. They can revoke access by closing the terminal. See [Remote Access](./remote-access.mdx) for the full guide.
-
-## Screen recording
-
-Have the agent **record what it's doing** as an MP4 video. The recording uses `chrome.tabCapture` and survives page navigation.
-
-```bash
-# Start recording
-tabwright -s 1 -e 'await recording.start({ page, outputPath: "/tmp/demo.mp4" })'
-
-# Do things — recording continues through navigation
-tabwright -s 1 -e 'await page.goto("https://example.com")'
-tabwright -s 1 -e 'await page.click("a")'
-
-# Stop and save
-tabwright -s 1 -e 'await recording.stop({ page })'
-```
-
-Useful for creating **demo videos**, recording bug reproductions, or documenting workflows. The agent can also speed up idle sections with `createDemoVideo` to produce polished demos.
-
-## Scraping JS-heavy sites
-
-Sites like Instagram, Twitter, and Facebook return empty HTML shells to `curl` and `fetch`. Tabwright renders them in a **real browser** with your logged-in session.
-
-```bash
-tabwright -s 1 -e $'
-state.page = context.pages().find(p => p.url() === "about:blank") ?? await context.newPage()
-await state.page.goto("https://www.instagram.com/p/ABC123/", { waitUntil: "domcontentloaded" })
-await waitForPageLoad({ page: state.page, timeout: 8000 })
-const content = await getPageMarkdown({ page: state.page, showDiffSinceLastCall: false })
-console.log(content)
-'
-```
-
-The agent can dismiss cookie modals, scroll through lazy-loaded content, click through carousels, and extract data from the fully rendered page.
+If repeated work warrants a reusable script or Agent Skill, the agent can create
+one using its normal tools. Scripts can use ordinary browser execution via `-f`,
+or standalone APIs without Tabwright. Reuse is optional; a one-off investigation does not require a Skill.

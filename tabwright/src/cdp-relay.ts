@@ -16,14 +16,7 @@ import {
   type ExtensionMessage,
   type ExtensionEventMessage,
   type ExtensionFeature,
-  type RrwebRecordingDataMessage,
-  type RrwebRecordingCancelledMessage,
-  type StartRrwebRecordingBody,
-  type StopRrwebRecordingParams,
-  type CancelRrwebRecordingParams,
-  type IsRrwebRecordingParams,
   type ToolbarRecordingRequestMessage,
-  type ToolbarRecordingResult,
 } from './protocol.js'
 import pc from 'picocolors'
 import util from 'node:util'
@@ -33,23 +26,11 @@ Buffer.prototype[util.inspect.custom] = function () {
   return `<Buffer ${this.length} bytes>`
 }
 
-import fs from 'node:fs'
-import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { VERSION, EXTENSION_IDS, shouldAutoEnableTabwright } from './utils.js'
 import { createCdpLogger, type CdpLogEntry, type CdpLogger } from './cdp-log.js'
-import {
-  RrwebRecordingRelay,
-  getSavedRrwebRecording,
-  getSavedRrwebRecordingWithEvents,
-  listSavedRrwebRecordings,
-} from './rrweb-recording-relay.js'
-import { getSkillRuntimeOptionsDetail, listSkillRuntimeOptions } from './skill-runtime-options.js'
 import { appendSessionToWsUrl } from './chrome-discovery.js'
 import * as relayState from './relay-state.js'
-import { getTabwrightUserDataDir } from './product-paths.js'
-import { buildReplayAiIndex } from './replay-ai-index.js'
-import { toCompactReplayAiIndex } from './replay-handoff.js'
 
 /**
  * Checks if a target should be filtered out (not exposed to Playwright).
@@ -176,18 +157,12 @@ export async function startTabwrightCDPRelayServer({
     return null
   }
 
-  const extensionAllowsFeature = (options: {
-    extensionId: string
-    feature: ExtensionFeature
-  }): boolean => {
+  const extensionAllowsFeature = (options: { extensionId: string; feature: ExtensionFeature }): boolean => {
     const extension = store.getState().extensions.get(options.extensionId)
     return allowsExtensionFeature({ features: extension?.info.features, feature: options.feature })
   }
 
-  const extensionSupportsFeature = (options: {
-    extensionId: string
-    feature: ExtensionFeature
-  }): boolean => {
+  const extensionSupportsFeature = (options: { extensionId: string; feature: ExtensionFeature }): boolean => {
     const extension = store.getState().extensions.get(options.extensionId)
     return extension?.info.features?.includes(options.feature) || false
   }
@@ -519,156 +494,6 @@ export async function startTabwrightCDPRelayServer({
         reject(new Error(`Extension send failed: ${method}`, { cause: sendError }))
       }
     })
-  }
-
-  const rrwebRecordingRelays = new Map<string, RrwebRecordingRelay>()
-
-  // Find which extension connection owns a CDP tab session ID (pw-tab-*).
-  // Used by recording routes where sessionId identifies the target tab.
-  // Delegates to the pure derivation function from relay-state.ts.
-  const findExtensionIdByCdpSession = (cdpSessionId: string): string | null => {
-    return relayState.findExtensionIdByCdpSession(store.getState(), cdpSessionId)
-  }
-
-  // Resolve recording route session ID (CDP tab session) to extension connection.
-  const resolveRecordingRoute = async ({
-    sessionId,
-  }: {
-    sessionId: string | null
-  }): Promise<{
-    extensionId: string | null
-    sessionId: string | null
-  }> => {
-    if (!sessionId) {
-      return { extensionId: null, sessionId: null }
-    }
-
-    const extensionId = findExtensionIdByCdpSession(sessionId)
-    return { extensionId, sessionId }
-  }
-
-  const getRrwebRecordingRelay = (extensionId?: string | null): RrwebRecordingRelay | null => {
-    const allowDefault = !extensionId && store.getState().extensions.size === 1
-    const conn = getExtensionConnection(extensionId, { allowFallback: allowDefault })
-    if (!conn) {
-      return null
-    }
-    const connId = conn.id
-    if (!rrwebRecordingRelays.has(connId)) {
-      rrwebRecordingRelays.set(
-        connId,
-        new RrwebRecordingRelay(
-          (params) => sendToExtension({ extensionId: connId, ...params }),
-          () => store.getState().extensions.has(connId),
-          logger,
-        ),
-      )
-    }
-    return rrwebRecordingRelays.get(connId) || null
-  }
-
-  const listRecentActivities = () => {
-    return Array.from(store.getState().extensions.keys()).flatMap((extensionId) => {
-      const relay = getRrwebRecordingRelay(extensionId)
-      return (relay?.listRecentActivities() || []).map((activity) => {
-        return { ...activity, extensionId }
-      })
-    })
-  }
-
-  const resolveActivityRelay = (options: { sessionId: string | null }): RrwebRecordingRelay | null => {
-    if (options.sessionId) {
-      return getRrwebRecordingRelay(findExtensionIdByCdpSession(options.sessionId))
-    }
-    const activities = listRecentActivities()
-    if (activities.length !== 1) {
-      return null
-    }
-    return getRrwebRecordingRelay(activities[0].extensionId)
-  }
-
-  const listRecentActivitySummaries = () => {
-    return listRecentActivities().map(({ extensionId: _extensionId, ...activity }) => {
-      return activity
-    })
-  }
-
-  const handleToolbarRecordingRequest = async (
-    extensionId: string,
-    message: ToolbarRecordingRequestMessage,
-  ): Promise<ToolbarRecordingResult> => {
-    logger?.log(
-      pc.blue(
-        `Toolbar recording request: ${message.params.action} requestId=${message.params.requestId} sessionId=${message.params.sessionId || 'none'}`,
-      ),
-    )
-    const rrwebRelay = getRrwebRecordingRelay(extensionId)
-    if (!rrwebRelay) {
-      logger?.log(pc.yellow(`Toolbar recording request failed: extension not connected requestId=${message.params.requestId}`))
-      return { success: false, isRecording: false, error: 'Extension not connected' }
-    }
-
-    const params = message.params.sessionId ? { sessionId: message.params.sessionId } : {}
-    const rrwebStatus = await rrwebRelay.isRecording(params)
-    const isRecording = rrwebStatus.isRecording
-    logger?.log(
-      pc.blue(
-        `Toolbar replay recording status: rrweb=${rrwebStatus.isRecording} requestId=${message.params.requestId} tabId=${rrwebStatus.tabId || 'none'}`,
-      ),
-    )
-
-    if (message.params.action === 'status') {
-      return {
-        success: true,
-        isRecording,
-        startedAt: rrwebStatus.startedAt,
-        tabId: rrwebStatus.tabId,
-      }
-    }
-
-    if (isRecording) {
-      const rrwebStopResult = await rrwebRelay.stopRecording(params)
-
-      if (!rrwebStopResult.success) {
-        const error = rrwebStopResult.error
-        logger?.log(pc.yellow(`Toolbar recording stop failed requestId=${message.params.requestId}: ${error}`))
-        return { success: false, isRecording: true, error }
-      }
-
-      return {
-        success: true,
-        isRecording: false,
-        id: rrwebStopResult.id,
-        tabId: rrwebStopResult.tabId,
-        path: rrwebStopResult.path,
-        duration: rrwebStopResult.duration,
-        size: rrwebStopResult.size,
-        replayId: rrwebStopResult.id,
-        replayPath: rrwebStopResult.path,
-        replayDuration: rrwebStopResult.duration,
-        replaySize: rrwebStopResult.size,
-        replayEventCount: rrwebStopResult.eventCount,
-      }
-    }
-
-    const rrwebStartResult = await rrwebRelay.startRecording({
-      ...params,
-      checkoutEveryNms: 0,
-      maskAllInputs: false,
-    })
-
-    if (!rrwebStartResult.success) {
-      const error = rrwebStartResult.error || 'Failed to start replay recording'
-      logger?.log(pc.yellow(`Toolbar recording start failed requestId=${message.params.requestId}: ${error}`))
-      return { success: false, isRecording: false, error }
-    }
-
-    return {
-      success: true,
-      isRecording: true,
-      startedAt: rrwebStartResult.startedAt,
-      tabId: rrwebStartResult.tabId,
-    }
   }
 
   type InitialTabTarget = {
@@ -1039,12 +864,7 @@ export async function startTabwrightCDPRelayServer({
   // By rejecting any Host that isn't a known localhost value we kill DNS
   // rebinding at the root. When a valid token is provided (remote access), we
   // allow through regardless of Host since remote clients use real hostnames.
-  const ALLOWED_HOSTS = new Set([
-    'localhost',
-    '127.0.0.1',
-    '[::1]',
-    '::1',
-  ])
+  const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
 
   // Parse the Host header into just the hostname, handling IPv6 brackets and
   // port suffixes. Returns null for missing or malformed values.
@@ -1107,7 +927,9 @@ export async function startTabwrightCDPRelayServer({
     if (!hostname && !token) {
       return next()
     }
-    logger?.log(pc.red(`Rejecting request with unexpected Host header: ${c.req.header('host')} (DNS rebinding protection)`))
+    logger?.log(
+      pc.red(`Rejecting request with unexpected Host header: ${c.req.header('host')} (DNS rebinding protection)`),
+    )
     return c.text('Forbidden - Invalid Host header', 403)
   })
 
@@ -1426,7 +1248,10 @@ export async function startTabwrightCDPRelayServer({
               }
             }
 
-            if (method === 'Target.setDiscoverTargets' && (params as Protocol.Target.SetDiscoverTargetsRequest)?.discover) {
+            if (
+              method === 'Target.setDiscoverTargets' &&
+              (params as Protocol.Target.SetDiscoverTargetsRequest)?.discover
+            ) {
               const freshExt2 = store.getState().extensions.get(extensionConn.id)
               const freshTargets2 = freshExt2?.connectedTargets || new Map()
               for (const target of freshTargets2.values()) {
@@ -1518,7 +1343,11 @@ export async function startTabwrightCDPRelayServer({
 
         onClose() {
           store.setState((s) => relayState.removePlaywrightClient(s, { clientId }))
-          logger?.log(pc.yellow(`Playwright client disconnected: ${clientId} (${store.getState().playwrightClients.size} remaining)`))
+          logger?.log(
+            pc.yellow(
+              `Playwright client disconnected: ${clientId} (${store.getState().playwrightClients.size} remaining)`,
+            ),
+          )
         },
 
         onError(event) {
@@ -1537,9 +1366,8 @@ export async function startTabwrightCDPRelayServer({
     const installId = c.req.query('installId')
     const version = c.req.query('v')
     const protocolVersionValue = c.req.query('protocolVersion')
-    const protocolVersion = protocolVersionValue && /^\d+$/.test(protocolVersionValue)
-      ? Number(protocolVersionValue)
-      : undefined
+    const protocolVersion =
+      protocolVersionValue && /^\d+$/.test(protocolVersionValue) ? Number(protocolVersionValue) : undefined
     const featureValue = c.req.query('features')
     const features = parseExtensionFeatures(featureValue)
     return {
@@ -1597,7 +1425,9 @@ export async function startTabwrightCDPRelayServer({
           // Check for existing connection with same stableKey and close it
           const existingExt = relayState.findExtensionByStableKey(store.getState(), stableKey)
           if (existingExt && existingExt.id !== connectionId) {
-            logger?.log(pc.yellow(`Replacing extension connection for ${stableKey} (${existingExt.id} -> ${connectionId})`))
+            logger?.log(
+              pc.yellow(`Replacing extension connection for ${stableKey} (${existingExt.id} -> ${connectionId})`),
+            )
             if (existingExt.ws) {
               existingExt.ws.close(4001, 'Extension Replaced')
             }
@@ -1682,24 +1512,15 @@ export async function startTabwrightCDPRelayServer({
             const logFunc = logFn || logger?.log
             const prefix = pc.yellow(`[Extension] [${level.toUpperCase()}]`)
             logFunc?.(prefix, ...args)
-          } else if (message.method === 'rrwebRecordingData') {
-            const relay = getRrwebRecordingRelay(connectionId)
-            if (relay) {
-              relay.handleRrwebRecordingData(message as RrwebRecordingDataMessage)
-            }
-          } else if (message.method === 'rrwebRecordingCancelled') {
-            const relay = getRrwebRecordingRelay(connectionId)
-            if (relay) {
-              relay.handleRrwebRecordingCancelled(message as RrwebRecordingCancelledMessage)
-            }
+          } else if (message.method === 'rrwebRecordingData' || message.method === 'rrwebRecordingCancelled') {
+            return
           } else if (message.method === 'toolbarRecordingRequest') {
             const toolbarMessage = message as ToolbarRecordingRequestMessage
-            const result = await handleToolbarRecordingRequest(connectionId, toolbarMessage)
-            logger?.log(
-              pc.blue(
-                `Toolbar recording response: requestId=${toolbarMessage.params.requestId} success=${result.success} isRecording=${result.isRecording ?? 'unknown'}`,
-              ),
-            )
+            const result = {
+              success: false,
+              isRecording: false,
+              error: 'Recording is no longer supported by Tabwright.',
+            }
             ws.send(
               JSON.stringify({
                 method: 'toolbarRecordingResponse',
@@ -1744,7 +1565,8 @@ export async function startTabwrightCDPRelayServer({
               const currentExtState = store.getState().extensions.get(connectionId)
               const iframeOwnerSessionId =
                 targetParams.targetInfo.type === 'iframe' && iframeParentFrameId && currentExtState
-                  ? getPageTargetForFrameId({ extensionState: currentExtState, frameId: iframeParentFrameId })?.sessionId
+                  ? getPageTargetForFrameId({ extensionState: currentExtState, frameId: iframeParentFrameId })
+                      ?.sessionId
                   : undefined
 
               // Filter out restricted targets (unsupported types, extension pages, chrome:// URLs, etc.)
@@ -1795,29 +1617,6 @@ export async function startTabwrightCDPRelayServer({
                   targetInfo: targetParams.targetInfo,
                 }),
               )
-
-              if (
-                targetParams.targetInfo.type === 'page' &&
-                extensionSupportsFeature({
-                  extensionId: connectionId,
-                  feature: EXTENSION_FEATURE.activityObservation,
-                })
-              ) {
-                const activityRelay = getRrwebRecordingRelay(connectionId)
-                if (activityRelay) {
-                  void activityRelay
-                    .ensureActivityRecording({ sessionId: targetParams.sessionId })
-                    .then((result) => {
-                      if (!result.success) {
-                        logger?.log(pc.yellow(`[Activity] Could not observe attached tab: ${result.error}`))
-                      }
-                    })
-                    .catch((error: unknown) => {
-                      const message = error instanceof Error ? error.message : String(error)
-                      logger?.log(pc.yellow(`[Activity] Could not observe attached tab: ${message}`))
-                    })
-                }
-              }
 
               const cachedDownloadBehavior = extensionDownloadBehavior.get(connectionId)
               if (cachedDownloadBehavior && targetParams.targetInfo.type === 'page') {
@@ -1937,10 +1736,7 @@ export async function startTabwrightCDPRelayServer({
                     title: frameParams.frame.name || undefined,
                   }),
                 )
-                logger?.log(
-                  pc.magenta('[Server] Updated target URL from Page.frameNavigated:'),
-                  frameParams.frame.url,
-                )
+                logger?.log(pc.magenta('[Server] Updated target URL from Page.frameNavigated:'), frameParams.frame.url)
               }
 
               sendToPlaywright({
@@ -1958,10 +1754,7 @@ export async function startTabwrightCDPRelayServer({
                 store.setState((s) =>
                   relayState.updateTargetUrl(s, { extensionId: connectionId, sessionId, url: navParams.url }),
                 )
-                logger?.log(
-                  pc.magenta('[Server] Updated target URL from Page.navigatedWithinDocument:'),
-                  navParams.url,
-                )
+                logger?.log(pc.magenta('[Server] Updated target URL from Page.navigatedWithinDocument:'), navParams.url)
               }
 
               sendToPlaywright({
@@ -2008,9 +1801,7 @@ export async function startTabwrightCDPRelayServer({
                   return ext.id !== connectionId && ext.stableKey === closingExtension.stableKey && Boolean(ext.ws)
                 })
             : []
-          const successorExtension = closingExtension
-            ? successorCandidates[0]
-            : undefined
+          const successorExtension = closingExtension ? successorCandidates[0] : undefined
 
           if (successorExtension) {
             logger?.log(
@@ -2140,47 +1931,6 @@ export async function startTabwrightCDPRelayServer({
   app.use('/activity/*', privilegedRouteMiddleware)
   app.use('/mcp-log', privilegedRouteMiddleware)
 
-  const reviewRouteMiddleware = async (
-    c: Parameters<Parameters<typeof app.use>[1]>[0],
-    next: () => Promise<void>,
-  ) => {
-    if (c.req.method === 'POST') {
-      const contentType = c.req.header('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        logger?.log(pc.red(`Rejecting ${c.req.path}: Content-Type must be application/json, got: ${contentType}`))
-        return c.text('Content-Type must be application/json', 415)
-      }
-    }
-
-    const origin = c.req.header('origin')
-    if (!origin) {
-      const secFetchSite = c.req.header('sec-fetch-site')
-      if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
-        logger?.log(pc.red(`Rejecting ${c.req.path}: cross-origin browser request (Sec-Fetch-Site: ${secFetchSite})`))
-        return c.text('Forbidden - Cross-origin requests not allowed', 403)
-      }
-      return next()
-    }
-
-    if (!origin.startsWith('chrome-extension://')) {
-      logger?.log(pc.red(`Rejecting ${c.req.path}: origin must be Tabwright extension, got: ${origin}`))
-      return c.text('Forbidden', 403)
-    }
-
-    const extensionId = origin.replace('chrome-extension://', '')
-    if (!EXTENSION_IDS.includes(extensionId)) {
-      logger?.log(pc.red(`Rejecting ${c.req.path}: unknown extension origin ${extensionId}`))
-      return c.text('Forbidden', 403)
-    }
-
-    return next()
-  }
-
-  app.use('/rrweb-recordings', reviewRouteMiddleware)
-  app.use('/rrweb-recordings/*', reviewRouteMiddleware)
-  app.use('/capabilities', reviewRouteMiddleware)
-  app.use('/capabilities/*', reviewRouteMiddleware)
-
   app.post('/cli/execute', async (c) => {
     try {
       const body = (await c.req.json()) as {
@@ -2200,33 +1950,19 @@ export async function startTabwrightCDPRelayServer({
       const existingExecutor = manager.getSession(sessionId)
       if (!existingExecutor) {
         return c.json(
-          { text: `Session ${sessionId} not found. Run 'tabwright session new' first.`, images: [], screenshots: [], isError: true },
+          {
+            text: `Session ${sessionId} not found. Run 'tabwright session new' first.`,
+            images: [],
+            screenshots: [],
+            isError: true,
+          },
           404,
         )
       }
-      // Touch cloud session activity tracking if this session is cloud-backed
-      const cloudTracking = cloudSessionTracking.get(sessionId)
-      if (cloudTracking) {
-        cloudTracking.lastActivityAt = Date.now()
-        cloudTracking.activeExecutions++
-      }
-
-      let result: Awaited<ReturnType<typeof existingExecutor.execute>>
-      try {
-        result = await existingExecutor.execute(code, timeout, {
-          includeStructuredResult: body.includeStructuredResult === true,
-        })
-      } finally {
-        if (cloudTracking) {
-          cloudTracking.activeExecutions--
-          cloudTracking.lastActivityAt = Date.now()
-        }
-      }
-
-      // Use the cloudTracking snapshot captured before execute (not a fresh
-      // map lookup) so long-running executes that outlive idle cleanup still
-      // report isCloud correctly.
-      return c.json({ ...result, isCloud: Boolean(cloudTracking) })
+      const result = await existingExecutor.execute(code, timeout, {
+        includeStructuredResult: body.includeStructuredResult === true,
+      })
+      return c.json(result)
     } catch (error: any) {
       logger?.error('Execute endpoint error:', error)
       return c.json({ text: `Server error: ${error.message}`, images: [], screenshots: [], isError: true }, 500)
@@ -2269,121 +2005,6 @@ export async function startTabwrightCDPRelayServer({
     return c.json({ next: nextSessionNumber })
   })
 
-  app.get('/rrweb-recordings', (c) => {
-    const rawLimit = Number(c.req.query('limit') || 50)
-    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(200, Math.floor(rawLimit))) : 50
-    return c.json({ recordings: listSavedRrwebRecordings({ limit }) })
-  })
-
-  app.get('/activity/list', (c) => {
-    return c.json({ activities: listRecentActivitySummaries() })
-  })
-
-  app.post('/activity/inspect', async (c) => {
-    const body = (await c.req.json()) as {
-      sessionId?: string | number
-      from?: number
-      to?: number
-      lastMs?: number
-    }
-    const sessionId = normalizeSessionId(body.sessionId)
-    const relay = resolveActivityRelay({ sessionId })
-    if (!relay) {
-      return c.json(
-        {
-          success: false,
-          error: 'No unique attached activity stream found',
-          activities: listRecentActivitySummaries(),
-        },
-        409,
-      )
-    }
-    try {
-      const activity = await relay.getRecentActivity({
-        sessionId: sessionId || undefined,
-        from: body.from,
-        to: body.to,
-        lastMs: body.lastMs,
-      })
-      const index = buildReplayAiIndex({
-        replayId: 'recent-activity',
-        url: activity.url,
-        events: activity.events,
-        actionRange: { from: activity.selectionStart, to: activity.selectionEnd },
-      })
-      const { events: _events, ...activitySummary } = activity
-      return c.json({ success: true, activity: activitySummary, timeline: toCompactReplayAiIndex(index) })
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
-      return c.json({ success: false, error: message, activities: listRecentActivitySummaries() }, 400)
-    }
-  })
-
-  app.post('/activity/save', async (c) => {
-    const body = (await c.req.json()) as {
-      sessionId?: string | number
-      from?: number
-      to?: number
-      lastMs?: number
-    }
-    const sessionId = normalizeSessionId(body.sessionId)
-    const relay = resolveActivityRelay({ sessionId })
-    if (!relay) {
-      return c.json(
-        {
-          success: false,
-          error: 'No unique attached activity stream found',
-          activities: listRecentActivitySummaries(),
-        },
-        409,
-      )
-    }
-    try {
-      const result = await relay.saveRecentActivity({
-        sessionId: sessionId || undefined,
-        from: body.from,
-        to: body.to,
-        lastMs: body.lastMs,
-      })
-      if (!result.success) {
-        return c.json(result, 400)
-      }
-      const saved = result.id ? getSavedRrwebRecording(result.id) : null
-      return c.json({ success: true, replay: saved, observing: true })
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
-      return c.json({ success: false, error: message, activities: listRecentActivitySummaries() }, 400)
-    }
-  })
-
-  app.get('/rrweb-recordings/:id', (c) => {
-    const recording = getSavedRrwebRecording(c.req.param('id'))
-    if (!recording) {
-      return c.json({ error: 'rrweb recording not found' }, 404)
-    }
-    return c.json({ recording })
-  })
-
-  app.get('/rrweb-recordings/:id/events', (c) => {
-    const result = getSavedRrwebRecordingWithEvents(c.req.param('id'))
-    if (!result) {
-      return c.json({ error: 'rrweb recording not found' }, 404)
-    }
-    return c.json(result)
-  })
-
-  app.get('/capabilities', (c) => {
-    return c.json(listSkillRuntimeOptions({ cwd: process.cwd() }))
-  })
-
-  app.get('/capabilities/:id', (c) => {
-    const result = getSkillRuntimeOptionsDetail({ cwd: process.cwd(), id: c.req.param('id') })
-    if (!result) {
-      return c.json({ error: 'capability not found' }, 404)
-    }
-    return c.json(result)
-  })
-
   app.post('/cli/session/new', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       extensionId?: string | null
@@ -2396,16 +2017,14 @@ export async function startTabwrightCDPRelayServer({
       browser?: string
       /** Profile info from discovery */
       profiles?: Array<{ name: string; email: string }>
-      /** Cloud session tracking metadata (set by CLI when connecting to a cloud browser) */
-      cloud?: {
-        cloudSessionId: string
-        cloudBaseUrl: string
-        cloudToken: string
-        /** BU VM hard timeout (ISO string or epoch ms) */
-        timeoutAt?: string | number
-        /** Block images/video/fonts to save proxy bandwidth */
-        blockProxyResources?: boolean
-      }
+      /** Reject legacy provisioning metadata without taking ownership of a VM. */
+      cloud?: unknown
+    }
+    if (body.cloud) {
+      return c.json(
+        { error: 'Cloud provisioning has been removed. Use your own CDP endpoint without cloud metadata.' },
+        410,
+      )
     }
     const sessionId = String(nextSessionNumber++)
     const cwd = body.cwd
@@ -2448,9 +2067,6 @@ export async function startTabwrightCDPRelayServer({
       }
       // Use first profile from discovery for session metadata (if available)
       const firstProfile = body.profiles?.[0]
-      const cloudTimeoutAt = body.cloud?.timeoutAt
-        ? (typeof body.cloud.timeoutAt === 'string' ? new Date(body.cloud.timeoutAt).getTime() : body.cloud.timeoutAt)
-        : undefined
       const manager = await getExecutorManager()
       const executor = manager.getExecutor({
         sessionId,
@@ -2461,22 +2077,8 @@ export async function startTabwrightCDPRelayServer({
           browser: body.browser || null,
           profile: firstProfile ? { email: firstProfile.email, id: firstProfile.name } : null,
         },
-        cloudSession: body.cloud ? { timeoutAt: cloudTimeoutAt, blockProxyResources: body.cloud.blockProxyResources } : undefined,
       })
       const metadata = executor.getSessionMetadata()
-
-      // Register cloud session tracking if cloud metadata was provided
-      if (body.cloud) {
-        cloudSessionTracking.set(sessionId, {
-          cloudSessionId: body.cloud.cloudSessionId,
-          cloudBaseUrl: body.cloud.cloudBaseUrl,
-          cloudToken: body.cloud.cloudToken,
-          lastActivityAt: Date.now(),
-          activeExecutions: 0,
-          timeoutAt: cloudTimeoutAt,
-        })
-        persistCloudSessions()
-      }
 
       return c.json({
         id: sessionId,
@@ -2539,8 +2141,7 @@ export async function startTabwrightCDPRelayServer({
       const manager = await getExecutorManager()
       const executor = manager.getSession(sessionId)
 
-      // Close headless context before deleting to prevent context/page leaks
-      // on the shared headless browser. Only affects headless sessions.
+      // Release session-owned resources before deletion; only headless sessions close a context.
       if (executor) {
         await executor.closeHeadlessContext()
       }
@@ -2551,18 +2152,6 @@ export async function startTabwrightCDPRelayServer({
         return c.json({ error: `Session ${sessionId} not found` }, 404)
       }
 
-      // If this was a cloud-backed session, stop the VM only if no other
-      // relay session is still using the same cloud VM (reference counting).
-      const cloudTracking = cloudSessionTracking.get(sessionId)
-      if (cloudTracking) {
-        const shouldStopVm = !hasOtherCloudReferences(sessionId, cloudTracking.cloudSessionId)
-        cloudSessionTracking.delete(sessionId)
-        persistCloudSessions()
-        if (shouldStopVm) {
-          disconnectCloudVm(cloudTracking)
-        }
-      }
-
       return c.json({ success: true })
     } catch (error: any) {
       logger?.error('Delete session endpoint error:', error)
@@ -2570,269 +2159,24 @@ export async function startTabwrightCDPRelayServer({
     }
   })
 
-  const legacyRecordingRemovedResponse = {
-    success: false,
-    error: 'Legacy video recording has been removed. Use /rrweb-recording/* and /rrweb-recordings instead.',
-  }
-
-  app.post('/recording/start', (c) => {
-    return c.json(legacyRecordingRemovedResponse, 410)
-  })
-
-  app.post('/recording/stop', (c) => {
-    return c.json(legacyRecordingRemovedResponse, 410)
-  })
-
-  app.get('/recording/status', (c) => {
-    return c.json({ isRecording: false })
-  })
-
-  app.post('/recording/cancel', (c) => {
-    return c.json(legacyRecordingRemovedResponse, 410)
-  })
-
-  // ============================================================================
-  // rrweb Recording Endpoints - For DOM replay recordings.
-  // ============================================================================
-
-  app.post('/rrweb-recording/start', async (c) => {
-    const body = (await c.req.json()) as {
-      outputPath?: string
-      sessionId?: string | number
-      checkoutEveryNms?: number
-      maskAllInputs?: boolean
-      recordCanvas?: boolean
-      inlineImages?: boolean
-      collectFonts?: boolean
-      mousemoveWait?: number
-    }
-    const sessionId = normalizeSessionId(body.sessionId)
-    const { sessionId: _sessionId, ...recordingOptions } = body
-    const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRrwebRecordingRelay(extensionId)
-    if (!relay) {
-      return c.json({ success: false, error: 'Extension not connected' }, 500)
-    }
-    const recordingParams = (resolvedSessionId
-      ? { ...recordingOptions, sessionId: resolvedSessionId }
-      : recordingOptions) as StartRrwebRecordingBody
-    const result = await relay.startRecording(recordingParams)
-    const status = result.success ? 200 : result.error?.includes('required') ? 400 : 500
-    return c.json(result, status)
-  })
-
-  app.post('/rrweb-recording/stop', async (c) => {
-    const body = (await c.req.json()) as { sessionId?: string | number }
-    const sessionId = normalizeSessionId(body.sessionId)
-    const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRrwebRecordingRelay(extensionId)
-    if (!relay) {
-      return c.json({ success: false, error: 'Extension not connected' }, 500)
-    }
-    const stopParams: StopRrwebRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
-    const result = await relay.stopRecording(stopParams)
-    const status = result.success ? 200 : result.error?.includes('not found') ? 404 : 500
-    return c.json(result, status)
-  })
-
-  app.get('/rrweb-recording/status', async (c) => {
-    const sessionId = normalizeSessionId(c.req.query('sessionId'))
-    const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRrwebRecordingRelay(extensionId)
-    if (!relay) {
-      return c.json({ isRecording: false })
-    }
-    const isRecordingParams: IsRrwebRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
-    const result = await relay.isRecording(isRecordingParams)
-    return c.json(result)
-  })
-
-  app.post('/rrweb-recording/cancel', async (c) => {
-    const body = (await c.req.json()) as { sessionId?: string | number }
-    const sessionId = normalizeSessionId(body.sessionId)
-    const { extensionId, sessionId: resolvedSessionId } = await resolveRecordingRoute({ sessionId })
-    const relay = getRrwebRecordingRelay(extensionId)
-    if (!relay) {
-      return c.json({ success: false, error: 'Extension not connected' }, 500)
-    }
-    const cancelParams: CancelRrwebRecordingParams = resolvedSessionId ? { sessionId: resolvedSessionId } : {}
-    const result = await relay.cancelRecording(cancelParams)
-    return c.json(result)
-  })
-
-  // ============================================================================
-  // Cloud session idle tracking
-  //
-  // Tracks lastActivityAt for cloud-backed sessions (those created via
-  // cdpEndpoint pointing to Browser Use VMs). A background interval checks
-  // every 60s and disconnects sessions idle > 10 minutes by calling the
-  // website's /api/cloud/disconnect endpoint.
-  // ============================================================================
-
-  interface CloudSessionTracking {
-    cloudSessionId: string
-    /** Website base URL for disconnect calls */
-    cloudBaseUrl: string
-    /** Bearer token for website API */
-    cloudToken: string
-    lastActivityAt: number
-    /** Number of currently running execute calls — skip idle timeout while > 0 */
-    activeExecutions: number
-    /** BU VM hard timeout (epoch ms) — used to warn users before expiration */
-    timeoutAt?: number
-  }
-
-  const cloudSessionTracking = new Map<string, CloudSessionTracking>()
-  const CLOUD_IDLE_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
-
-  /** Check if any OTHER relay session references the same cloud VM.
-   *  Used to prevent stopping a VM that's still used by another relay session
-   *  (e.g. user attached twice via `session new --browser cloud-1`). */
-  function hasOtherCloudReferences(relaySessionId: string, cloudSessionId: string): boolean {
-    for (const [otherId, tracking] of cloudSessionTracking) {
-      if (otherId !== relaySessionId && tracking.cloudSessionId === cloudSessionId) {
-        return true
-      }
-    }
-    return false
-  }
-
-  /** Disconnect a cloud VM via the website API (best-effort, non-blocking). */
-  function disconnectCloudVm(tracking: CloudSessionTracking): void {
-    fetch(new URL('/api/cloud/disconnect', tracking.cloudBaseUrl).toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${tracking.cloudToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ cloudSessionId: tracking.cloudSessionId }),
-    }).catch((err) => {
-      logger?.error('[Cloud] Failed to disconnect cloud session:', err)
+  // Keep a small retirement response for old local clients; never read old files.
+  const retiredPaths = [
+    '/recording/*',
+    '/rrweb-recording/*',
+    '/rrweb-recordings',
+    '/rrweb-recordings/*',
+    '/activity/*',
+    '/capabilities',
+    '/capabilities/*',
+  ]
+  retiredPaths.map((route) => {
+    app.all(route, (c) => {
+      return c.json(
+        { error: 'Recording and managed Skill runtimes have been removed. Use browser scripts with -f.' },
+        410,
+      )
     })
-  }
-
-  // ── Cloud session crash recovery ──────────────────────────────────
-  // Persist cloud session IDs to disk so orphaned VMs can be cleaned up
-  // if the relay process crashes. On startup, read the file and disconnect
-  // any leftover VMs (best-effort).
-
-  const CLOUD_SESSIONS_FILE = path.join(getTabwrightUserDataDir(), 'cloud-sessions.json')
-
-  interface PersistedCloudSession {
-    cloudSessionId: string
-    cloudBaseUrl: string
-    cloudToken: string
-  }
-
-  function persistCloudSessions(): void {
-    // Dedupe by cloudSessionId — multiple relay sessions can reference the same VM
-    const seen = new Set<string>()
-    const entries: PersistedCloudSession[] = []
-    for (const t of cloudSessionTracking.values()) {
-      if (seen.has(t.cloudSessionId)) continue
-      seen.add(t.cloudSessionId)
-      entries.push({
-        cloudSessionId: t.cloudSessionId,
-        cloudBaseUrl: t.cloudBaseUrl,
-        cloudToken: t.cloudToken,
-      })
-    }
-    try {
-      const dir = path.dirname(CLOUD_SESSIONS_FILE)
-      fs.mkdirSync(dir, { recursive: true })
-      if (entries.length > 0) {
-        // Atomic write: write to temp file then rename, so a crash mid-write
-        // doesn't leave corrupt JSON that blocks future cleanup.
-        const tmpFile = CLOUD_SESSIONS_FILE + '.tmp'
-        fs.writeFileSync(tmpFile, JSON.stringify(entries), { encoding: 'utf-8', mode: 0o600 })
-        fs.renameSync(tmpFile, CLOUD_SESSIONS_FILE)
-      } else {
-        // No active sessions — remove file to avoid stale data
-        try { fs.unlinkSync(CLOUD_SESSIONS_FILE) } catch { /* already gone */ }
-      }
-    } catch {
-      // Best-effort: don't crash relay if disk write fails
-    }
-  }
-
-  function cleanupOrphanedCloudSessions(): void {
-    let raw: string
-    try {
-      raw = fs.readFileSync(CLOUD_SESSIONS_FILE, 'utf-8')
-    } catch {
-      return // No file — nothing to clean up
-    }
-
-    let entries: PersistedCloudSession[]
-    try {
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return
-      // Validate shape: each entry must have cloudSessionId and cloudBaseUrl
-      entries = parsed.filter((e): e is PersistedCloudSession => {
-        return e && typeof e.cloudSessionId === 'string' && typeof e.cloudBaseUrl === 'string' && typeof e.cloudToken === 'string'
-      })
-    } catch {
-      // Corrupt JSON (e.g. crash during non-atomic write) — just remove it
-      try { fs.unlinkSync(CLOUD_SESSIONS_FILE) } catch { /* ignore */ }
-      return
-    }
-    if (!entries.length) {
-      try { fs.unlinkSync(CLOUD_SESSIONS_FILE) } catch { /* ignore */ }
-      return
-    }
-
-    logger?.log(pc.yellow(`[Cloud] Found ${entries.length} orphaned cloud session(s) from previous relay. Cleaning up...`))
-    // Remove file after we've read it — disconnect calls are best-effort async.
-    // If they fail, the BU VM will eventually hit its own timeout anyway.
-    try { fs.unlinkSync(CLOUD_SESSIONS_FILE) } catch { /* ignore */ }
-
-    for (const entry of entries) {
-      disconnectCloudVm({
-        cloudSessionId: entry.cloudSessionId,
-        cloudBaseUrl: entry.cloudBaseUrl,
-        cloudToken: entry.cloudToken,
-        lastActivityAt: 0,
-        activeExecutions: 0,
-      })
-    }
-  }
-
-  const cloudIdleInterval = setInterval(async () => {
-    const now = Date.now()
-    // Collect idle sessions first, then process — avoid mutating map during iteration
-    const idleSessions: Array<[string, CloudSessionTracking]> = []
-    for (const [sessionId, tracking] of cloudSessionTracking) {
-      // VM already past BU hard timeout — schedule for cleanup regardless of activity
-      if (tracking.timeoutAt && tracking.timeoutAt <= now) {
-        idleSessions.push([sessionId, tracking])
-        continue
-      }
-      // Timeout warnings are handled by the executor on each execute() call
-      // (deduped by minute bucket) — no need to enqueue from the relay interval.
-
-      if (tracking.activeExecutions > 0) continue
-      if (now - tracking.lastActivityAt > CLOUD_IDLE_TIMEOUT_MS) {
-        idleSessions.push([sessionId, tracking])
-      }
-    }
-
-    if (idleSessions.length > 0) {
-      for (const [sessionId, tracking] of idleSessions) {
-        logger?.log(
-          pc.yellow(`[Cloud] Stopping idle relay session ${sessionId} (idle > 10 min)`),
-        )
-        // Check if other relay sessions reference the same cloud VM.
-        // Only stop the VM when this is the last relay session for it.
-        const shouldStopVm = !hasOtherCloudReferences(sessionId, tracking.cloudSessionId)
-        cloudSessionTracking.delete(sessionId)
-        executorManager?.deleteExecutor(sessionId)
-        if (shouldStopVm) {
-          disconnectCloudVm(tracking)
-        }
-      }
-      persistCloudSessions()
-    }
-  }, 60_000)
+  })
 
   // Use createAdaptorServer instead of serve() so we control the listen()
   // timing. This lets us inject WebSocket upgrade handlers before binding and
@@ -2853,11 +2197,6 @@ export async function startTabwrightCDPRelayServer({
     server.once('error', onError)
     server.listen(port, host)
   })
-
-  // Clean up orphaned cloud sessions from a previous relay crash.
-  // Must run AFTER successful listen — if another relay is already running,
-  // we'd fail with EADDRINUSE but only after killing its live VMs.
-  cleanupOrphanedCloudSessions()
 
   const wsHost = `ws://${host}:${port}`
   const cdpEndpoint = `${wsHost}/cdp`
@@ -2894,9 +2233,6 @@ export async function startTabwrightCDPRelayServer({
         extensions: new Map(),
         playwrightClients: new Map(),
       })
-      clearInterval(cloudIdleInterval)
-      cloudSessionTracking.clear()
-      persistCloudSessions() // Remove the file on graceful shutdown
       server.close()
       emitter.removeAllListeners()
     },

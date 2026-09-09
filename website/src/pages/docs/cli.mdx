@@ -1,237 +1,172 @@
 ---
 title: CLI Reference
-description: All CLI commands, flags, and usage patterns for controlling Chrome from the terminal.
+description: Run browser code and look up debugging APIs from the terminal.
 icon: lucide:terminal
+prompt: |
+  基于 Playwriter，Agent 像前端工程师调试理解网页，不只是 AX 点击。
+  Use @README.md, @MCP.md and @tabwright/src/skill.md. Keep command examples
+  accurate and remove recording-to-Skill product flows.
 ---
 
-The Tabwright CLI sends Playwright code to your browser through a local WebSocket relay. Every command connects to the relay on `localhost:19988`, which the extension also connects to. No servers, no accounts.
+The CLI executes Playwright JavaScript through the browser relay. Documentation
+lookup and local metadata commands do not need a browser connection.
 
-## Readiness check
+## Local API reference
 
-When setup state is unclear, start here:
+Look up the tool relevant to the current question:
+
+```bash
+tabwright docs
+tabwright docs browser --limit 80
+tabwright docs network --limit 80
+tabwright docs editor --limit 80
+tabwright docs debugger --limit 80
+tabwright docs styles --limit 80
+tabwright docs performance --limit 80
+```
+
+Use `--offset` and `--limit` to read a bounded section, or `--json` for structured
+output. `tabwright skill` still prints the extended agent reference.
+
+## Connect and select a page
 
 ```bash
 tabwright doctor
-tabwright doctor --json
+tabwright session new
 ```
 
-The check covers the relay, Chrome extension, enabled tabs, active sessions, and capabilities visible from the current directory. It reports startup failures instead of crashing and waits briefly for the extension after starting a relay. It ends with one concrete next action and never tells an agent to reuse a session it may not own.
+`doctor` reports the relay, extension, and session
+with a suggested next action. It reports connection readiness, not whether a
+particular account or application task has been verified.
+
+Replace `2` with the new session ID. List available pages, then select the one
+matching the user's request:
+
+```bash
+tabwright -s 2 -e 'console.log(context.pages().map((page) => { return page.url() }))'
+```
+
+See [Installation](./installation.mdx) for exact existing-page selection. When
+the task needs a separate page:
+
+```bash
+tabwright -s 2 -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+```
 
 ## Execute code
 
+The `-s` flag identifies the session; `-e` supplies JavaScript. In Bash/Zsh, use
+single quotes around the code so the shell does not expand dollar signs,
+backticks, or backslashes:
+
 ```bash
-tabwright -s <sessionId> -e "<code>"
+tabwright -s 2 -e 'console.log(await state.page.title())'
+tabwright -s 2 -e 'console.log(await snapshot({ page: state.page }))'
+tabwright -s 2 -e 'console.log(await getLatestLogs({ page: state.page, search: /error|fail/i }))'
 ```
 
-The `-s` flag specifies a **session ID** (required). Get one with `tabwright session new`. The `-e` flag takes JavaScript code that runs in a sandboxed Playwright environment.
-
-<Aside>
-<Note>
-Always use **single quotes** for `-e` to prevent bash from interpreting `$`, backticks, and `\` in your JS code.
-</Note>
-</Aside>
+For a larger excerpt, a quoted multiline string or a file avoids complicated
+shell escaping:
 
 ```bash
-# Navigate
-tabwright -s 1 -e 'await page.goto("https://example.com")'
-
-# Click
-tabwright -s 1 -e 'await page.locator("button").click()'
-
-# Get title
-tabwright -s 1 -e 'console.log(await page.title())'
-
-# Screenshot
-tabwright -s 1 -e 'await page.screenshot({ path: "/tmp/shot.png", scale: "css" })'
-
-# Accessibility snapshot
-tabwright -s 1 -e 'console.log(await snapshot({ page }))'
-```
-
-### Multiline code
-
-Use a **heredoc** for complex scripts:
-
-```bash
-tabwright -s 1 -e "$(cat <<'EOF'
-const links = await page.$$eval('a', els => els.map(e => e.href));
-console.log('Found', links.length, 'links');
-const text = await page.locator('body').innerText();
-const price = text.match(/\$[\d.]+/);
-EOF
-)"
-```
-
-Or `$'...'` syntax for simpler multiline:
-
-```bash
-tabwright -s 1 -e $'
-const title = await page.title();
-const url = page.url();
-console.log({ title, url });
+tabwright -s 2 -e '
+console.log({
+  url: state.page.url(),
+  title: await state.page.title()
+})
 '
+tabwright -s 2 -f inspect-page.js
 ```
 
-### Execute from file
+The file executes in the same environment as `-e`. Use absolute paths when
+saving screenshots, downloads, or other Playwright artifacts.
 
-For longer scripts, use `-f`:
+## Sessions and browsers
 
 ```bash
-tabwright -s 1 -f script.js
+tabwright session new
+tabwright session list
+tabwright session reset <id>
+tabwright session delete <id>
+tabwright browser list
 ```
 
-The file runs in the same sandbox as `-e` with all context variables available.
+Sessions retain separate `state` objects. Browser tabs and profile login state
+are shared. Reset is for a stale connection; reselect the intended page afterward.
+Close only pages the task created or the user asked to close.
 
-## Session management
+With multiple profiles, `session new` selects a browser only when the connection
+state identifies one unambiguously; otherwise it reports available browser keys.
+Pass one explicitly with `tabwright session new --browser <key>`.
 
-Each session is an **isolated sandbox** with its own `state` object. Browser tabs are shared across sessions, but state is not.
+### Separate local browser
 
 ```bash
-tabwright session new              # create sandbox, outputs id (e.g. 1)
-tabwright session list             # show sessions + state keys
-tabwright session reset <id>       # reconnect if connection is stale
-tabwright session delete <id>      # remove session and clear state
+tabwright browser start
+tabwright browser start /path/to/browser
 ```
 
-`session new` automatically selects the only connected extension. With multiple profiles, it waits briefly for reconnects to settle and auto-selects only when exactly one profile has enabled tabs; otherwise it reports the available browser keys and you can retry with `tabwright session new --browser <key>`. When replacing an older relay, the CLI waits until the relay reports the current or a newer compatible package version before continuing.
+This launches Chrome for Testing / Chromium with the bundled extension. Its
+profile is separate from your personal browser.
 
-### Direct CDP connection
-
-Connect to Chrome's DevTools Protocol without the extension:
+### Existing CDP endpoint
 
 ```bash
 tabwright session new --direct
+tabwright session new --direct <cdp-url>
 ```
 
-This requires the user to accept a debugging approval dialog in Chrome. Enable debugging first at `chrome://inspect/#remote-debugging` or launch Chrome with `--remote-debugging-port=9222`.
+The browser must have debugging enabled and may require user approval.
 
-**Limitations:** screen recording is unavailable in direct mode.
-
-## Browser management
+### Explicit remote relay
 
 ```bash
-tabwright browser start              # auto-find and launch Chrome for Testing
-tabwright browser start /path/to/bin # launch specific binary
-tabwright browser list               # list all available browsers
+tabwright --host <relay-host> --token <secret> session new
 ```
 
-`browser start` launches Chrome with recording flags enabled and the bundled extension pre-loaded.
+`TABWRIGHT_HOST` and `TABWRIGHT_TOKEN` can supply the same settings. See
+[Remote Access](./remote-access.mdx) for relay binding, token handling, and
+tunnels. Local CLI browser commands start a relay automatically when needed.
 
-## Remote connection
+## Independent scripts
 
-Connect to a relay running on another machine:
-
-```bash
-tabwright --host https://my-machine-tunnel.traforo.dev --token SECRET session new
-tabwright --host https://my-machine-tunnel.traforo.dev --token SECRET -s 1 -e "..."
-```
-
-Or with environment variables:
-
-```bash
-export TABWRIGHT_HOST=https://my-machine-tunnel.traforo.dev
-export TABWRIGHT_TOKEN=SECRET
-tabwright session new
-tabwright -s 1 -e 'await page.goto("https://example.com")'
-```
-
-See [Remote Access](./remote-access.mdx) for the full guide.
-
-## Serve command
-
-Start the relay server explicitly (useful for remote access and Docker):
-
-```bash
-tabwright serve --token MY_SECRET        # binds to 0.0.0.0, requires --token
-tabwright serve --host localhost         # binds to 127.0.0.1, no token needed
-tabwright serve --token MY_SECRET --replace  # kill existing server first
-```
-
-The relay starts automatically when you use the CLI locally. Use `serve` explicitly when you need it running persistently for remote clients.
-
-## Skill runtime safety
-
-Validate the Skill runtime before running it. If `requiresConfirmation` is true, stop and obtain explicit user approval for the concrete input and side effect. Only then pass the exact runtime confirmation token:
-
-```bash
-tabwright skill runtime validate "/absolute/path/to/update-user" --json
-tabwright skill runtime run "/absolute/path/to/update-user" --browser user --input-json '{"email":"a@example.com"}' --confirm update-user --json
-```
-
-`--force` only bypasses a browser URL match or revalidates a repaired quarantine. It never bypasses confirmation. Browser runtimes that declare `execution.requiresUserBrowser` automatically use the signed-in browser; other browser runtimes default to headless.
-
-### Execution strategy
-
-Skill runtimes describe *how* they complete a task separately from where they run:
-
-- `direct-request`: a normal API call without a browser.
-- `browser-request`: a request made inside the browser's authenticated page context.
-- `browser-ui`: semantic interaction with the real product interface.
-- `hybrid`: use the UI to trigger a protected request, then return its structured network result.
-
-When `execution.requiresUserBrowser` is true, the CLI selects the signed-in user browser automatically and
-rejects `--browser headless`. If a workflow returns `status: "needs_human"`, complete the CAPTCHA, SMS code,
-or other verification in the open browser, then rerun the same approved input. The user does not need to
-identify or reproduce the website's verification algorithm.
-
-## Replay evidence for Skill authoring
-
-List saved demonstrations and inspect one before creating or updating an independent Skill:
-
-```bash
-tabwright replay list --limit 10 --json
-tabwright replay index <replay-id> --json
-```
-
-`replay index --json` returns compact evidence: actions, fields, annotations, warnings, and selector hints remain, while bulky page text and interactive-element arrays become counts. Add `--full` when the complete evidence is required.
-
-The AI uses this evidence to author the Skill directly. For a write runtime, inspect the contract and obtain explicit approval before execution:
-
-```bash
-tabwright skill runtime run "/absolute/path/to/skill" --browser user --confirm <runtime-id> --input-json '<json-input>' --json
-```
+Business Skills can use ordinary JavaScript files through `-f`. There is no
+required manifest, registry or Skill runtime. See [Independent scripts](./independent-scripts.mdx)
+for authentication, input, verification and migration.
 
 ## Other commands
 
 ```bash
-tabwright doctor                         # check readiness and print the next step
-tabwright logfile                        # print log file path
-tabwright skill                          # print agent instructions
-tabwright skill install                  # install or repair the bundled Agent Skill
-tabwright skill status                   # compare the installed Skill with this CLI
-tabwright completions install            # install shell completions (zsh/bash)
+tabwright logfile
+tabwright skill install
+tabwright skill status
+tabwright completions install
 ```
 
-## Global flags
+## Execution flags
 
-| Flag | Description |
-|---|---|
-| `--host <host>` | Remote relay host (or `TABWRIGHT_HOST` env var) |
-| `--token <token>` | Auth token (or `TABWRIGHT_TOKEN` env var) |
-| `-s, --session <id>` | Session ID (required for `-e` and `-f`) |
-| `-e, --eval <code>` | Execute JavaScript and exit |
-| `-f, --file <path>` | Execute JavaScript from file |
-| `--timeout [ms]` | Execution timeout (default: 10000) |
+| Flag                 | Meaning                             |
+| -------------------- | ----------------------------------- |
+| `-s, --session <id>` | Session for `-e` or `-f`            |
+| `-e, --eval <code>`  | JavaScript to execute               |
+| `-f, --file <path>`  | JavaScript file to execute          |
+| `--timeout [ms]`     | Response deadline, default 10000 ms; not cancellation |
+| `--host <host>`      | Explicit remote relay host          |
+| `--token <token>`    | Relay authentication token          |
 
-## Context variables
+## Browser environment
 
-Code executed with `-e` or `-f` has access to:
+| Name                                          | Purpose                                                   |
+| --------------------------------------------- | --------------------------------------------------------- |
+| `state`                                       | Values retained within this session                       |
+| `context`                                     | Connected browser context and available pages             |
+| `page`                                        | Default page; retain your intended page in `state.page`   |
+| `snapshot`, `getCleanHTML`, `getPageMarkdown` | Page evidence                                             |
+| `createNetwork`                               | Request summaries and selected details or response bodies |
+| `getLatestLogs`                               | Buffered browser console messages and errors              |
+| `getCDPSession`                               | Raw page/frame CDP access                                 |
+| `createEditor`, `createDebugger`              | Running source, live edits, breakpoints, and stepping     |
+| `screenshotWithAccessibilityLabels`           | Visual inspection with element labels                     |
+| `require`                                     | Modules available in the execution environment            |
 
-| Variable | Description |
-|---|---|
-| `page` | Default page (may be shared with other agents) |
-| `context` | Browser context, access all pages via `context.pages()` |
-| `state` | Object persisted between calls within your session |
-| `require` | Load Node.js modules (e.g. `require('node:fs')`) |
-| `snapshot` | Get accessibility snapshot of a page |
-| `getCDPSession` | Send raw CDP commands |
-| `createDebugger` | Set breakpoints, step through code |
-| `createEditor` | Live-edit page scripts and CSS |
-| `recording` | Start/stop screen recording |
-| `screenshotWithAccessibilityLabels` | Screenshot with Vimium-style labels |
-| `getLatestLogs` | Get browser console logs |
-| `getCleanHTML` | Get cleaned HTML from page |
-| `getPageMarkdown` | Extract article content as text |
-| `waitForPageLoad` | Smart load detection |
-
-See [Agent Reference](./skill.mdx) for the full API documentation.
+Use [Agent Reference](./skill.mdx) or `tabwright docs <topic>` for API details.

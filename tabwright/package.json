@@ -1,7 +1,7 @@
 {
   "name": "tabwright",
-  "description": "Turn signed-in browser workflows into portable, verified Agent Skills.",
-  "version": "3.5.0",
+  "description": "Understand and debug live web applications with browser, network, source, and runtime evidence.",
+  "version": "4.0.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,9 +15,11 @@
     "prepublishOnly": "pnpm build",
     "watch": "tsc -w",
     "cli": "vite-node src/cli.ts",
-    "typecheck": "tsc",
+    "typecheck": "tsc --noEmit",
     "mcp": "vite-node src/mcp.ts",
-    "test": "vitest run -u",
+    "test": "vitest run --no-file-parallelism",
+    "test:unit": "vitest run src/executor.unit.test.ts src/network-inspector.test.ts src/cdp-resources.test.ts src/cdp-log.test.ts src/editor.test.ts src/wakaru.test.ts src/documentation.test.ts src/cli-help.test.ts src/skill-stub.test.ts src/tabwright-agent-skill.test.ts src/relay-state.test.ts src/protocol.test.ts src/retired-features.test.ts src/doctor.test.ts src/scoped-fs.test.ts",
+    "test:acceptance": "vitest run src/agent-debugging.test.ts src/cdp-resources.browser.test.ts --no-file-parallelism",
     "test:watch": "vitest"
   },
   "bin": {
@@ -41,7 +43,7 @@
     "playwright",
     "ai-agent",
     "agent-skills",
-    "workflow-automation"
+    "browser-debugging"
   ],
   "author": "Yuyang Hou",
   "license": "Apache-2.0",
@@ -70,7 +72,6 @@
     "@xmorse/playwright-core": "workspace:^",
     "acorn": "^8.15.0",
     "async-sema": "^3.1.1",
-    "better-auth": "^1.6.20",
     "diff": "^8.0.2",
     "dom-accessibility-api": "^0.7.1",
     "goke": "^6.12.1",

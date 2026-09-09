@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import { startTabwrightCDPRelayServer, type RelayServer } from './cdp-relay.js'
 import { createFileLogger } from './create-logger.js'
+import { createCdpLogger } from './cdp-log.js'
 import { killPortProcess } from './kill-port.js'
 
 const execAsync = promisify(exec)
@@ -40,10 +41,7 @@ export function getLegacyExtensionLaunchArgs({ extensionPaths }: { extensionPath
   })
   const legacyExtensionPaths = resolvedExtensionPaths.join(',')
 
-  return [
-    `--disable-extensions-except=${legacyExtensionPaths}`,
-    `--load-extension=${legacyExtensionPaths}`,
-  ]
+  return [`--disable-extensions-except=${legacyExtensionPaths}`, `--load-extension=${legacyExtensionPaths}`]
 }
 
 export function isExtensionLoadUnavailableError(error: unknown): boolean {
@@ -92,24 +90,27 @@ async function launchTestBrowser({
   return await chromium.launchPersistentContext(userDataDir, {
     ...(chromeExecutable ? { executablePath: chromeExecutable } : { channel: 'chromium' }),
     headless: !process.env.HEADFUL,
-    colorScheme: 'dark',
+    // Establish a browser default, not a CDP override that another client can clear.
+    colorScheme: null,
     ignoreDefaultArgs: ['--disable-extensions'],
-    args,
+    args: ['--force-dark-mode', ...args],
   })
 }
 
 export async function launchPersistentContextWithExtensions({
   userDataDir,
   extensionPaths,
+  browserArgs = [],
 }: {
   userDataDir: string
   extensionPaths: string[]
+  browserArgs?: string[]
 }): Promise<BrowserContext> {
   const browserContext = await launchTestBrowser({
     userDataDir,
     // Chrome 137+ ignores --load-extension for branded builds. Its supported
     // Extensions.loadUnpacked replacement requires this opt-in switch.
-    args: ['--enable-unsafe-extension-debugging'],
+    args: ['--enable-unsafe-extension-debugging', ...browserArgs],
   })
 
   try {
@@ -125,7 +126,7 @@ export async function launchPersistentContextWithExtensions({
     // the same isolated profile with the legacy flags it still supports.
     return await launchTestBrowser({
       userDataDir,
-      args: getLegacyExtensionLaunchArgs({ extensionPaths }),
+      args: [...getLegacyExtensionLaunchArgs({ extensionPaths }), ...browserArgs],
     })
   }
 }
@@ -159,10 +160,9 @@ export async function getExtensionServiceWorker(context: BrowserContext) {
         timeout: EXTENSION_SERVICE_WORKER_TIMEOUT_MS,
       })
       .catch((error: unknown) => {
-        throw new Error(
-          `No extension service worker appeared within ${EXTENSION_SERVICE_WORKER_TIMEOUT_MS}ms`,
-          { cause: error },
-        )
+        throw new Error(`No extension service worker appeared within ${EXTENSION_SERVICE_WORKER_TIMEOUT_MS}ms`, {
+          cause: error,
+        })
       })
   }
 
@@ -204,6 +204,7 @@ export interface TestContext {
   browserContext: BrowserContext
   userDataDir: string
   relayServer: RelayServer
+  cdpLogFilePath: string
 }
 
 export async function setupTestContext({
@@ -211,6 +212,7 @@ export async function setupTestContext({
   tempDirPrefix,
   toggleExtension = false,
   additionalExtensions = [],
+  browserArgs = [],
 }: {
   port: number
   tempDirPrefix: string
@@ -218,6 +220,7 @@ export async function setupTestContext({
   toggleExtension?: boolean
   /** Additional extension paths to load alongside the main Tabwright extension */
   additionalExtensions?: string[]
+  browserArgs?: string[]
 }): Promise<TestContext> {
   await killPortProcess({ port }).catch(() => {})
 
@@ -230,7 +233,12 @@ export async function setupTestContext({
 
   const localLogPath = path.join(process.cwd(), 'relay-server.log')
   const logger = createFileLogger({ logFilePath: localLogPath })
-  const relayServer = await startTabwrightCDPRelayServer({ port, logger })
+  const cdpLogFilePath =
+    process.env.TABWRIGHT_CDP_LOG_FILE_PATH ||
+    process.env.PLAYWRITER_CDP_LOG_FILE_PATH ||
+    path.join(process.cwd(), 'tmp', `cdp-${port}.jsonl`)
+  const cdpLogger = createCdpLogger({ logFilePath: cdpLogFilePath })
+  const relayServer = await startTabwrightCDPRelayServer({ port, logger, cdpLogger })
 
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), tempDirPrefix))
   const extensionPath = path.resolve('../extension', distDir)
@@ -238,6 +246,7 @@ export async function setupTestContext({
     const browserContext = await launchPersistentContextWithExtensions({
       userDataDir,
       extensionPaths: [extensionPath, ...additionalExtensions],
+      browserArgs,
     })
 
     try {
@@ -250,7 +259,7 @@ export async function setupTestContext({
         })
       }
 
-      return { browserContext, userDataDir, relayServer }
+      return { browserContext, userDataDir, relayServer, cdpLogFilePath }
     } catch (error) {
       await browserContext.close().catch((closeError: unknown) => {
         console.error('Failed to close browser after test setup error:', closeError)

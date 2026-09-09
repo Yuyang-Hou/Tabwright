@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "projectName": {
+      "type": "string",
+      "description": "Console project name. Defaults to conan-pedia-web."
+    },
+    "project": {
+      "type": "string",
+      "description": "Alias for projectName."
+    },
+    "key": {
+      "type": "string",
+      "description": "Specific WebAppKey. Defaults to the first key returned by the project."
+    },
+    "webAppKey": {
+      "type": "string",
+      "description": "Alias for key."
+    },
+    "page": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Zero-based page index. Defaults to 0."
+    },
+    "pageSize": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Number of releases to return. Defaults to 10."
+    }
+  },
+  "required": []
+}

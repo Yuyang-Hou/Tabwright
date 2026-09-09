@@ -1,48 +1,77 @@
+---
+title: Tabwright
+description: Browser debugging and automation tools for AI agents.
+prompt: |
+  基于 Playwriter，Agent 像前端工程师调试理解网页，不只是 AX 点击；
+  工具提供强原语和低成本证据，由 AI 自由选择方法，不增加强制流程。
+  Use @README.md and @tabwright/src/skill.md for this npm package introduction.
+---
+
 # Tabwright
 
-Turn work in your signed-in Chrome into portable, verified Agent Skills. Tabwright records a successful
-workflow, describes how it must run, and gives future agent sessions a durable tool instead of making them
-rediscover the website.
+Give your agent the browser's debugging tools. Built on Playwriter, Tabwright
+connects GPT and other agents to your Chrome through a stateful Playwright
+environment, with page inspection, Network, console logs, source search,
+breakpoints, screenshots, and in-memory script/CSS editing.
 
-Skills can use direct requests, requests inside the browser, real UI interaction, or hybrid execution that
-lets the website create a protected request and then reads the structured network result. When the website
-requires a CAPTCHA, SMS code, or other human verification, the Skill returns an explicit checkpoint.
+The agent chooses the evidence and interaction method appropriate to the task.
+Searchable output and local source artifacts keep large pages and bundles out of
+the conversation unless needed.
 
 ## Install
 
-1. Install the [Tabwright Chrome extension](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep).
-2. Open the tab you want to control and click the extension icon until it turns green.
-3. Install the CLI:
+Install the [Chrome extension](https://chromewebstore.google.com/detail/tabwright/dkfhphbajbkplddmchbdgdddioonngep)
+and the CLI, then click the extension icon on the page you want to use:
 
 ```bash
 npm install -g tabwright@latest
 tabwright doctor
-```
-
-The CLI automatically installs its matching Tabwright skill into `~/.agents/skills/tabwright`. If npm lifecycle scripts were disabled, run `tabwright skill install`; agent-specific directories are available through `--target codex` and `--target claude`. Tabwright updates only its managed copy and preserves user-modified skill files.
-
-## First workflow
-
-```bash
 tabwright session new
-# Replace 1 with the session ID printed above.
-tabwright -s 1 -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
-tabwright -s 1 -e 'console.log(await snapshot({ page: state.page }))'
-tabwright session delete 1
 ```
 
-Use the published package without installing it globally:
+The CLI installs its matching agent skill into `~/.agents/skills/tabwright`.
+Open a new agent task to discover it. If lifecycle scripts were disabled, run
+`tabwright skill install`; use `tabwright skill status` to check the installed
+copy. Agent-specific directories are available through `--target codex` and
+`--target claude`. Updates preserve user-modified copies.
+
+## Use the browser
+
+Replace `2` with the new session ID. List available tabs and select the one that
+matches the user's request, or create a task-owned tab as shown here:
 
 ```bash
-npx tabwright@latest session new
+tabwright -s 2 -e 'console.log(context.pages().map((page) => { return page.url() }))'
+tabwright -s 2 -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+tabwright -s 2 -e 'console.log(await snapshot({ page: state.page }))'
+tabwright -s 2 -e 'console.log(await getLatestLogs({ page: state.page, search: /error|fail/i }))'
 ```
 
-Run `tabwright skill` for the complete CLI and browser automation reference. See the [GitHub repository](https://github.com/Yuyang-Hou/tabwright) for architecture, development, remote access, and release documentation.
+For a site already open in Chrome, retain the matching enabled page in
+`state.page` instead of navigating a new one. Session variables are separate;
+browser tabs and the profile's login state are shared.
 
-Record and inspect a repeatable workflow before creating an Agent Skill:
+Use `getCDPSession`, `createEditor`, and `createDebugger` to investigate running
+code, or `createNetwork` to inspect a failing request. Look up the relevant API
+locally with `tabwright docs network`, `tabwright docs editor`, or
+`tabwright docs debugger`; use `--limit 80` for a bounded excerpt.
+
+When finished, close only pages created for this task and delete its session:
 
 ```bash
-tabwright replay list --limit 10 --json
-tabwright replay index <replay-id> --json
-tabwright skill runtime validate "/absolute/path/to/skill" --json
+tabwright -s 2 -e 'await state.page.close()' # only for the task-owned page above
+tabwright session delete 2
 ```
+
+The default relay runs on your machine. Returned page content goes to the calling
+agent and may be processed by its model provider. Raw browser execution follows
+the account's permissions; the agent is responsible for the user's authorized
+scope and required approvals.
+
+See the [repository](https://github.com/Yuyang-Hou/Tabwright) for examples,
+architecture, independent scripts, and MCP / direct CDP / remote connections.
+
+Business Skills belong to the user and agent. Run ordinary browser scripts with
+`tabwright -s <id> -f <file>`; no registry or manifest is required. Recording,
+managed Skill runtimes, automatic Cookie storage and cloud provisioning are removed.
+Keep business validation, approval and result verification with the Skill.

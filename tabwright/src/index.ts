@@ -8,34 +8,7 @@ export { decompileJavaScript } from './wakaru.js'
 export type { DecompileJavaScriptOptions, DecompileJavaScriptResult, WakaruLevel } from './wakaru.js'
 export { Debugger } from './debugger.js'
 export type { BreakpointInfo, LocationInfo, EvaluateResult, ScriptInfo } from './debugger.js'
+export { NetworkInspector } from './network-inspector.js'
+export type { NetworkRequestSummary, NetworkRequestDetails, NetworkResponseBody } from './network-inspector.js'
 export { getAriaSnapshot, showAriaRefLabels, hideAriaRefLabels } from './aria-snapshot.js'
 export type { AriaRef, AriaSnapshotResult } from './aria-snapshot.js'
-export {
-  startReplayRecording,
-  stopReplayRecording,
-  isReplayRecording,
-  cancelReplayRecording,
-  listReplayRecordings,
-  getReplayRecordingEvents,
-  createReplayApi,
-} from './rrweb-recording.js'
-export type {
-  StartReplayOptions,
-  StopReplayOptions,
-  ReplayState,
-  SavedReplayRecording,
-} from './rrweb-recording.js'
-export type { RrwebEvent } from './protocol.js'
-export {
-  buildReplayAiIndex,
-  createReplayAiIndexFromRecording,
-  saveReplayAiIndex,
-} from './replay-ai-index.js'
-export type {
-  ReplayAiAction,
-  ReplayAiField,
-  ReplayAiIndex,
-  ReplayAiIndexStats,
-  ReplayAiNodeSummary,
-  SavedReplayAiIndex,
-} from './replay-ai-index.js'

@@ -9,6 +9,7 @@
     "src/ghost-cursor-client.ts",
     "src/**/*.test.ts",
     "src/test-utils.ts",
+    "src/debugging-fixture.ts",
     "src/mcp-client.ts"
   ]
 }

@@ -261,7 +261,7 @@ describe('Security Tests', () => {
       method: 'GET',
       headers: { Authorization: `Bearer ${secretToken}` },
     })
-    expect(recordingWithToken.status).toBe(200)
+    expect(recordingWithToken.status).toBe(410)
   })
 
   it('should not require token on /cli/* when no token is configured', async () => {

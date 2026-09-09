@@ -1,0 +1,17 @@
+{
+  "name": "cozy-pedia-order-refund",
+  "origins": ["https://ytkconan.zhenguanyu.com"],
+  "input": {
+    "type": "object",
+    "properties": {
+      "uid": {
+        "type": "string",
+        "description": "用户 UID"
+      }
+    },
+    "required": ["uid"],
+    "additionalProperties": false
+  },
+  "requiresConfirmation": true,
+  "operations": {}
+}

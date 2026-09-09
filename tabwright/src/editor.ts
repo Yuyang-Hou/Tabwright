@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import type { ICDPSession } from './cdp-session.js'
 import { saveJavaScriptArtifact } from './javascript-artifacts.js'
+import { getCDPResources, type CDPResources, type ScriptRecord } from './cdp-resources.js'
 
 export interface ReadResult {
   content: string
@@ -36,11 +37,6 @@ export interface SavedRawScriptResult {
   sourceMapURL?: string
 }
 
-interface ScriptRecord {
-  scriptId: string
-  sourceMapURL?: string
-}
-
 /**
  * A class for viewing and editing web page scripts via Chrome DevTools Protocol.
  * Provides a Claude Code-like interface: list, read, edit, grep.
@@ -72,53 +68,24 @@ export class Editor {
   private cdp: ICDPSession
   private cwd?: string
   private enabled = false
-  private scripts = new Map<string, ScriptRecord>()
-  private stylesheets = new Map<string, string>()
+  private resources: CDPResources
   private sourceCache = new Map<string, string>()
+  private sourceCacheRevision = -1
 
   constructor({ cdp, cwd }: { cdp: ICDPSession; cwd?: string }) {
     this.cdp = cdp
     this.cwd = cwd
-    this.setupEventListeners()
-  }
-
-  private setupEventListeners() {
-    this.cdp.on('Debugger.scriptParsed', (params) => {
-      if (!params.url.startsWith('chrome') && !params.url.startsWith('devtools')) {
-        const url = params.url || `inline://${params.scriptId}`
-        this.scripts.set(url, {
-          scriptId: params.scriptId,
-          sourceMapURL: params.sourceMapURL || undefined,
-        })
-        this.sourceCache.delete(params.scriptId)
-      }
-    })
-
-    this.cdp.on('CSS.styleSheetAdded', (params) => {
-      const header = params.header
-      if (header.sourceURL?.startsWith('chrome') || header.sourceURL?.startsWith('devtools')) {
-        return
-      }
-      const url = header.sourceURL || `inline-css://${header.styleSheetId}`
-      this.stylesheets.set(url, header.styleSheetId)
-      this.sourceCache.delete(header.styleSheetId)
-    })
+    this.resources = getCDPResources(cdp)
   }
 
   /**
    * Enables the editor. Must be called before other methods.
-   * Scripts are collected from Debugger.scriptParsed events.
-   * Reload the page after enabling to capture all scripts.
+   * Uses the session's shared resource metadata without resetting its domains.
    */
   async enable(): Promise<void> {
     if (this.enabled) {
       return
     }
-    await this.cdp.send('Debugger.disable')
-    await this.cdp.send('CSS.disable')
-    this.scripts.clear()
-    this.stylesheets.clear()
-    this.sourceCache.clear()
     const resourcesReady = new Promise<void>((resolve) => {
       let timeout: ReturnType<typeof setTimeout>
       const listener = () => {
@@ -137,6 +104,7 @@ export class Editor {
         resolve()
       }, 100)
     })
+    await this.cdp.send('Runtime.enable')
     await this.cdp.send('Debugger.enable')
     await this.cdp.send('DOM.enable')
     await this.cdp.send('CSS.enable')
@@ -144,16 +112,41 @@ export class Editor {
     this.enabled = true
   }
 
+  private getScript(url: string): ScriptRecord | undefined {
+    return Array.from(this.resources.scripts.values())
+      .reverse()
+      .find((script) => {
+        return script.url === url
+      })
+  }
+
+  private getUrls(): string[] {
+    return [
+      ...new Set([
+        ...Array.from(this.resources.scripts.values()).map((script) => {
+          return script.url
+        }),
+        ...Array.from(this.resources.stylesheets.values()).map((stylesheet) => {
+          return stylesheet.url
+        }),
+      ]),
+    ]
+  }
+
   private getIdByUrl(url: string): { scriptId: string } | { styleSheetId: string } {
-    const script = this.scripts.get(url)
+    const script = this.getScript(url)
     if (script) {
       return { scriptId: script.scriptId }
     }
-    const styleSheetId = this.stylesheets.get(url)
-    if (styleSheetId) {
-      return { styleSheetId }
+    const stylesheet = Array.from(this.resources.stylesheets.values())
+      .reverse()
+      .find((sheet) => {
+        return sheet.url === url
+      })
+    if (stylesheet) {
+      return { styleSheetId: stylesheet.styleSheetId }
     }
-    const allUrls = [...Array.from(this.scripts.keys()), ...Array.from(this.stylesheets.keys())]
+    const allUrls = this.getUrls()
     const available = allUrls.slice(0, 5)
     throw new Error(`Resource not found: ${url}\nAvailable: ${available.join(', ')}${allUrls.length > 5 ? '...' : ''}`)
   }
@@ -183,7 +176,7 @@ export class Editor {
    */
   async list({ pattern }: { pattern?: RegExp } = {}): Promise<string[]> {
     await this.enable()
-    const urls = [...Array.from(this.scripts.keys()), ...Array.from(this.stylesheets.keys())]
+    const urls = this.getUrls()
 
     if (!pattern) {
       return urls
@@ -251,7 +244,7 @@ export class Editor {
    */
   async readRaw({ url }: { url: string }): Promise<RawScriptResult> {
     await this.enable()
-    const script = this.scripts.get(url)
+    const script = this.getScript(url)
     if (!script) {
       throw new Error(`Script not found: ${url}`)
     }
@@ -282,13 +275,20 @@ export class Editor {
   }
 
   private async getSource(id: { scriptId: string } | { styleSheetId: string }): Promise<string> {
+    const startRevision = this.resources.revision
+    if (this.sourceCacheRevision !== startRevision) {
+      this.sourceCache.clear()
+      this.sourceCacheRevision = startRevision
+    }
     if ('styleSheetId' in id) {
       const cached = this.sourceCache.get(id.styleSheetId)
       if (cached) {
         return cached
       }
       const response = await this.cdp.send('CSS.getStyleSheetText', { styleSheetId: id.styleSheetId })
-      this.sourceCache.set(id.styleSheetId, response.text)
+      if (this.resources.revision === startRevision) {
+        this.sourceCache.set(id.styleSheetId, response.text)
+      }
       return response.text
     }
     const cached = this.sourceCache.get(id.scriptId)
@@ -296,7 +296,9 @@ export class Editor {
       return cached
     }
     const response = await this.cdp.send('Debugger.getScriptSource', { scriptId: id.scriptId })
-    this.sourceCache.set(id.scriptId, response.scriptSource)
+    if (this.resources.revision === startRevision) {
+      this.sourceCache.set(id.scriptId, response.scriptSource)
+    }
     return response.scriptSource
   }
 

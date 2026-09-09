@@ -1,8 +1,18 @@
+---
+title: MCP Setup
+description: Connect an MCP agent to Tabwright's browser debugging tools.
+prompt: |
+  基于 Playwriter，Agent 像前端工程师调试理解网页，不只是 AX 点击。
+  Use @README.md, @tabwright/src/mcp.ts and @tabwright/src/skill.md.
+  Keep direct CDP and remote connections compatible without cloud promotion.
+---
+
 # MCP Setup
 
-> **Note:** CLI is the recommended way to use Tabwright. See [README.md](./README.md) for CLI usage.
+MCP and the CLI access the same browser tools. Use MCP when your agent supports
+tool servers, or the CLI when it can run shell commands.
 
-Add to your MCP client settings:
+Add this configuration to your MCP client:
 
 ```json
 {
@@ -15,24 +25,27 @@ Add to your MCP client settings:
 }
 ```
 
-## Using the MCP
+Install the Chrome extension and enable the page you want to use. The MCP starts
+the local relay and connects to the browser. It exposes:
 
-1. Enable the extension on at least one tab (click icon → turns green)
-2. MCP automatically starts relay server and connects to enabled tabs
-3. Use the `execute` tool to run Playwright code
+- `execute`: stateful Playwright JavaScript with page, Network, source, Debugger,
+  screenshot, and CDP helpers.
+- `reset`: reconnect after a browser or relay connection failure.
 
-The MCP exposes:
+In `execute`, list available pages and retain the intended one in `state.page`.
+Use an existing page when its live state matters, or create a task-owned page
+with `await context.newPage()`. Variables persist within the MCP session;
+browser tabs and the profile's login state are shared.
 
-- `execute` tool - run Playwright code snippets
-- `reset` tool - reconnect if connection issues occur
+The agent chooses tools appropriate to the question. Use `tabwright docs` to
+list local references, then read a topic such as `tabwright docs network` or
+`tabwright docs debugger` for API details. No fixed inspection sequence is required.
 
-## Environment Variables
+## Automatic task tab
 
-### `TABWRIGHT_AUTO_ENABLE`
-
-Auto-creates a tab when Playwright connects (no manual extension click needed). **Enabled by default** in both CLI and MCP. The auto-created tab starts at `about:blank`; navigate it to any URL.
-
-Set `TABWRIGHT_AUTO_ENABLE=false` to disable and require manually enabling the extension on a tab before connecting:
+`TABWRIGHT_AUTO_ENABLE` is enabled by default. A connection can create a new
+`about:blank` tab if needed; this does not identify the existing page the user
+intended. Set it to `false` to require a manually enabled tab:
 
 ```json
 {
@@ -48,9 +61,9 @@ Set `TABWRIGHT_AUTO_ENABLE=false` to disable and require manually enabling the e
 }
 ```
 
-## Direct CDP (no extension needed)
+## Direct CDP
 
-Connect directly to Chrome's DevTools Protocol without the extension. Set `TABWRIGHT_DIRECT` in your MCP config:
+For an existing Chrome DevTools endpoint, set `TABWRIGHT_DIRECT`:
 
 ```json
 {
@@ -59,45 +72,21 @@ Connect directly to Chrome's DevTools Protocol without the extension. Set `TABWR
       "command": "npx",
       "args": ["-y", "tabwright@latest"],
       "env": {
-        "TABWRIGHT_DIRECT": "1"
+        "TABWRIGHT_DIRECT": "ws://127.0.0.1:9222/devtools/browser/abc"
       }
     }
   }
 }
 ```
 
-Enable debugging in Chrome first: open `chrome://inspect/#remote-debugging` or launch with `--remote-debugging-port=9222`.
+Replace the example URL with the endpoint supplied by your browser.
+`TABWRIGHT_DIRECT=1` instead tries local discovery on port 9222. The browser must
+have debugging enabled and may require user approval.
 
-Chrome 136+ may show an approval dialog the first time a connection is made.
+## Remote agents
 
-You can also pass an explicit WebSocket endpoint: `TABWRIGHT_DIRECT=ws://127.0.0.1:9222/devtools/browser/abc`.
-
-**Limitation:** screen recording is unavailable in direct mode.
-
-## Remote Agents (Devcontainers, VMs, SSH)
-
-Run agents in isolated environments while controlling Chrome on your host.
-
-**On host (where Chrome runs):**
-
-```bash
-npx -y tabwright serve --token <secret>
-```
-
-**In container/VM (where agent runs):**
-
-```json
-{
-  "mcpServers": {
-    "tabwright": {
-      "command": "npx",
-      "args": ["-y", "tabwright@latest", "--host", "host.docker.internal", "--token", "<secret>"]
-    }
-  }
-}
-```
-
-Or with environment variables:
+For a devcontainer, VM, or SSH agent using a relay you explicitly configured,
+set its reachable host and token:
 
 ```json
 {
@@ -114,4 +103,23 @@ Or with environment variables:
 }
 ```
 
-Use `host.docker.internal` for devcontainers, or your host's IP for VMs/SSH.
+Use your host's reachable address outside Docker. See the
+[remote access guide](./docs/remote-access.md) for relay binding and tunnels.
+
+## Data and scope
+
+The default relay is local; content returned through MCP goes to the calling
+agent and may be processed by its model provider. A remote relay changes where
+browser commands and results travel. The agent remains responsible for the
+user's authorized scope, required approvals, and result verification. Raw
+browser execution is not a separate account or application-permission boundary.
+
+## Page WebMCP
+
+Tabwright 4.0 provides `list_webmcp_tools({ pageUrl })` and
+`execute_webmcp_tool({ toolId, input })` through the existing extension/relay.
+Use an observed connected page URL and an ID from discovery in the same session.
+Native WebMCP support is required; only tools of the selected top-level document
+are listed. Rediscover after page/tool changes. Raw results and side-effect hints
+are page data, not authorization or proof of business success. Timeouts and
+unknown outcomes must not be retried automatically. See `tabwright docs browser`.
