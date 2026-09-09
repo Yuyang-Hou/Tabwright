@@ -39,8 +39,7 @@ jobs:
       - run: pnpm --dir tabwright build
       - run: pnpm --dir tabwright test:unit
       - run: pnpm test:skills
-      - run: pnpm --dir tabwright exec playwright-core install chromium --with-deps
-      - run: pnpm --dir tabwright test:acceptance
+      - run: pnpm --dir tabwright exec playwright-core install-deps chromium
       - name: Install current Chrome for native WebMCP acceptance
         run: |
           node --input-type=module <<'JS'
@@ -49,6 +48,7 @@ jobs:
           const { binaryPath } = await installChrome();
           fs.appendFileSync(process.env.GITHUB_ENV, `PLAYWRIGHT_CHROME_EXECUTABLE=${binaryPath}\n`);
           JS
+      - run: pnpm --dir tabwright test:acceptance
       - name: Verify native WebMCP through the extension
         run: pnpm --dir tabwright exec vitest run src/webmcp.test.ts --no-file-parallelism
       - run: pnpm --dir website typecheck
