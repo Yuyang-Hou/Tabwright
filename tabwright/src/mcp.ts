@@ -276,6 +276,10 @@ server.tool(
         { type: 'text', text },
       ]
 
+      if (result.notifications) {
+        content.push({ type: 'text', text: result.notifications })
+      }
+
       for (const image of result.images) {
         content.push({ type: 'image', data: image.data, mimeType: image.mimeType })
       }
@@ -312,7 +316,7 @@ server.tool(
 async function executeWebMCP({ request, timeout }: { request: WebMCPRequest; timeout: number }) {
   try {
     const exec = await getOrCreateExecutor()
-    const result = await exec.execute(webMCPCode(request), timeout)
+    const result = await exec.execute(webMCPCode(request), timeout, { discoverWebMCP: false })
     return { content: [{ type: 'text' as const, text: result.text }], isError: result.isError }
   } catch (error: unknown) {
     return {

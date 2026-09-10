@@ -242,6 +242,28 @@ cli
   })
 
 cli
+  .command('page inspect', 'Select a connected page and refresh its tools before choosing the next action')
+  .option('-s, --session <id>', 'Session ID from tabwright session new')
+  .option('--page-url <url>', 'Exact observed URL of one connected page (required)')
+  .option('--host <host>', 'Remote relay host')
+  .option('--token <token>', 'Remote relay token')
+  .option('--timeout <ms>', z.number().positive().default(10000).describe('Response deadline'))
+  .action(async (options) => {
+    try {
+      await executeCode({
+        code: webMCPCode({ action: 'inspect', pageUrl: z.string().url().parse(options.pageUrl) }),
+        discoverWebMCP: false,
+        timeout: z.coerce.number().positive().parse(options.timeout),
+        sessionId: options.session,
+        host: options.host,
+        token: options.token,
+      })
+    } catch (error) {
+      exitWithError(error)
+    }
+  })
+
+cli
   .command('webmcp list', 'Discover native WebMCP tools in one connected top-level page')
   .option('-s, --session <id>', 'Session ID from tabwright session new')
   .option('--page-url <url>', 'Exact observed URL of one connected page')
@@ -257,6 +279,7 @@ cli
       const timeout = z.coerce.number().positive().parse(options.timeout)
       await executeCode({
         code: webMCPCode({ action: 'list', pageUrl }),
+        discoverWebMCP: false,
         timeout,
         sessionId: options.session,
         host: options.host,
@@ -285,6 +308,7 @@ cli
       const timeout = z.coerce.number().positive().parse(options.timeout)
       await executeCode({
         code: webMCPCode({ action: 'call', toolId, input }),
+        discoverWebMCP: false,
         timeout,
         sessionId: options.session,
         host: options.host,
@@ -380,6 +404,7 @@ async function executeCode(options: {
   sessionId?: string
   host?: string
   token?: string
+  discoverWebMCP?: boolean
 }): Promise<void> {
   const { code, timeout, host, token } = options
   const cwd = process.cwd()
@@ -423,7 +448,7 @@ async function executeCode(options: {
     const response = await fetch(executeUrl, {
       method: 'POST',
       headers: buildAuthHeaders({ token, json: true }),
-      body: JSON.stringify({ sessionId, code, timeout, cwd }),
+      body: JSON.stringify({ sessionId, code, timeout, cwd, discoverWebMCP: options.discoverWebMCP }),
     })
 
     if (!response.ok) {
@@ -437,6 +462,7 @@ async function executeCode(options: {
       images: Array<{ data: string; mimeType: string }>
       screenshots: Array<{ path: string; base64: string; snapshot: string; labelCount: number }>
       isError: boolean
+      notifications?: string
     }
 
     if (result.isError) {
@@ -450,6 +476,10 @@ async function executeCode(options: {
       } else {
         console.log(result.text)
       }
+    }
+
+    if (result.notifications) {
+      console.error(result.notifications)
     }
 
     // Emit images via Kitty Graphics Protocol when AGENT_GRAPHICS=kitty.

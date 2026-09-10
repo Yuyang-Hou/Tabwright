@@ -21,7 +21,7 @@ describe('Tabwright installed skill', () => {
     expect(content).toContain('tabwright docs editor')
     expect(content).toContain('tabwright docs debugger')
     expect(content).toContain('`--offset` and `--limit`')
-    expect(words.join(' ')).toContain('no observation order, recording, or Skill-generation step is required')
+    expect(content).toContain('tabwright page inspect')
     expect(content).toContain('## Independent scripts')
     expect(content).toContain('There is no business manifest')
     expect(content).not.toContain('Read the ENTIRE output')

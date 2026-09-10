@@ -1,0 +1,9 @@
+## Decisions
+Read native metadata after execution, outside the operation deadline, with a 250 ms maximum additional wait. Compare document, URL and full metadata fingerprints; announce compact descriptions without schemas or executable IDs. Scan the default Page, Pages held directly in state, and newly opened Pages, rather than unrelated connected tabs. Recheck on the next operation; no idle push channel.
+
+Metadata probes never replace explicit discovery handles. Concurrent probes for a stalled page are deduplicated and navigation releases the stalled probe. Failures and unavailable APIs are silent. Slow results are discarded; explicit listing remains available with a user-selected timeout. Dedicated list/call commands suppress automatic summaries and preserve their existing result format. CLI summaries go to stderr; MCP summaries are a separate text block after truncation of ordinary output.
+
+The approach is platform-neutral, adds no dependencies or extension release requirements, and leaves installed Skills and user files alone. Older relay responses remain compatible through an optional notification field; rebuilding the package regenerates documentation and bundled resources. Public release uses a minor changeset. No automatic execution or authorization follows from tool discovery.
+
+## Inspect before deciding
+`page inspect --page-url` selects exactly one observed connected page as `state.page`. The shared `inspectPage` helper refreshes through existing explicit discovery, returning schemas and tool IDs. Failures return unknown/unavailable without cached tools; the normal execution deadline bounds stalled discovery. This separate round trip lets the agent choose its next action based on capabilities, rather than probing invisibly inside an already chosen command. It is a Skill workflow, not mandatory interception of arbitrary user scripts. No new registry, navigation API or document cache is introduced.
