@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.1.0
+
+### Minor Changes
+
+- 55e5e66: Automatically surface changed WebMCP tool summaries after ordinary browser operations. The bundled Skill now prefers tools that match the user's task, without requiring a separate Web Code Skill or explicit discovery prompt. Metadata checks are bounded and preserve existing tool IDs and operation results.
+
+  Add `page inspect` to select a page and refresh its WebMCP tools and schemas before the agent chooses an action. Reinspection replaces older IDs and explicitly distinguishes unavailable or failed discovery from an empty directory.
+
 ## 4.0.0
 
 ### Major Changes

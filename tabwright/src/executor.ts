@@ -256,10 +256,12 @@ export interface ExecuteResult {
   screenshots: ExecuteScreenshot[]
   isError: boolean
   structuredResult?: unknown
+  notifications?: string
 }
 
 export interface ExecuteOptions {
   includeStructuredResult?: boolean
+  discoverWebMCP?: boolean
 }
 
 interface WarningEvent {
@@ -1017,12 +1019,18 @@ export class PlaywrightExecutor {
 
   async execute(code: string, timeout = 10000, options: ExecuteOptions = {}): Promise<ExecuteResult> {
     try {
-      return await runWithExecutionState({
+      const { result, pages } = await runWithExecutionState({
         state: this.executionState,
         timeout,
         execute: async () => {
           try {
-            return await this.executeCode({ code, timeout, options })
+            await this.ensureConnection()
+            const previousPages = new Set(this.context?.pages() || [])
+            const result = await this.executeCode({ code, timeout, options })
+            const pages = (this.context?.pages() || []).filter((page) => {
+              return page === this.page || Object.values(this.userState).includes(page) || !previousPages.has(page)
+            })
+            return { result, pages }
           } finally {
             if (this.executionState.status === 'timed-out') {
               this.lastSnapshots = new WeakMap()
@@ -1032,6 +1040,14 @@ export class PlaywrightExecutor {
           }
         },
       })
+      if (options.discoverWebMCP === false) {
+        return result
+      }
+      const notifications = await this.webmcp.notifications({ pages }).catch((error: unknown) => {
+        this.logger.error('Automatic WebMCP discovery failed:', error)
+        return undefined
+      })
+      return { ...result, notifications }
     } catch (error: unknown) {
       return {
         text: `Error executing code: ${error instanceof Error ? error.message : String(error)}`,
@@ -1483,6 +1499,9 @@ export class PlaywrightExecutor {
         waitForPageLoad,
         getCDPSession,
         createDebugger,
+        inspectPage: (options: { page: Page }) => {
+          return this.webmcp.inspect(options)
+        },
         listWebMCPTools: (options: { page: Page }) => {
           return this.webmcp.list(options)
         },

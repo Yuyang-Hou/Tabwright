@@ -1938,6 +1938,7 @@ export async function startTabwrightCDPRelayServer({
         code: string
         timeout?: number
         includeStructuredResult?: boolean
+        discoverWebMCP?: boolean
       }
       const sessionId = normalizeSessionId(body.sessionId)
       const { code, timeout = 10000 } = body
@@ -1961,6 +1962,7 @@ export async function startTabwrightCDPRelayServer({
       }
       const result = await existingExecutor.execute(code, timeout, {
         includeStructuredResult: body.includeStructuredResult === true,
+        discoverWebMCP: body.discoverWebMCP !== false,
       })
       return c.json(result)
     } catch (error: any) {

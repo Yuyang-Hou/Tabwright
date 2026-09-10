@@ -188,9 +188,87 @@ describe('native WebMCP through the Tabwright extension', () => {
     await page.waitForURL(new URL('/after', baseUrl).toString())
   })
 
+  test('inspection always refreshes tools and never presents a failed discovery as an empty directory', async () => {
+    const first = await api.inspect({ page })
+    expect(first.status).toBe('available')
+    if (first.status !== 'available') {
+      throw new Error('Fixture discovery failed')
+    }
+    expect(first.tools[0].inputSchema).toBeDefined()
+    await page.evaluate('window.controller.abort()')
+    expect(await api.inspect({ page })).toMatchObject({ status: 'available', tools: [] })
+    await page.reload()
+    const refreshed = await api.inspect({ page })
+    expect(refreshed.status).toBe('available')
+    if (refreshed.status !== 'available') {
+      throw new Error('Fixture rediscovery failed')
+    }
+    expect(refreshed.tools[0].toolId).not.toBe(first.tools[0].toolId)
+    await page.evaluate('document.modelContext.getTools = () => Promise.reject(new Error("probe failed"))')
+    const failed = await api.inspect({ page })
+    expect(failed).toMatchObject({ status: 'unknown' })
+    expect(failed).not.toHaveProperty('tools')
+    await expect(api.call({ toolId: refreshed.tools[0].toolId, input: { query: 'old' } })).rejects.toThrow(
+      'WEBMCP_STALE',
+    )
+    expect(await page.evaluate('window.calls')).toBe(0)
+  })
+
+  test('automatic summaries track navigation and tool removal without invoking tools or invalidating IDs', async () => {
+    const listing = await api.list({ page })
+    expect(await api.notifications({ pages: [page] })).toContain('lookup')
+    expect(await page.evaluate('window.calls')).toBe(0)
+    expect(await api.notifications({ pages: [page] })).toBeUndefined()
+    expect(await api.call({ toolId: listing.tools[0].toolId, input: { query: 'preserved' } })).toEqual({
+      status: 'returned',
+      result: 'item:preserved',
+    })
+    await page.evaluate('window.controller.abort()')
+    expect(await api.notifications({ pages: [page] })).toContain('"total":0')
+    await page.evaluate('window.controller = new AbortController(); window.register()')
+    expect(await api.notifications({ pages: [page] })).toContain('lookup')
+    await page.reload()
+    expect(await api.notifications({ pages: [page] })).toContain('lookup')
+  })
+
+  test('failed and stalled metadata discovery stay bounded and recover', async () => {
+    await page.evaluate(`window.originalGetTools = document.modelContext.getTools;
+      document.modelContext.getTools = () => Promise.reject(new Error('metadata unavailable'))`)
+    expect(await api.notifications({ pages: [page] })).toBeUndefined()
+    await page.evaluate(`window.probes = 0; document.modelContext.getTools = () => {
+      window.probes++; return new Promise(resolve => { window.finishProbe = resolve });
+    }`)
+    const started = Date.now()
+    expect(await api.notifications({ pages: [page] })).toBeUndefined()
+    expect(Date.now() - started).toBeLessThan(1500)
+    expect(await api.notifications({ pages: [page] })).toBeUndefined()
+    expect(await page.evaluate('window.probes')).toBe(1)
+    await page.evaluate('window.finishProbe([]); document.modelContext.getTools = window.originalGetTools')
+    expect(await api.notifications({ pages: [page] })).toContain('lookup')
+    await page.evaluate('document.modelContext.getTools = () => new Promise(() => {})')
+    expect(await api.notifications({ pages: [page] })).toBeUndefined()
+    await page.reload()
+    expect(await api.notifications({ pages: [page] })).toContain('lookup')
+  })
+
   test('MCP tools share executor state, reject overlap after timeout and invalidate on reset', async () => {
     const mcp = await createMCPClient({ port })
     try {
+      const opened = await mcp.client.callTool({
+        name: 'execute',
+        arguments: {
+          code: `state.page = context.pages().find(p => p.url() === ${JSON.stringify(baseUrl)}); await state.page.goto(${JSON.stringify(baseUrl)}); console.log(await state.page.title())`,
+        },
+      })
+      expect(opened.isError).not.toBe(true)
+      expect(resultText(opened)).toContain('WebMCP tools changed')
+      expect(resultText(opened)).toContain('lookup')
+      expect(await page.evaluate('window.calls')).toBe(0)
+      const unchanged = await mcp.client.callTool({
+        name: 'execute',
+        arguments: { code: 'console.log(await state.page.title())' },
+      })
+      expect(resultText(unchanged)).not.toContain('WebMCP tools changed')
       expect(
         (await mcp.client.listTools()).tools.map((tool) => {
           return tool.name
@@ -243,8 +321,19 @@ describe('native WebMCP through the Tabwright extension', () => {
       )
     }
     try {
+      const opened = await run([
+        '-e',
+        `state.page = context.pages().find(p => p.url() === ${JSON.stringify(baseUrl)}); console.log(await state.page.title())`,
+      ])
+      expect(opened.stderr).toContain('WebMCP tools changed')
+      expect(opened.stderr).toContain('lookup')
+      expect(await page.evaluate('window.calls')).toBe(0)
       const listed = await run(['webmcp', 'list', '--page-url', baseUrl])
-      const toolId = outputJson(listed.stdout).tools[0].toolId
+      expect(listed.stderr).not.toContain('WebMCP tools changed')
+      const inspected = await run(['page', 'inspect', '--page-url', baseUrl])
+      expect(outputJson(inspected.stdout).status).toBe('available')
+      const toolId = outputJson(inspected.stdout).tools[0].toolId
+      expect(toolId).not.toBe(outputJson(listed.stdout).tools[0].toolId)
       const called = await run(['webmcp', 'call', '--tool-id', toolId, '--input-json', '{"query":"cli"}'])
       expect(outputJson(called.stdout)).toEqual({ status: 'returned', result: 'item:cli' })
       await expect(run(['webmcp', 'call', '--tool-id', 'unknown:0', '--input-json', '{}'])).rejects.toThrow(
